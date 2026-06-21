@@ -1,3 +1,8 @@
+# The "agent-task" label below is applied automatically by this issue form and must exist in the
+# repo (GitHub creates it on first use of this template if missing). The additional status:/type:/
+# risk: labels from `scripts/project/create_standard_labels.sh` are optional convenience labels for
+# filtering — this template does not require them, and their absence never blocks creating an
+# issue with this form.
 name: Agent Task
 description: A task to be planned and implemented following the issue-to-PR-Project workflow.
 title: "[Agent Task]: "

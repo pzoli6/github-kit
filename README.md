@@ -11,17 +11,34 @@ and future agents). It provides:
    `workflow_call` from any target repo.
 2. **AI-agent workflow templates** (`templates/`) — `AGENTS.md`, `CLAUDE.md`, Cursor rules, Claude
    and generic agent skills, Copilot instructions, and the `docs/ai/` workflow specification.
-3. **Install / update scripts** (`scripts/install-github-kit.sh`, `scripts/update-github-kit.sh`) —
-   bring a target repo up to date without clobbering its existing content.
+3. **Install / update / doctor scripts** — both Bash (`scripts/*.sh`, for Linux/macOS/WSL/Git
+   Bash) and native PowerShell (`scripts/*.ps1`, for Windows) — bring a target repo up to date
+   without clobbering its existing content, and audit `github-kit`'s own packaging.
 4. **Issue / PR templates** — a structured agent-task issue form and a PR template that captures
    Project metadata, validation state, and human review focus.
 5. **GitHub Project helper scripts** (`templates/scripts/project/*.sh`) — thin `gh`/`jq` wrappers
    for adding items to a Project and updating its Status/text fields from a branch, a script, or a
-   workflow run.
+   workflow run, plus an idempotent standard-labels creator.
 
 This repo intentionally contains very little repo-specific content. Everything that varies
-per-repo (Project number, base branch, validation commands, forbidden files, etc.) lives in the
-target repo's `docs/ai/PROJECT_CONFIG.md`, not here.
+per-repo (Project number, base branch, validation commands, forbidden files, github-kit version,
+etc.) lives in the target repo's `docs/ai/PROJECT_CONFIG.md`, not here.
+
+## Free-tier usage and branch protection
+
+`github-kit` targets the **GitHub Free plan** as the default case, not an afterthought:
+
+- **Private repositories on GitHub Free cannot enforce branch protection rulesets** — no required
+  reviews, no required status checks blocking a merge, at the platform level. This is a GitHub
+  plan limitation, not a `github-kit` configuration gap.
+- The kit compensates with **process discipline instead of platform enforcement**: every PR opens
+  as a draft, CI workflows still run and report pass/fail (they just can't be marked "required"),
+  and the agent rules in `AGENTS.md` forbid self-merging regardless of what GitHub will technically
+  allow.
+- If a repo is later upgraded to a plan that supports branch protection (or made public), a human
+  can enable required reviews/status checks at that point — nothing here needs to change first.
+- `docs/ai/PROJECT_CONFIG.md` records this per repo as `Branch protection enforced: false` so
+  agents don't assume enforcement that isn't actually happening.
 
 ## The universal workflow
 
@@ -45,8 +62,9 @@ User task
 ```
 
 See [`templates/docs/ai/AGENT_WORKFLOW.md`](templates/docs/ai/AGENT_WORKFLOW.md) for the full
-phase-by-phase specification, and [`templates/AGENTS.md`](templates/AGENTS.md) for the rules every
-agent must follow.
+phase-by-phase specification (including free-tier limitations, pausing/resuming for AI usage
+limits, and the manual-Project-update fallback), and [`templates/AGENTS.md`](templates/AGENTS.md)
+for the rules every agent must follow.
 
 ## Enabling private reusable workflow access
 
@@ -65,7 +83,24 @@ permission to call workflows in this repo:
 3. If both repos are public, no extra access configuration is required — public reusable workflows
    are callable from any repo.
 
+## Working-tree requirements
+
+Every install/update script (Bash and PowerShell) refuses to run against a target repo with
+uncommitted changes, unless you pass `--allow-dirty` / `-AllowDirty`:
+
+```text
+target repository has uncommitted changes.
+Commit or stash your work first, then re-run — or pass --allow-dirty if you understand the risk.
+```
+
+This exists because a script that copies/refreshes files is much easier to review (and revert, if
+something looks wrong) against a clean `git diff` than mixed in with unrelated in-progress work.
+Commit or `git stash` first; only reach for `--allow-dirty`/`-AllowDirty` if you've deliberately
+decided to review everything together afterward.
+
 ## Installing into an existing repo
+
+### Linux / macOS / WSL / Git Bash
 
 ```bash
 gh auth login
@@ -77,21 +112,44 @@ git status
 git diff --stat
 ```
 
-`install-github-kit.sh` copies in any managed file that's missing, inserts/updates a managed block
-in your existing `AGENTS.md`/`CLAUDE.md` instead of overwriting them, and never touches
+### Windows (PowerShell)
+
+```powershell
+gh auth login
+gh auth refresh -s project   # needed for Project read/write via gh
+
+git switch -c agent/install-github-kit
+& "C:\path\to\github-kit\scripts\install-github-kit.ps1" -Target . -Mode merge
+git status
+git diff --stat
+```
+
+Both installers behave identically: they copy in any managed file that's missing, insert/update a
+managed block in your existing `AGENTS.md`/`CLAUDE.md` instead of overwriting them, and never touch
 `docs/ai/PROJECT_CONFIG.md` if it already exists. Review the diff, fill in
 `docs/ai/PROJECT_CONFIG.md` with your repo's Project number/base branch/validation commands, copy
 `docs/ai/PROJECT_CONFIG.env.example` to `docs/ai/PROJECT_CONFIG.env` (git-ignored) for the local
 helper scripts, commit, and open a PR.
 
+`.github/workflows/project-sync.yml` is **not installed by default** by either installer — pass
+`--include-project-sync` / `-IncludeProjectSync` once you've set up a real GitHub Project and an
+`AGENT_PROJECT_TOKEN` secret (see "Configuring the Project number and token" below, and "Why
+Project Sync is Phase 2" further down).
+
 ## Creating a new repo from this kit
 
-Until a dedicated `template` repository exists, the same installer works on a brand-new repo:
+Until a dedicated `template` repository exists, the same installers work on a brand-new repo:
 
 ```bash
 gh repo create pzoli6/new-repo --private --clone
 cd new-repo
 /path/to/github-kit/scripts/install-github-kit.sh --target . --mode merge
+```
+
+```powershell
+gh repo create pzoli6/new-repo --private --clone
+Set-Location new-repo
+& "C:\path\to\github-kit\scripts\install-github-kit.ps1" -Target . -Mode merge
 ```
 
 ## Configuring the Project number and token
@@ -102,6 +160,46 @@ cd new-repo
 3. Create a classic PAT (or fine-grained PAT) with the `project` scope, add it to the target repo
    as secret `AGENT_PROJECT_TOKEN` (Settings → Secrets and variables → Actions) — this is what the
    `project-sync.yml` caller workflow passes to `reusable-project-sync.yml`.
+
+## Optional: standard labels
+
+`templates/scripts/project/create_standard_labels.sh` creates (or updates, via `--force`) a set of
+`status:`/`type:`/`risk:` labels used for filtering issues/PRs. It's installed by both installers
+automatically, but never run automatically — labels are a convenience, not a requirement:
+
+```bash
+gh auth login   # needs repo scope
+scripts/project/create_standard_labels.sh
+```
+
+Their absence never blocks creating an issue, opening a PR, or moving a tracked item through the
+workflow — see "Project Sync and labels (optional)" in `templates/AGENTS.md`.
+
+## Why Project Sync is Phase 2
+
+`.github/workflows/project-sync.yml` would update Project fields (`Status`, `PR URL`, etc.)
+automatically from PR/issue activity. It's deliberately **not** part of the default install
+because it needs two things most repos don't have on day one:
+
+1. A real GitHub Project already created, with its number filled into `docs/ai/PROJECT_CONFIG.md`.
+2. An `AGENT_PROJECT_TOKEN` secret with `project` scope — the default `GITHUB_TOKEN` can't read or
+   write Projects.
+
+Until both exist, agents update Project fields manually with `scripts/project/project_set_status.sh`
+/ `project_set_text.sh` (or by editing the Project UI) at each phase transition — see "When Project
+Sync isn't enabled" in `templates/docs/ai/AGENT_WORKFLOW.md`. Add it later with
+`--include-project-sync` / `-IncludeProjectSync` on either installer/updater once the prerequisites
+are in place, and flip `Project Sync enabled` to `true` in `docs/ai/PROJECT_CONFIG.md`.
+
+## Pausing and resuming work (AI usage limits)
+
+AI coding agents (Codex, Claude Code, and others) can hit a usage limit mid-task. `github-kit`
+treats that as a controlled pause, not an abandoned task — commit or `git stash` what's in
+progress, write a handoff file describing exactly what's stashed and how to resume, and set the
+Project's `Status` to `Blocked` with the reason. The next session (same agent, later, or a
+different tool entirely) reads the handoff file before touching the worktree. Full procedure:
+"Pausing for AI usage limits" and "Resuming stashed work" in
+[`templates/docs/ai/AGENT_WORKFLOW.md`](templates/docs/ai/AGENT_WORKFLOW.md).
 
 ## How AI agents should use this
 
@@ -125,12 +223,70 @@ Copilot to Claude Code mid-stream. See
 
 ## Updating target repos later
 
+### Linux / macOS / WSL / Git Bash
+
 ```bash
 git switch -c agent/update-github-kit
-/path/to/github-kit/scripts/update-github-kit.sh --target . --mode merge
+/path/to/github-kit/scripts/update-github-kit.sh --target .
 git status
 git diff --stat
 ```
 
-`update-github-kit.sh` refreshes managed files and managed blocks but never overwrites
-`docs/ai/PROJECT_CONFIG.md` or `docs/ai/PROJECT_CONFIG.env` unless you pass `--force-config`.
+### Windows (PowerShell)
+
+```powershell
+git switch -c agent/update-github-kit
+& "C:\path\to\github-kit\scripts\update-github-kit.ps1" -Target .
+git status
+git diff --stat
+```
+
+Both updaters refresh managed files and managed blocks (and bump the `@GITHUB_KIT_VERSION`
+placeholder in caller workflows to whatever `--workflow-ref`/`-WorkflowRef` resolves to) but never
+overwrite `docs/ai/PROJECT_CONFIG.md` or `docs/ai/PROJECT_CONFIG.env` unless you pass
+`--force-config` / `-ForceConfig`.
+
+## Version-upgrade path
+
+Target repos pin the reusable-workflow ref via the `@GITHUB_KIT_VERSION` placeholder, resolved at
+copy time to a real tag (default `v0.2.0`). To move a target repo to a newer `github-kit` release:
+
+```bash
+/path/to/github-kit/scripts/update-github-kit.sh --target . --workflow-ref v0.3.0
+```
+
+```powershell
+& "C:\path\to\github-kit\scripts\update-github-kit.ps1" -Target . -WorkflowRef v0.3.0
+```
+
+Then update the `github-kit version` and `Workflow ref` rows in `docs/ai/PROJECT_CONFIG.md` to
+match, and review the diff — caller workflows' `uses:` lines are the only thing the ref bump
+changes.
+
+## Recommended rollout sequence
+
+For a brand-new repo, in order:
+
+1. Install with the default flags (`--mode merge`, no `--include-project-sync`).
+2. Fill in `docs/ai/PROJECT_CONFIG.md` (Project name/number, base branch, validation commands,
+   forbidden files).
+3. Optional: run `create_standard_labels.sh` once `gh auth login` has repo scope.
+4. If the repo's GitHub plan supports it, enable branch protection / required status checks by
+   hand — `github-kit` won't do this for you, and most repos start without it (see "Free-tier
+   usage and branch protection" above).
+5. Once a real GitHub Project and `AGENT_PROJECT_TOKEN` exist, re-run the installer/updater with
+   `--include-project-sync` to add automatic field syncing — treat this as a deliberate Phase 2
+   step, not part of initial setup.
+
+Run `scripts/doctor-github-kit.sh` (or `.ps1`) inside `github-kit` itself — not a target repo —
+before tagging a new release, to catch packaging regressions (CRLF line endings, stale Action
+versions, floating `@main` refs, missing required files/phrases).
+
+## Versioning
+
+`github-kit` uses tags (`v0.1.0`, `v0.2.0`, ...) as the stable refs target repos pin against via
+`@GITHUB_KIT_VERSION`. Bump the minor version for additive changes (new optional scripts/templates,
+new flags with safe defaults) and the patch version for fixes that don't change behavior for repos
+that don't opt in to anything new. See [`docs/RELEASE_CHECKLIST.md`](docs/RELEASE_CHECKLIST.md) for
+the exact tagging procedure — tagging is a human action taken after a hardening/feature PR merges,
+never something an agent does as part of implementing that PR.

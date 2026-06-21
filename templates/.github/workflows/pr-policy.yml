@@ -6,7 +6,7 @@ on:
 
 jobs:
   policy:
-    uses: pzoli6/github-kit/.github/workflows/reusable-pr-policy.yml@main
+    uses: pzoli6/github-kit/.github/workflows/reusable-pr-policy.yml@GITHUB_KIT_VERSION
     with:
       # TODO: confirm this matches Base branch in docs/ai/PROJECT_CONFIG.md
       required_base_branch: develop

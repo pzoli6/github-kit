@@ -8,7 +8,7 @@ on:
 
 jobs:
   sync:
-    uses: pzoli6/github-kit/.github/workflows/reusable-project-sync.yml@main
+    uses: pzoli6/github-kit/.github/workflows/reusable-project-sync.yml@GITHUB_KIT_VERSION
     with:
       # TODO: replace with this repo's values from docs/ai/PROJECT_CONFIG.md
       project_owner: pzoli6

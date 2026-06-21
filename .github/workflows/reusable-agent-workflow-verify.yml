@@ -23,7 +23,7 @@ jobs:
       contents: read
     steps:
       - name: Checkout caller repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Verify required agent workflow files and key phrases
         shell: bash

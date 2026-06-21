@@ -13,16 +13,29 @@ set -euo pipefail
 KIT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TEMPLATES="$KIT_ROOT/templates"
 
+DEFAULT_WORKFLOW_REF="v0.2.0"
+
 TARGET="."
 FORCE_CONFIG="false"
+ALLOW_DIRTY=0
+INCLUDE_PROJECT_SYNC=0
+WORKFLOW_REF=""
 
 usage() {
   cat <<'EOF'
-Usage: update-github-kit.sh [--target <path>] [--force-config]
+Usage: update-github-kit.sh [--target <path>] [--force-config] [--allow-dirty]
+                             [--include-project-sync] [--workflow-ref <ref>]
 
-  --target <path>   Target repository root (default: current directory)
-  --force-config    Also overwrite docs/ai/PROJECT_CONFIG.md with the template default.
-                     Off by default — this file is repo-specific and normally hand-edited.
+  --target <path>           Target repository root (default: current directory)
+  --force-config            Also overwrite docs/ai/PROJECT_CONFIG.md with the template default.
+                             Off by default — this file is repo-specific and normally hand-edited.
+  --allow-dirty             Proceed even if the target repo has uncommitted changes
+                             (default: refuse and ask you to commit/stash first).
+  --include-project-sync    Also create .github/workflows/project-sync.yml if it doesn't exist yet.
+                             If it already exists, it is always refreshed regardless of this flag.
+  --workflow-ref <ref>      Git ref (tag/branch/sha) used in caller workflows' uses: lines when
+                             referencing pzoli6/github-kit reusable workflows.
+                             Default: see DEFAULT_WORKFLOW_REF below.
 
 This always refreshes: the managed block in AGENTS.md/CLAUDE.md, caller workflows, Cursor
 rules, skills, CODEOWNERS, copilot-instructions.md, project helper scripts,
@@ -31,6 +44,7 @@ docs/ai/AGENT_WORKFLOW.md, docs/ai/HANDOFF_INDEX.md, and docs/ai/PROJECT_CONFIG.
 This never touches: docs/ai/PROJECT_CONFIG.env (local, git-ignored), or existing
 .github/ISSUE_TEMPLATE/agent_task.yml / .github/PULL_REQUEST_TEMPLATE.md content.
 EOF
+  echo "  (current default workflow ref: $DEFAULT_WORKFLOW_REF)"
   exit 1
 }
 
@@ -45,6 +59,19 @@ while [ "$#" -gt 0 ]; do
       FORCE_CONFIG="true"
       shift
       ;;
+    --allow-dirty)
+      ALLOW_DIRTY=1
+      shift
+      ;;
+    --include-project-sync)
+      INCLUDE_PROJECT_SYNC=1
+      shift
+      ;;
+    --workflow-ref)
+      [ "$#" -ge 2 ] || usage
+      WORKFLOW_REF="$2"
+      shift 2
+      ;;
     -h|--help)
       usage
       ;;
@@ -55,12 +82,29 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
+WORKFLOW_REF="${WORKFLOW_REF:-$DEFAULT_WORKFLOW_REF}"
+
 [ -d "$TARGET" ] || { echo "error: target directory '$TARGET' does not exist." >&2; exit 1; }
 TARGET="$(cd "$TARGET" && pwd)"
+
+if git -C "$TARGET" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  if [ -n "$(git -C "$TARGET" status --porcelain 2>/dev/null)" ]; then
+    if [ "$ALLOW_DIRTY" -ne 1 ]; then
+      echo "error: target repository has uncommitted changes." >&2
+      echo "Commit or stash your work first, then re-run — or pass --allow-dirty if you understand" >&2
+      echo "the risk (the updater only touches github-kit-owned files, but review the diff" >&2
+      echo "afterwards either way)." >&2
+      exit 1
+    else
+      echo "warning: target repository has uncommitted changes (--allow-dirty passed, continuing)."
+    fi
+  fi
+fi
 
 echo "github-kit source: $KIT_ROOT"
 echo "Target repository:  $TARGET"
 echo "force-config:        $FORCE_CONFIG"
+echo "Workflow ref:        $WORKFLOW_REF"
 echo
 
 cd "$TARGET"
@@ -72,6 +116,10 @@ fi
 
 # --- helpers ---------------------------------------------------------------
 
+CREATED_COUNT=0
+UPDATED_COUNT=0
+SKIPPED_COUNT=0
+
 refresh() {
   # Always overwrite $2 with $1 (creating it if missing).
   local src="$1" dst="$2"
@@ -79,9 +127,27 @@ refresh() {
   if [ -e "$dst" ]; then
     cp "$src" "$dst"
     echo "refreshed:       $dst"
+    UPDATED_COUNT=$((UPDATED_COUNT + 1))
   else
     cp "$src" "$dst"
     echo "created:         $dst"
+    CREATED_COUNT=$((CREATED_COUNT + 1))
+  fi
+}
+
+refresh_workflow() {
+  # Always overwrite $2 with $1 (creating it if missing), substituting the GITHUB_KIT_VERSION
+  # placeholder (in `@GITHUB_KIT_VERSION` workflow refs) with the resolved --workflow-ref.
+  local src="$1" dst="$2"
+  mkdir -p "$(dirname "$dst")"
+  if [ -e "$dst" ]; then
+    sed "s/GITHUB_KIT_VERSION/$WORKFLOW_REF/g" "$src" > "$dst"
+    echo "refreshed:       $dst"
+    UPDATED_COUNT=$((UPDATED_COUNT + 1))
+  else
+    sed "s/GITHUB_KIT_VERSION/$WORKFLOW_REF/g" "$src" > "$dst"
+    echo "created:         $dst"
+    CREATED_COUNT=$((CREATED_COUNT + 1))
   fi
 }
 
@@ -163,6 +229,7 @@ if [ "$FORCE_CONFIG" = "true" ]; then
   refresh "$TEMPLATES/docs/ai/PROJECT_CONFIG.md" "docs/ai/PROJECT_CONFIG.md"
 elif [ -e "docs/ai/PROJECT_CONFIG.md" ]; then
   echo "skip (repo-specific, use --force-config to override): docs/ai/PROJECT_CONFIG.md"
+  SKIPPED_COUNT=$((SKIPPED_COUNT + 1))
 else
   refresh "$TEMPLATES/docs/ai/PROJECT_CONFIG.md" "docs/ai/PROJECT_CONFIG.md"
 fi
@@ -177,12 +244,14 @@ mkdir -p "docs/ai/handoffs"
 
 if [ -e ".github/ISSUE_TEMPLATE/agent_task.yml" ]; then
   echo "skip (may be customized): .github/ISSUE_TEMPLATE/agent_task.yml"
+  SKIPPED_COUNT=$((SKIPPED_COUNT + 1))
 else
   refresh "$TEMPLATES/.github/ISSUE_TEMPLATE/agent_task.yml" ".github/ISSUE_TEMPLATE/agent_task.yml"
 fi
 
 if [ -e ".github/PULL_REQUEST_TEMPLATE.md" ]; then
   echo "skip (may be customized): .github/PULL_REQUEST_TEMPLATE.md"
+  SKIPPED_COUNT=$((SKIPPED_COUNT + 1))
 else
   refresh "$TEMPLATES/.github/PULL_REQUEST_TEMPLATE.md" ".github/PULL_REQUEST_TEMPLATE.md"
 fi
@@ -190,9 +259,16 @@ fi
 refresh "$TEMPLATES/.github/copilot-instructions.md" ".github/copilot-instructions.md"
 refresh "$TEMPLATES/.github/CODEOWNERS" ".github/CODEOWNERS"
 
-for wf in agent-workflow-verify project-sync pr-policy ci-node ci-python; do
-  refresh "$TEMPLATES/.github/workflows/$wf.yml" ".github/workflows/$wf.yml"
+for wf in agent-workflow-verify pr-policy ci-node ci-python; do
+  refresh_workflow "$TEMPLATES/.github/workflows/$wf.yml" ".github/workflows/$wf.yml"
 done
+
+if [ "$INCLUDE_PROJECT_SYNC" -eq 1 ] || [ -e ".github/workflows/project-sync.yml" ]; then
+  refresh_workflow "$TEMPLATES/.github/workflows/project-sync.yml" ".github/workflows/project-sync.yml"
+else
+  echo "skip (default):  .github/workflows/project-sync.yml (pass --include-project-sync to install it)"
+  SKIPPED_COUNT=$((SKIPPED_COUNT + 1))
+fi
 
 # --- .agents / .claude / .cursor ------------------------------------------
 
@@ -205,7 +281,7 @@ done
 
 # --- scripts/project/ -------------------------------------------------
 
-for script in project_add_item project_set_status project_set_text verify_agent_workflow; do
+for script in project_add_item project_set_status project_set_text verify_agent_workflow create_standard_labels; do
   refresh "$TEMPLATES/scripts/project/$script.sh" "scripts/project/$script.sh"
   chmod +x "scripts/project/$script.sh" 2>/dev/null || true
 done
@@ -217,11 +293,19 @@ if [ -f .gitignore ]; then
   if ! grep -qxF "$GITIGNORE_LINE" .gitignore; then
     printf '\n%s\n' "$GITIGNORE_LINE" >> .gitignore
     echo "updated:         .gitignore (added $GITIGNORE_LINE)"
+  else
+    echo "skip (exists):   .gitignore already ignores $GITIGNORE_LINE"
+    SKIPPED_COUNT=$((SKIPPED_COUNT + 1))
   fi
 else
   printf '%s\n' "$GITIGNORE_LINE" > .gitignore
   echo "created:         .gitignore"
 fi
+
+# --- summary --------------------------------------------------------------
+
+echo
+echo "Summary: $CREATED_COUNT created, $UPDATED_COUNT updated, $SKIPPED_COUNT skipped."
 
 # --- verify -------------------------------------------------------------
 
@@ -234,3 +318,13 @@ else
   echo
   echo "github-kit updated, but verification reported issues — see output above."
 fi
+
+echo
+echo "Next steps:"
+echo "  1. Review the diff before committing — this script only touches github-kit-owned files,"
+echo "     but always check (especially after --force-config)."
+echo "  2. Optional: run scripts/project/create_standard_labels.sh if you haven't already."
+echo "  3. Project Sync (.github/workflows/project-sync.yml) needs a real GitHub Project number"
+echo "     and an AGENT_PROJECT_TOKEN secret before use — pass --include-project-sync to add it."
+echo "  4. Private repos on the GitHub Free plan can't enforce branch protection rulesets — rely on"
+echo "     PR review discipline and required status checks instead (see README.md)."
