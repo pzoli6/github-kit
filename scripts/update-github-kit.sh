@@ -13,7 +13,7 @@ set -euo pipefail
 KIT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TEMPLATES="$KIT_ROOT/templates"
 
-DEFAULT_WORKFLOW_REF="v0.2.0"
+DEFAULT_WORKFLOW_REF="main"
 
 TARGET="."
 FORCE_CONFIG="false"
@@ -24,7 +24,7 @@ WORKFLOW_REF=""
 usage() {
   cat <<'EOF'
 Usage: update-github-kit.sh [--target <path>] [--force-config] [--allow-dirty]
-                             [--include-project-sync] [--workflow-ref <ref>]
+                             [--include-project-sync] [--ref <ref>]
 
   --target <path>           Target repository root (default: current directory)
   --force-config            Also overwrite docs/ai/PROJECT_CONFIG.md with the template default.
@@ -33,18 +33,23 @@ Usage: update-github-kit.sh [--target <path>] [--force-config] [--allow-dirty]
                              (default: refuse and ask you to commit/stash first).
   --include-project-sync    Also create .github/workflows/project-sync.yml if it doesn't exist yet.
                              If it already exists, it is always refreshed regardless of this flag.
-  --workflow-ref <ref>      Git ref (tag/branch/sha) used in caller workflows' uses: lines when
-                             referencing pzoli6/github-kit reusable workflows.
-                             Default: see DEFAULT_WORKFLOW_REF below.
+  --ref <ref>               Git ref used in caller workflows' uses: lines when referencing
+                             pzoli6/github-kit reusable workflows. Default: main, the
+                             always-latest channel — most repos should leave this alone and let
+                             workflows auto-track pzoli6/github-kit@main. Pass a tag/sha here only
+                             to deliberately pin a repo to a fixed version (record that choice as
+                             `github-kit update mode: pinned` in docs/ai/PROJECT_CONFIG.md).
+  --workflow-ref <ref>      Backward-compatible alias for --ref.
 
 This always refreshes: the managed block in AGENTS.md/CLAUDE.md, caller workflows, Cursor
 rules, skills, CODEOWNERS, copilot-instructions.md, project helper scripts,
 docs/ai/AGENT_WORKFLOW.md, docs/ai/HANDOFF_INDEX.md, and docs/ai/PROJECT_CONFIG.env.example.
+This is what /github_kit_update runs under the hood.
 
 This never touches: docs/ai/PROJECT_CONFIG.env (local, git-ignored), or existing
 .github/ISSUE_TEMPLATE/agent_task.yml / .github/PULL_REQUEST_TEMPLATE.md content.
 EOF
-  echo "  (current default workflow ref: $DEFAULT_WORKFLOW_REF)"
+  echo "  (current default ref: $DEFAULT_WORKFLOW_REF)"
   exit 1
 }
 
@@ -67,7 +72,7 @@ while [ "$#" -gt 0 ]; do
       INCLUDE_PROJECT_SYNC=1
       shift
       ;;
-    --workflow-ref)
+    --ref|--workflow-ref)
       [ "$#" -ge 2 ] || usage
       WORKFLOW_REF="$2"
       shift 2
@@ -104,7 +109,7 @@ fi
 echo "github-kit source: $KIT_ROOT"
 echo "Target repository:  $TARGET"
 echo "force-config:        $FORCE_CONFIG"
-echo "Workflow ref:        $WORKFLOW_REF"
+echo "Workflow ref:        $WORKFLOW_REF$([ "$WORKFLOW_REF" = "main" ] && echo " (always-latest channel)" || echo " (pinned)")"
 echo
 
 cd "$TARGET"
@@ -136,16 +141,18 @@ refresh() {
 }
 
 refresh_workflow() {
-  # Always overwrite $2 with $1 (creating it if missing), substituting the GITHUB_KIT_VERSION
-  # placeholder (in `@GITHUB_KIT_VERSION` workflow refs) with the resolved --workflow-ref.
+  # Always overwrite $2 with $1 (creating it if missing). Templates pin caller `uses:` lines to
+  # @main (the always-latest channel); if --ref/--workflow-ref resolved to something else, repoint
+  # only that `uses: pzoli6/github-kit/...` line to the requested ref — never touch unrelated
+  # occurrences of the word "main" (e.g. branch triggers).
   local src="$1" dst="$2"
   mkdir -p "$(dirname "$dst")"
   if [ -e "$dst" ]; then
-    sed "s/GITHUB_KIT_VERSION/$WORKFLOW_REF/g" "$src" > "$dst"
+    sed -E "s#(uses: pzoli6/github-kit/[^@[:space:]]+)@main#\1@$WORKFLOW_REF#" "$src" > "$dst"
     echo "refreshed:       $dst"
     UPDATED_COUNT=$((UPDATED_COUNT + 1))
   else
-    sed "s/GITHUB_KIT_VERSION/$WORKFLOW_REF/g" "$src" > "$dst"
+    sed -E "s#(uses: pzoli6/github-kit/[^@[:space:]]+)@main#\1@$WORKFLOW_REF#" "$src" > "$dst"
     echo "created:         $dst"
     CREATED_COUNT=$((CREATED_COUNT + 1))
   fi
@@ -279,6 +286,8 @@ refresh "$TEMPLATES/.claude/skills/issue-to-pr-project/SKILL.md" ".claude/skills
 refresh "$TEMPLATES/.agents/skills/github_kit/SKILL.md" ".agents/skills/github_kit/SKILL.md"
 refresh "$TEMPLATES/.claude/skills/github_kit/SKILL.md" ".claude/skills/github_kit/SKILL.md"
 refresh "$TEMPLATES/.claude/commands/github_kit.md" ".claude/commands/github_kit.md"
+refresh "$TEMPLATES/.agents/skills/github_kit_update/SKILL.md" ".agents/skills/github_kit_update/SKILL.md"
+refresh "$TEMPLATES/.claude/skills/github_kit_update/SKILL.md" ".claude/skills/github_kit_update/SKILL.md"
 
 for rule in agent-workflow git-safety project-board github-kit-command; do
   refresh "$TEMPLATES/.cursor/rules/$rule.mdc" ".cursor/rules/$rule.mdc"
@@ -333,3 +342,5 @@ echo "  3. Project Sync (.github/workflows/project-sync.yml) needs a real GitHub
 echo "     and an AGENT_PROJECT_TOKEN secret before use — pass --include-project-sync to add it."
 echo "  4. Private repos on the GitHub Free plan can't enforce branch protection rulesets — rely on"
 echo "     PR review discipline and required status checks instead (see README.md)."
+echo "  5. Reusable workflow callers auto-track pzoli6/github-kit@main on their own — this script (or"
+echo "     /github_kit_update) only needs to run again when *local* bootstrap files have drifted."

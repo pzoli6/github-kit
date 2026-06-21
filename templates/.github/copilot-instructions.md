@@ -21,3 +21,7 @@ Follow that workflow exactly:
 - Keep the Project's `Status`, `Validation`, and `Last Agent Update` fields current as you work.
 - Before stopping mid-task, write `docs/ai/handoffs/issue-<number>.md` so another agent (or a
   human) can continue without re-deriving context.
+- This repo's reusable workflows auto-track `pzoli6/github-kit@main` (the always-latest channel) —
+  central workflow changes apply on the next run automatically. Local bootstrap files (this file,
+  `AGENTS.md`, skills, Cursor rules) only refresh when `/github_kit_update` or
+  `update-github-kit.sh`/`.ps1` is run explicitly; don't assume they're current with `main`.

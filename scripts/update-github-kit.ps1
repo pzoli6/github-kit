@@ -27,15 +27,21 @@
   Also create .github/workflows/project-sync.yml if it doesn't exist yet. If it already
   exists, it is always refreshed regardless of this flag.
 
+.PARAMETER Ref
+  Git ref used in caller workflows' uses: lines when referencing pzoli6/github-kit reusable
+  workflows. Default: main, the always-latest channel -- most repos should leave this alone and
+  let workflows auto-track pzoli6/github-kit@main. Pass a tag/sha here only to deliberately pin a
+  repo to a fixed version (record that choice as `github-kit update mode: pinned` in
+  docs/ai/PROJECT_CONFIG.md).
+
 .PARAMETER WorkflowRef
-  Git ref (tag/branch/sha) used in caller workflows' uses: lines when referencing
-  pzoli6/github-kit reusable workflows. Default: v0.2.0.
+  Backward-compatible alias for -Ref.
 
 .EXAMPLE
   .\update-github-kit.ps1 -Target C:\repos\my-app
 
 .EXAMPLE
-  .\update-github-kit.ps1 -Target C:\repos\my-app -WorkflowRef v0.3.0 -IncludeProjectSync
+  .\update-github-kit.ps1 -Target C:\repos\my-app -Ref v0.3.0 -IncludeProjectSync
 #>
 [CmdletBinding()]
 param(
@@ -43,12 +49,14 @@ param(
     [switch]$ForceConfig,
     [switch]$AllowDirty,
     [switch]$IncludeProjectSync,
+    [string]$Ref,
     [string]$WorkflowRef
 )
 
 $ErrorActionPreference = "Stop"
 
-$DefaultWorkflowRef = "v0.2.0"
+$DefaultWorkflowRef = "main"
+if (-not $WorkflowRef) { $WorkflowRef = $Ref }
 if (-not $WorkflowRef) { $WorkflowRef = $DefaultWorkflowRef }
 
 $KitRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
@@ -86,7 +94,8 @@ afterwards either way).
 Write-Host "github-kit source: $KitRoot"
 Write-Host "Target repository:  $Target"
 Write-Host "force-config:        $($ForceConfig.IsPresent)"
-Write-Host "Workflow ref:        $WorkflowRef"
+$refLabel = if ($WorkflowRef -eq "main") { "(always-latest channel)" } else { "(pinned)" }
+Write-Host "Workflow ref:        $WorkflowRef $refLabel"
 Write-Host ""
 
 Set-Location -LiteralPath $Target
@@ -128,11 +137,14 @@ function Refresh-File {
 }
 
 function Refresh-Workflow {
-    # Always overwrite $Dst with $Src (creating it if missing), substituting the
-    # GITHUB_KIT_VERSION placeholder (in `@GITHUB_KIT_VERSION` workflow refs) with -WorkflowRef.
+    # Always overwrite $Dst with $Src (creating it if missing). Templates pin caller `uses:`
+    # lines to @main (the always-latest channel); if -Ref/-WorkflowRef resolved to something
+    # else, repoint only that `uses: pzoli6/github-kit/...` line to the requested ref -- never
+    # touch unrelated occurrences of the word "main" (e.g. branch triggers).
     param([string]$Src, [string]$Dst)
     Ensure-ParentDir $Dst
-    $content = (Get-Content -LiteralPath $Src -Raw) -replace "GITHUB_KIT_VERSION", $WorkflowRef
+    $pattern = '(uses: pzoli6/github-kit/[^@\s]+)@main'
+    $content = (Get-Content -LiteralPath $Src -Raw) -replace $pattern, "`$1@$WorkflowRef"
     if (Test-Path -LiteralPath $Dst) {
         Set-Content -LiteralPath $Dst -Value $content -NoNewline
         Write-Host "refreshed:       $Dst"
@@ -268,6 +280,8 @@ Refresh-File (Join-Path $Templates ".claude/skills/issue-to-pr-project/SKILL.md"
 Refresh-File (Join-Path $Templates ".agents/skills/github_kit/SKILL.md") ".agents/skills/github_kit/SKILL.md"
 Refresh-File (Join-Path $Templates ".claude/skills/github_kit/SKILL.md") ".claude/skills/github_kit/SKILL.md"
 Refresh-File (Join-Path $Templates ".claude/commands/github_kit.md") ".claude/commands/github_kit.md"
+Refresh-File (Join-Path $Templates ".agents/skills/github_kit_update/SKILL.md") ".agents/skills/github_kit_update/SKILL.md"
+Refresh-File (Join-Path $Templates ".claude/skills/github_kit_update/SKILL.md") ".claude/skills/github_kit_update/SKILL.md"
 
 foreach ($rule in @("agent-workflow", "git-safety", "project-board", "github-kit-command")) {
     Refresh-File (Join-Path $Templates ".cursor/rules/$rule.mdc") ".cursor/rules/$rule.mdc"
@@ -335,3 +349,6 @@ Write-Host "  3. Project Sync (.github/workflows/project-sync.yml) needs a real 
 Write-Host "     and an AGENT_PROJECT_TOKEN secret before use -- pass -IncludeProjectSync to add it."
 Write-Host "  4. Private repos on the GitHub Free plan can't enforce branch protection rulesets -- rely on"
 Write-Host "     PR review discipline and required status checks instead (see README.md)."
+Write-Host "  5. Reusable workflow callers auto-track pzoli6/github-kit@main on their own -- this"
+Write-Host "     script (or /github_kit_update) only needs to run again when *local* bootstrap"
+Write-Host "     files have drifted."

@@ -26,15 +26,21 @@
   Also install .github/workflows/project-sync.yml. Off by default -- Project Sync needs a
   real GitHub Project number and an AGENT_PROJECT_TOKEN secret, so most repos should add it later.
 
+.PARAMETER Ref
+  Git ref used in caller workflows' uses: lines when referencing pzoli6/github-kit reusable
+  workflows. Default: main, the always-latest channel -- most repos should leave this alone and
+  let workflows auto-track pzoli6/github-kit@main. Pass a tag/sha here only to deliberately pin a
+  repo to a fixed version (record that choice as `github-kit update mode: pinned` in
+  docs/ai/PROJECT_CONFIG.md).
+
 .PARAMETER WorkflowRef
-  Git ref (tag/branch/sha) used in caller workflows' uses: lines when referencing
-  pzoli6/github-kit reusable workflows. Default: v0.2.0.
+  Backward-compatible alias for -Ref.
 
 .EXAMPLE
   .\install-github-kit.ps1 -Target C:\repos\my-app -Mode merge
 
 .EXAMPLE
-  .\install-github-kit.ps1 -Target C:\repos\my-app -IncludeProjectSync -WorkflowRef v0.2.0
+  .\install-github-kit.ps1 -Target C:\repos\my-app -IncludeProjectSync -Ref v0.2.0
 #>
 [CmdletBinding()]
 param(
@@ -43,12 +49,14 @@ param(
     [string]$Mode = "merge",
     [switch]$AllowDirty,
     [switch]$IncludeProjectSync,
+    [string]$Ref,
     [string]$WorkflowRef
 )
 
 $ErrorActionPreference = "Stop"
 
-$DefaultWorkflowRef = "v0.2.0"
+$DefaultWorkflowRef = "main"
+if (-not $WorkflowRef) { $WorkflowRef = $Ref }
 if (-not $WorkflowRef) { $WorkflowRef = $DefaultWorkflowRef }
 
 $KitRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
@@ -86,7 +94,8 @@ afterwards either way).
 Write-Host "github-kit source: $KitRoot"
 Write-Host "Target repository:  $Target"
 Write-Host "Mode:                $Mode"
-Write-Host "Workflow ref:        $WorkflowRef"
+$refLabel = if ($WorkflowRef -eq "main") { "(always-latest channel)" } else { "(pinned)" }
+Write-Host "Workflow ref:        $WorkflowRef $refLabel"
 $projectSyncStatus = if ($IncludeProjectSync) { "included" } else { "not included (default)" }
 Write-Host "Project Sync:        $projectSyncStatus"
 Write-Host ""
@@ -144,13 +153,16 @@ function Copy-CreateOnly {
 }
 
 function Copy-Workflow {
-    # Copies $Src -> $Dst, substituting the GITHUB_KIT_VERSION placeholder (in `@GITHUB_KIT_VERSION`
-    # workflow refs) with the resolved -WorkflowRef. Same merge/force semantics as Copy-IfMissing.
+    # Copies $Src -> $Dst. Templates pin caller `uses:` lines to @main (the always-latest
+    # channel); if -Ref/-WorkflowRef resolved to something else, repoint only that
+    # `uses: pzoli6/github-kit/...` line to the requested ref -- never touch unrelated occurrences
+    # of the word "main" (e.g. branch triggers). Same merge/force semantics as Copy-IfMissing.
     param([string]$Src, [string]$Dst)
+    $pattern = '(uses: pzoli6/github-kit/[^@\s]+)@main'
     if (Test-Path -LiteralPath $Dst) {
         if ($Mode -eq "force") {
             Ensure-ParentDir $Dst
-            (Get-Content -LiteralPath $Src -Raw) -replace "GITHUB_KIT_VERSION", $WorkflowRef | Set-Content -LiteralPath $Dst -NoNewline
+            (Get-Content -LiteralPath $Src -Raw) -replace $pattern, "`$1@$WorkflowRef" | Set-Content -LiteralPath $Dst -NoNewline
             Write-Host "updated (force): $Dst"
             $script:UpdatedCount++
         } else {
@@ -159,7 +171,7 @@ function Copy-Workflow {
         }
     } else {
         Ensure-ParentDir $Dst
-        (Get-Content -LiteralPath $Src -Raw) -replace "GITHUB_KIT_VERSION", $WorkflowRef | Set-Content -LiteralPath $Dst -NoNewline
+        (Get-Content -LiteralPath $Src -Raw) -replace $pattern, "`$1@$WorkflowRef" | Set-Content -LiteralPath $Dst -NoNewline
         Write-Host "created:         $Dst"
         $script:CreatedCount++
     }
@@ -268,6 +280,8 @@ Copy-IfMissing (Join-Path $Templates ".claude/skills/issue-to-pr-project/SKILL.m
 Copy-IfMissing (Join-Path $Templates ".agents/skills/github_kit/SKILL.md") ".agents/skills/github_kit/SKILL.md"
 Copy-IfMissing (Join-Path $Templates ".claude/skills/github_kit/SKILL.md") ".claude/skills/github_kit/SKILL.md"
 Copy-IfMissing (Join-Path $Templates ".claude/commands/github_kit.md") ".claude/commands/github_kit.md"
+Copy-IfMissing (Join-Path $Templates ".agents/skills/github_kit_update/SKILL.md") ".agents/skills/github_kit_update/SKILL.md"
+Copy-IfMissing (Join-Path $Templates ".claude/skills/github_kit_update/SKILL.md") ".claude/skills/github_kit_update/SKILL.md"
 
 foreach ($rule in @("agent-workflow", "git-safety", "project-board", "github-kit-command")) {
     Copy-IfMissing (Join-Path $Templates ".cursor/rules/$rule.mdc") ".cursor/rules/$rule.mdc"
@@ -340,3 +354,6 @@ Write-Host "  4. Private repos on the GitHub Free plan can't enforce branch prot
 Write-Host "     PR review discipline and required status checks instead (see README.md)."
 Write-Host "  5. If you're picking this up after an AI usage-limit pause, see"
 Write-Host "     docs/ai/AGENT_WORKFLOW.md for the resume procedure."
+Write-Host "  6. Reusable workflow callers now auto-track pzoli6/github-kit@main -- no version bump"
+Write-Host "     needed to pick up central workflow changes. Local bootstrap files only refresh when"
+Write-Host "     you run /github_kit_update or update-github-kit.ps1 again -- see README.md."

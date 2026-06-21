@@ -21,7 +21,10 @@ end to end.
 
 A fast-path slash command, `/github_kit <task>`, is also available at
 `.claude/commands/github_kit.md` (runbook: `.claude/skills/github_kit/SKILL.md`) — invoking it is
-itself the human's approval for the described task, see "Non-negotiable behaviors" below.
+itself the human's approval for the described task, see "Non-negotiable behaviors" below. A
+companion command, `/github_kit_update` (`.claude/skills/github_kit_update/SKILL.md`), refreshes
+this repo's local github-kit bootstrap files from `pzoli6/github-kit@main` via a draft PR — use it
+when local files seem stale, not as part of routine `/github_kit` runs.
 
 ## Non-negotiable behaviors for Claude Code specifically
 

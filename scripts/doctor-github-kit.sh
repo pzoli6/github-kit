@@ -20,10 +20,10 @@ check_file() {
 
 check_phrase() {
   local phrase="$1"
-  if grep -RFq -- "$phrase" \
+  if grep -RFq \
       --include='*.md' --include='*.yml' --include='*.yaml' \
       --exclude-dir=node_modules --exclude-dir=.git --exclude-dir=dist --exclude-dir=build \
-      . 2>/dev/null; then
+      -- "$phrase" . 2>/dev/null; then
     echo "OK      phrase: $phrase"
   else
     echo "MISSING phrase: $phrase"
@@ -118,29 +118,26 @@ fi
 
 echo
 
-# --- no literal @main in template caller workflows ---------------------------
+# --- template caller workflows use literal @main (always-latest channel) ----
 
-main_found=0
-while IFS= read -r f; do
-  if grep -n 'pzoli6/github-kit/.*@main' "$f" 2>/dev/null; then
-    echo "FLOATING @main in: $f"
-    main_found=1
-  fi
-done < <(git ls-files -- 'templates/.github/workflows/*.yml')
-
-if [ "$main_found" -eq 0 ]; then
-  echo "OK      no floating @main refs in template caller workflows"
+main_count="$(grep -l 'pzoli6/github-kit/.*@main' templates/.github/workflows/*.yml 2>/dev/null | wc -l)"
+if [ "$main_count" -ge 4 ]; then
+  echo "OK      caller workflow templates use literal @main ($main_count files)"
 else
-  echo "FAILED  template caller workflows must use @GITHUB_KIT_VERSION, not @main (see above)"
+  echo "MISSING literal @main in template caller workflows (found in $main_count files, need >= 4)"
   missing=1
 fi
 
-placeholder_count="$(grep -rl 'GITHUB_KIT_VERSION' templates/.github/workflows/*.yml 2>/dev/null | wc -l)"
-if [ "$placeholder_count" -ge 4 ]; then
-  echo "OK      caller workflows use the @GITHUB_KIT_VERSION placeholder ($placeholder_count files)"
-else
-  echo "MISSING @GITHUB_KIT_VERSION placeholder in template caller workflows"
+placeholder="@GITHUB_KIT_VERSION"
+if grep -RFq \
+    --include='*.md' --include='*.yml' --include='*.yaml' --include='*.sh' --include='*.ps1' \
+    --exclude-dir=node_modules --exclude-dir=.git --exclude-dir=dist --exclude-dir=build \
+    --exclude='doctor-github-kit.sh' --exclude='doctor-github-kit.ps1' \
+    -- "$placeholder" . 2>/dev/null; then
+  echo "FAILED  stale unsubstituted $placeholder placeholder still present (run: grep -RF $placeholder .)"
   missing=1
+else
+  echo "OK      no stale unsubstituted $placeholder placeholder remains"
 fi
 
 echo

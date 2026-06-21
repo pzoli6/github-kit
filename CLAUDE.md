@@ -15,3 +15,7 @@ This file exists only to tell Claude Code two things AGENTS.md can't say on its 
    in whichever target repo you're tracking the task against — `github-kit` itself doesn't carry
    its own Project/issue tracking beyond standard GitHub issues/PRs. Never merge a PR; that's a
    human action.
+3. **`/github_kit_update` doesn't apply to this repo's own root files.** `.claude/skills/
+   github_kit_update/SKILL.md` exists here only for dogfooding the skill's *content*; it would have
+   nothing meaningful to refresh against `github-kit`'s own root `AGENTS.md`/`CLAUDE.md`, since
+   those are this repo's own instruction files, not an install of `templates/`.

@@ -10,7 +10,7 @@ set -euo pipefail
 KIT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TEMPLATES="$KIT_ROOT/templates"
 
-DEFAULT_WORKFLOW_REF="v0.2.0"
+DEFAULT_WORKFLOW_REF="main"
 
 TARGET="."
 MODE="merge"
@@ -21,7 +21,7 @@ WORKFLOW_REF=""
 usage() {
   cat <<'EOF'
 Usage: install-github-kit.sh [--target <path>] [--mode merge|force] [--allow-dirty]
-                              [--include-project-sync] [--workflow-ref <ref>]
+                              [--include-project-sync] [--ref <ref>]
 
   --target <path>          Target repository root (default: current directory)
   --mode merge              Copy missing files, never overwrite existing ones (default)
@@ -35,9 +35,13 @@ Usage: install-github-kit.sh [--target <path>] [--mode merge|force] [--allow-dir
   --include-project-sync    Also install .github/workflows/project-sync.yml. Off by default —
                              Project Sync needs a real GitHub Project number and an
                              AGENT_PROJECT_TOKEN secret, so most repos should add it later.
-  --workflow-ref <ref>      Git ref (tag/branch/sha) used in caller workflows' uses: lines when
-                             referencing pzoli6/github-kit reusable workflows.
-                             Default: see DEFAULT_WORKFLOW_REF below.
+  --ref <ref>               Git ref used in caller workflows' uses: lines when referencing
+                             pzoli6/github-kit reusable workflows. Default: main, the
+                             always-latest channel — most repos should leave this alone and let
+                             workflows auto-track pzoli6/github-kit@main. Pass a tag/sha here only
+                             to deliberately pin a repo to a fixed version (record that choice as
+                             `github-kit update mode: pinned` in docs/ai/PROJECT_CONFIG.md).
+  --workflow-ref <ref>      Backward-compatible alias for --ref.
 
   Regardless of mode, this script NEVER overwrites:
     - docs/ai/PROJECT_CONFIG.md (repo-specific, edit it yourself)
@@ -45,7 +49,7 @@ Usage: install-github-kit.sh [--target <path>] [--mode merge|force] [--allow-dir
       exist (they may already contain repo-specific customization)
     - AGENTS.md / CLAUDE.md content outside the managed block markers
 EOF
-  echo "  (current default workflow ref: $DEFAULT_WORKFLOW_REF)"
+  echo "  (current default ref: $DEFAULT_WORKFLOW_REF)"
   exit 1
 }
 
@@ -69,7 +73,7 @@ while [ "$#" -gt 0 ]; do
       INCLUDE_PROJECT_SYNC=1
       shift
       ;;
-    --workflow-ref)
+    --ref|--workflow-ref)
       [ "$#" -ge 2 ] || usage
       WORKFLOW_REF="$2"
       shift 2
@@ -111,7 +115,7 @@ fi
 echo "github-kit source: $KIT_ROOT"
 echo "Target repository:  $TARGET"
 echo "Mode:                $MODE"
-echo "Workflow ref:        $WORKFLOW_REF"
+echo "Workflow ref:        $WORKFLOW_REF$([ "$WORKFLOW_REF" = "main" ] && echo " (always-latest channel)" || echo " (pinned)")"
 echo "Project Sync:        $([ "$INCLUDE_PROJECT_SYNC" -eq 1 ] && echo "included" || echo "not included (default)")"
 echo
 
@@ -159,13 +163,15 @@ copy_create_only() {
 }
 
 copy_workflow() {
-  # Copies $1 -> $2, substituting the GITHUB_KIT_VERSION placeholder (in `@GITHUB_KIT_VERSION`
-  # workflow refs) with the resolved --workflow-ref. Same merge/force semantics as copy_if_missing.
+  # Copies $1 -> $2. Templates pin caller `uses:` lines to @main (the always-latest channel); if
+  # --ref/--workflow-ref resolved to something else, repoint only that `uses: pzoli6/github-kit/...`
+  # line to the requested ref — never touch unrelated occurrences of the word "main" (e.g. branch
+  # triggers). Same merge/force semantics as copy_if_missing.
   local src="$1" dst="$2"
   if [ -e "$dst" ]; then
     if [ "$MODE" = "force" ]; then
       mkdir -p "$(dirname "$dst")"
-      sed "s/GITHUB_KIT_VERSION/$WORKFLOW_REF/g" "$src" > "$dst"
+      sed -E "s#(uses: pzoli6/github-kit/[^@[:space:]]+)@main#\1@$WORKFLOW_REF#" "$src" > "$dst"
       echo "updated (force): $dst"
       UPDATED_COUNT=$((UPDATED_COUNT + 1))
     else
@@ -174,7 +180,7 @@ copy_workflow() {
     fi
   else
     mkdir -p "$(dirname "$dst")"
-    sed "s/GITHUB_KIT_VERSION/$WORKFLOW_REF/g" "$src" > "$dst"
+    sed -E "s#(uses: pzoli6/github-kit/[^@[:space:]]+)@main#\1@$WORKFLOW_REF#" "$src" > "$dst"
     echo "created:         $dst"
     CREATED_COUNT=$((CREATED_COUNT + 1))
   fi
@@ -289,6 +295,8 @@ copy_if_missing "$TEMPLATES/.claude/skills/issue-to-pr-project/SKILL.md" ".claud
 copy_if_missing "$TEMPLATES/.agents/skills/github_kit/SKILL.md" ".agents/skills/github_kit/SKILL.md"
 copy_if_missing "$TEMPLATES/.claude/skills/github_kit/SKILL.md" ".claude/skills/github_kit/SKILL.md"
 copy_if_missing "$TEMPLATES/.claude/commands/github_kit.md" ".claude/commands/github_kit.md"
+copy_if_missing "$TEMPLATES/.agents/skills/github_kit_update/SKILL.md" ".agents/skills/github_kit_update/SKILL.md"
+copy_if_missing "$TEMPLATES/.claude/skills/github_kit_update/SKILL.md" ".claude/skills/github_kit_update/SKILL.md"
 
 for rule in agent-workflow git-safety project-board github-kit-command; do
   copy_if_missing "$TEMPLATES/.cursor/rules/$rule.mdc" ".cursor/rules/$rule.mdc"
@@ -347,3 +355,7 @@ echo "  4. Private repos on the GitHub Free plan can't enforce branch protection
 echo "     PR review discipline and required status checks instead (see README.md)."
 echo "  5. If you're picking this up after an AI usage-limit pause, see"
 echo "     docs/ai/AGENT_WORKFLOW.md for the resume procedure."
+echo "  6. Reusable workflow callers now auto-track pzoli6/github-kit@main — no version bump needed"
+echo "     to pick up central workflow changes. Local bootstrap files (AGENTS.md, skills, Cursor"
+echo "     rules, this script's own templates) only refresh when you run /github_kit_update or"
+echo "     update-github-kit.sh again — see README.md → \"Always-latest main channel\"."

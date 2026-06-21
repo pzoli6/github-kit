@@ -17,18 +17,28 @@
 | Production branch | `main` |
 | Agent branch prefix | `agent/` |
 | Default PR mode | draft |
-| github-kit version | `v0.2.0` |
-| Workflow ref (`@GITHUB_KIT_VERSION` in caller workflows) | `v0.2.0` |
+| github-kit installed | `true` |
+| github-kit ref | `main` |
+| github-kit update mode | `main-channel` |
 | Project Sync enabled | `false` |
 | Branch protection enforced | `false` |
 
-`github-kit version` and `Workflow ref` should move together — bump both when you run
-`update-github-kit` with a newer `-WorkflowRef`/`--workflow-ref`. `Project Sync enabled` is `false`
-until you've installed `.github/workflows/project-sync.yml` (`--include-project-sync`) and
-configured a real GitHub Project + `AGENT_PROJECT_TOKEN` secret — see "When Project Sync isn't
-enabled" in `AGENT_WORKFLOW.md`. `Branch protection enforced` is `false` for any private repo on
-the GitHub Free plan (a platform limitation, not a config you can flip) — see "Free-tier
-limitations" in `AGENT_WORKFLOW.md`.
+This repository follows `pzoli6/github-kit@main` for central reusable workflows. Local agent files
+(`AGENTS.md`, `CLAUDE.md`, skills, Cursor rules, this file) are lightweight bootstraps and fallback
+instructions — most central workflow updates are picked up automatically by this repo's next
+workflow run from `github-kit/main`. Local slash-command/skill updates require explicitly running
+`/github_kit_update` or `update-github-kit.sh`/`.ps1` — they do not happen on their own.
+
+`github-kit ref` is `main` by default (the always-latest channel) — change it only if this repo has
+deliberately pinned to a specific tag/branch/sha via `--ref`/`-Ref` on the installer/updater (the
+legacy `--workflow-ref`/`-WorkflowRef` flag names still work as aliases). If pinned, `github-kit
+update mode` should read `pinned` instead of `main-channel` so agents don't assume auto-updates are
+happening. `Project Sync enabled` is `false` until you've installed
+`.github/workflows/project-sync.yml` (`--include-project-sync`) and configured a real GitHub
+Project + `AGENT_PROJECT_TOKEN` secret — see "When Project Sync isn't enabled" in
+`AGENT_WORKFLOW.md`. `Branch protection enforced` is `false` for any private repo on the GitHub
+Free plan (a platform limitation, not a config you can flip) — see "Free-tier limitations" in
+`AGENT_WORKFLOW.md`.
 
 ## Validation commands
 

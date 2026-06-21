@@ -7,7 +7,7 @@ on:
 
 jobs:
   verify:
-    uses: pzoli6/github-kit/.github/workflows/reusable-agent-workflow-verify.yml@GITHUB_KIT_VERSION
+    uses: pzoli6/github-kit/.github/workflows/reusable-agent-workflow-verify.yml@main
     with:
       require_claude: true
       require_cursor: true
