@@ -14,7 +14,9 @@ Before doing anything else, read, in order:
 Follow that workflow exactly:
 
 - Plan first and wait for a human to reply `approve issue-to-pr-project` before branching or
-  implementing.
+  implementing — unless the task itself was given as `/github_kit <task description>`, in which
+  case that invocation is itself the approval for `<task>`; see `docs/ai/AGENT_WORKFLOW.md` →
+  "Fast-path trigger: /github_kit" for the scope and limits of that exception.
 - Open PRs as drafts targeting the base branch from `docs/ai/PROJECT_CONFIG.md`. Never merge.
 - Keep the Project's `Status`, `Validation`, and `Last Agent Update` fields current as you work.
 - Before stopping mid-task, write `docs/ai/handoffs/issue-<number>.md` so another agent (or a

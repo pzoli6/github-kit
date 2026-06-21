@@ -83,6 +83,35 @@ This is the detailed, phase-by-phase version of the lifecycle summarized in
 The sections below are cross-cutting — they apply at any phase above, not just one step in the
 sequence.
 
+## Fast-path trigger: /github_kit
+
+`/github_kit <task description>` is a pre-approved alternative entry point into the lifecycle
+above. It changes exactly one thing — **Phase 2's stop-and-wait** — and nothing else:
+
+- The `/github_kit <task>` invocation itself **is** the human's approval for `<task>`, scoped
+  strictly to the description supplied. The agent still writes a visible plan (Phase 2's first
+  bullet) for transparency, but does not stop and wait for a separate `approve issue-to-pr-project`
+  reply before moving into Phase 3.
+- The pre-approval covers only what `<task>` describes. If the agent discovers mid-task that the
+  work needs to expand beyond that description, it stops and falls back to the normal `approve
+  issue-to-pr-project` gate for the additional scope — pre-approval never grows on its own.
+- Every other phase is unchanged: the issue still uses `.github/ISSUE_TEMPLATE/agent_task.yml`
+  (note in the issue body that approval came via direct `/github_kit` invocation), the item still
+  gets added to the Project, `Status` still moves through the same values (an agent may move
+  straight from `Backlog` to `Ready` without dwelling in `Plan Review`, since there's no separate
+  wait), branching/implementation/validation/PR/handoff/review/completion rules are identical to
+  the rest of this document and to `AGENTS.md`.
+- This trigger is **additive**, not a replacement. `approve issue-to-pr-project` remains the
+  default gate for any task not invoked this way, and the `issue-to-pr-project` skill/runbook
+  remains available unchanged. Nothing here removes a label requirement, makes Project Sync
+  default, or permits self-merging/tagging — every other rule in `AGENTS.md` still applies in full.
+- Per-agent entry points: Claude Code's `/github_kit` slash command (`.claude/commands/
+  github_kit.md`, runbook at `.claude/skills/github_kit/SKILL.md`), the generic agent skill
+  (`.agents/skills/github_kit/SKILL.md`) for Codex/Antigravity/other tools, and the Cursor rule
+  (`.cursor/rules/github-kit-command.mdc`). Any agent without a dedicated adapter recognizes the
+  trigger from this section and `AGENTS.md` directly — a message starting with `/github_kit`
+  followed by a task description is the signal, regardless of tool.
+
 ## Free-tier limitations
 
 - Private repositories on the GitHub Free plan cannot enforce branch protection rulesets: no

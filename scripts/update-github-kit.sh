@@ -171,6 +171,8 @@ Required approval phrase:
 approve issue-to-pr-project
 ```
 
+Fast path: `/github_kit <task>` is a pre-approved alternative entry point — the invocation itself is the approval for the described task, scoped to that task only. See `docs/ai/AGENT_WORKFLOW.md` → "Fast-path trigger: /github_kit".
+
 Agents must not push to protected branches, merge PRs, modify secrets, use `git add .`, or claim validation passed unless validation actually ran.
 
 Before stopping, losing context, or handing off to another agent, agents must update:
@@ -274,8 +276,11 @@ fi
 
 refresh "$TEMPLATES/.agents/skills/issue-to-pr-project/SKILL.md" ".agents/skills/issue-to-pr-project/SKILL.md"
 refresh "$TEMPLATES/.claude/skills/issue-to-pr-project/SKILL.md" ".claude/skills/issue-to-pr-project/SKILL.md"
+refresh "$TEMPLATES/.agents/skills/github_kit/SKILL.md" ".agents/skills/github_kit/SKILL.md"
+refresh "$TEMPLATES/.claude/skills/github_kit/SKILL.md" ".claude/skills/github_kit/SKILL.md"
+refresh "$TEMPLATES/.claude/commands/github_kit.md" ".claude/commands/github_kit.md"
 
-for rule in agent-workflow git-safety project-board; do
+for rule in agent-workflow git-safety project-board github-kit-command; do
   refresh "$TEMPLATES/.cursor/rules/$rule.mdc" ".cursor/rules/$rule.mdc"
 done
 

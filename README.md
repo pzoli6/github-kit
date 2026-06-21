@@ -66,6 +66,22 @@ phase-by-phase specification (including free-tier limitations, pausing/resuming 
 limits, and the manual-Project-update fallback), and [`templates/AGENTS.md`](templates/AGENTS.md)
 for the rules every agent must follow.
 
+## Fast-path trigger: /github_kit
+
+`/github_kit <task description>` is a pre-approved alternative entry point into the same lifecycle
+above. Typing it is itself the human's approval for `<task>`, scoped strictly to that description —
+the agent still writes a visible plan, still creates the issue and tracks it on the Project, still
+opens a **draft** PR, still never merges or tags, but skips the separate wait for `approve
+issue-to-pr-project`. If the work turns out to need more than `<task>` described, the agent falls
+back to the normal approval gate for the extra scope.
+
+This is additive: `approve issue-to-pr-project` remains the default gate for everything else, and
+the existing `issue-to-pr-project` workflow is untouched. Each agent has its own entry point —
+Claude Code's `/github_kit` slash command, the generic `.agents/skills/github_kit/SKILL.md` skill,
+and the `.cursor/rules/github-kit-command.mdc` Cursor rule — see the table below and
+[`templates/docs/ai/AGENT_WORKFLOW.md`](templates/docs/ai/AGENT_WORKFLOW.md) → "Fast-path trigger:
+/github_kit" for the full spec.
+
 ## Enabling private reusable workflow access
 
 If `github-kit` and your target repos are private, the target repo's `GITHUB_TOKEN` needs
@@ -205,11 +221,11 @@ different tool entirely) reads the handoff file before touching the worktree. Fu
 
 | Agent | Entry point |
 |---|---|
-| Claude Code | Reads `CLAUDE.md`, which points to `AGENTS.md` + `docs/ai/PROJECT_CONFIG.md` + `docs/ai/AGENT_WORKFLOW.md`. Also has a Claude Skill at `.claude/skills/issue-to-pr-project/SKILL.md`. |
-| ChatGPT Codex | Reads `AGENTS.md` directly (the tool-agnostic universal rules file) plus the generic skill at `.agents/skills/issue-to-pr-project/SKILL.md`. |
+| Claude Code | Reads `CLAUDE.md`, which points to `AGENTS.md` + `docs/ai/PROJECT_CONFIG.md` + `docs/ai/AGENT_WORKFLOW.md`. Also has a Claude Skill at `.claude/skills/issue-to-pr-project/SKILL.md`, and the fast-path `/github_kit` slash command (`.claude/commands/github_kit.md`, runbook `.claude/skills/github_kit/SKILL.md`). |
+| ChatGPT Codex | Reads `AGENTS.md` directly (the tool-agnostic universal rules file) plus the generic skill at `.agents/skills/issue-to-pr-project/SKILL.md` (and its fast-path counterpart, `.agents/skills/github_kit/SKILL.md`). |
 | GitHub Copilot coding agent | Reads `.github/copilot-instructions.md`, which points to the same three files. |
-| Cursor agents | Load `.cursor/rules/agent-workflow.mdc`, `git-safety.mdc`, `project-board.mdc`. |
-| Antigravity / ChatGPT with repo context / future agents | Read `AGENTS.md` — it is intentionally tool-agnostic and is the fallback entry point for any agent without a dedicated adapter. |
+| Cursor agents | Load `.cursor/rules/agent-workflow.mdc`, `git-safety.mdc`, `project-board.mdc`, and `github-kit-command.mdc` (the `/github_kit` fast-path trigger). |
+| Antigravity / ChatGPT with repo context / future agents | Read `AGENTS.md` — it is intentionally tool-agnostic and is the fallback entry point for any agent without a dedicated adapter, including recognizing the `/github_kit` trigger. |
 | Manual development | Same lifecycle, same Project statuses — `AGENTS.md` and `docs/ai/AGENT_WORKFLOW.md` describe the human-authored path too. |
 
 ## Handoff files solve token-limit continuation
