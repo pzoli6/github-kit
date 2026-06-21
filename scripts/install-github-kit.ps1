@@ -185,6 +185,8 @@ Required approval phrase:
 approve issue-to-pr-project
 ```
 
+Fast path: `/github_kit <task>` is a pre-approved alternative entry point — the invocation itself is the approval for the described task, scoped to that task only. See `docs/ai/AGENT_WORKFLOW.md` → "Fast-path trigger: /github_kit".
+
 Agents must not push to protected branches, merge PRs, modify secrets, use `git add .`, or claim validation passed unless validation actually ran.
 
 Before stopping, losing context, or handing off to another agent, agents must update:
@@ -263,8 +265,11 @@ if ($IncludeProjectSync) {
 
 Copy-IfMissing (Join-Path $Templates ".agents/skills/issue-to-pr-project/SKILL.md") ".agents/skills/issue-to-pr-project/SKILL.md"
 Copy-IfMissing (Join-Path $Templates ".claude/skills/issue-to-pr-project/SKILL.md") ".claude/skills/issue-to-pr-project/SKILL.md"
+Copy-IfMissing (Join-Path $Templates ".agents/skills/github_kit/SKILL.md") ".agents/skills/github_kit/SKILL.md"
+Copy-IfMissing (Join-Path $Templates ".claude/skills/github_kit/SKILL.md") ".claude/skills/github_kit/SKILL.md"
+Copy-IfMissing (Join-Path $Templates ".claude/commands/github_kit.md") ".claude/commands/github_kit.md"
 
-foreach ($rule in @("agent-workflow", "git-safety", "project-board")) {
+foreach ($rule in @("agent-workflow", "git-safety", "project-board", "github-kit-command")) {
     Copy-IfMissing (Join-Path $Templates ".cursor/rules/$rule.mdc") ".cursor/rules/$rule.mdc"
 }
 

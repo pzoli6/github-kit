@@ -47,6 +47,14 @@ This repo follows the same lifecycle it defines for everyone else: plan → huma
 → implementation → validation → draft PR → human review/merge. The approval phrase for routine
 feature work on `github-kit` is `approve issue-to-pr-project`, same as any other repo using this
 kit. (The one-off setup of this repository's initial structure used the separate phrase
-`APPROVED: setup github-kit`, scoped to that single bootstrap task.)
+`APPROVED: setup github-kit`, scoped to that single bootstrap task; later one-off structural tasks
+used `APPROVED: update github-kit` and `APPROVED: implement universal github-kit trigger`, each
+scoped to its own task.)
+
+This repo also carries its own root copies of the `/github_kit` fast-path adapters (`.claude/
+commands/github_kit.md`, `.claude/skills/github_kit/SKILL.md`, `.agents/skills/github_kit/
+SKILL.md`, `.cursor/rules/github-kit-command.mdc`) so that working on `github-kit` itself dogfoods
+the same trigger every target repo gets — see `templates/docs/ai/AGENT_WORKFLOW.md` → "Fast-path
+trigger: /github_kit" for the spec.
 
 Agents must not push to `main`, merge PRs, modify Actions access settings, or commit secrets.

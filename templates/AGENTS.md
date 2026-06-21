@@ -27,6 +27,24 @@ A plan is not approved by silence, by the agent's own confidence, or by inferenc
 unrelated message. If the human hasn't used the phrase (or an unambiguous equivalent they've
 stated applies going forward), stay in the plan/review phase.
 
+## Fast-path trigger: /github_kit
+
+`/github_kit <task description>` is a pre-approved alternative to the approval boundary above —
+the invocation itself is the human's approval for the task described, scoped strictly to that
+description. An agent that receives this trigger still writes a visible plan for transparency, but
+proceeds straight into issue creation/branching/implementation instead of stopping to wait for
+`approve issue-to-pr-project`. If the work turns out to need more than the supplied description
+covers, the agent falls back to the normal approval gate for the additional scope — the
+pre-approval never expands on its own.
+
+This is additive, not a replacement: `approve issue-to-pr-project` remains the default gate for any
+task not invoked via `/github_kit`, and nothing else about the lifecycle below changes — same issue
+template, same Project tracking, same draft-PR-only rule, same human-merges-only rule. See
+[`docs/ai/AGENT_WORKFLOW.md`](../docs/ai/AGENT_WORKFLOW.md) → "Fast-path trigger: /github_kit" for
+the full phase-by-phase spec, and the `github_kit` skill/command files (`.claude/commands/
+github_kit.md`, `.claude/skills/github_kit/SKILL.md`, `.agents/skills/github_kit/SKILL.md`,
+`.cursor/rules/github-kit-command.mdc`) for the per-agent entry points.
+
 ## Issue-to-PR workflow
 
 Every implementation task follows the same lifecycle, regardless of which agent or human is
@@ -239,6 +257,8 @@ Required approval phrase:
 ```text
 approve issue-to-pr-project
 ```
+
+Fast path: `/github_kit <task>` is a pre-approved alternative entry point — the invocation itself is the approval for the described task, scoped to that task only. See `docs/ai/AGENT_WORKFLOW.md` → "Fast-path trigger: /github_kit".
 
 Agents must not push to protected branches, merge PRs, modify secrets, use `git add .`, or claim validation passed unless validation actually ran.
 

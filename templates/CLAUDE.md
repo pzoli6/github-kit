@@ -19,11 +19,18 @@ A matching Claude Skill describing this same workflow lives at
 `.claude/skills/issue-to-pr-project/SKILL.md` — use it when running the issue-to-PR-project flow
 end to end.
 
+A fast-path slash command, `/github_kit <task>`, is also available at
+`.claude/commands/github_kit.md` (runbook: `.claude/skills/github_kit/SKILL.md`) — invoking it is
+itself the human's approval for the described task, see "Non-negotiable behaviors" below.
+
 ## Non-negotiable behaviors for Claude Code specifically
 
-- **Plan first, then stop.** For any non-trivial task, produce a plan and wait for the human to
-  reply with `approve issue-to-pr-project` before creating a branch, writing code, or running
-  installer/update scripts. Don't treat a description of the problem as approval to implement.
+- **Plan first, then stop — unless invoked via `/github_kit`.** For any non-trivial task, produce a
+  plan and wait for the human to reply with `approve issue-to-pr-project` before creating a branch,
+  writing code, or running installer/update scripts. Don't treat a description of the problem as
+  approval to implement. The one exception: if the human's message is itself `/github_kit <task>`,
+  that invocation is the approval for `<task>` — proceed per `.claude/skills/github_kit/SKILL.md`
+  instead of waiting for the separate phrase.
 - **Update handoff files before running low on context.** If you're approaching a context/token
   limit mid-task, write your current state to `docs/ai/handoffs/issue-<number>.md` and update the
   Project's `Last Agent Update` and `Validation` fields *before* you stop — the next agent (Claude
@@ -51,6 +58,8 @@ Required approval phrase:
 ```text
 approve issue-to-pr-project
 ```
+
+Fast path: `/github_kit <task>` is a pre-approved alternative entry point — the invocation itself is the approval for the described task, scoped to that task only. See `docs/ai/AGENT_WORKFLOW.md` → "Fast-path trigger: /github_kit".
 
 Agents must not push to protected branches, merge PRs, modify secrets, use `git add .`, or claim validation passed unless validation actually ran.
 
