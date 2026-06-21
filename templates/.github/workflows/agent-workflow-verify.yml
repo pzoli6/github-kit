@@ -1,0 +1,14 @@
+name: Agent Workflow Verify
+
+on:
+  pull_request:
+  push:
+    branches: [main, develop]
+
+jobs:
+  verify:
+    uses: pzoli6/github-kit/.github/workflows/reusable-agent-workflow-verify.yml@main
+    with:
+      require_claude: true
+      require_cursor: true
+      require_skills: true

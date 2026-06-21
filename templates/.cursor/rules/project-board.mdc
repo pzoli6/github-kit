@@ -1,0 +1,48 @@
+---
+description: GitHub Project board status and field rules for agents working in this repository
+globs:
+alwaysApply: true
+---
+
+# Project board rules
+
+Use only these `Status` values, in this order (you may move an item backward, e.g. `In Review` →
+`Changes Requested`, but never invent a status outside this list):
+
+```text
+Backlog
+Plan Review
+Ready
+In Progress
+Blocked
+In Review
+Changes Requested
+Done
+Cancelled
+```
+
+The Project tracks these fields — keep the ones relevant to your current phase up to date, don't
+leave them stale:
+
+```text
+Status, Priority, Size, Estimate, Iteration, Start date, Target date, Agent, Area, Risk,
+Base Branch, Branch, PR URL, Last Agent Update, Handoff, Environment, Validation, Agent Run
+```
+
+Field vocabularies:
+
+- `Validation`: `Not Run`, `Passed`, `Failed`, `Partial`, `Manual Required`, `Not Applicable`
+- `Agent`: `Codex`, `Claude Code`, `Antigravity`, `Cursor`, `ChatGPT`, `GitHub Copilot`, `Manual`,
+  `Mixed`
+- `Risk`: `Low`, `Medium`, `High`
+
+Update fields with the helper scripts rather than guessing at the GraphQL/CLI calls yourself:
+
+```bash
+scripts/project/project_add_item.sh <issue-or-pr-url>
+scripts/project/project_set_status.sh <issue-or-pr-url> <Status>
+scripts/project/project_set_text.sh <issue-or-pr-url> "<Field Name>" "<value>"
+```
+
+If `Status` becomes `Blocked`, always say why (in the issue, PR, or handoff file) — a blocked item
+with no explanation isn't acceptable.

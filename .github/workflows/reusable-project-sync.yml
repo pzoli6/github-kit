@@ -1,0 +1,121 @@
+name: Reusable - Project Sync
+
+on:
+  workflow_call:
+    inputs:
+      project_owner:
+        description: "GitHub org/user that owns the Project (e.g. pzoli6)"
+        required: true
+        type: string
+      project_number:
+        description: "GitHub Project (v2) number"
+        required: true
+        type: string
+      status_on_issue_open:
+        description: "Status to set when an issue is opened"
+        type: string
+        default: "Backlog"
+      status_on_pr_open:
+        description: "Status to set when a PR is opened (including draft)"
+        type: string
+        default: "In Review"
+      status_on_pr_ready:
+        description: "Status to set when a draft PR is marked ready for review"
+        type: string
+        default: "In Review"
+      status_on_close:
+        description: "Status to set when an issue or PR is closed"
+        type: string
+        default: "Done"
+    secrets:
+      project_token:
+        description: "PAT with the 'project' scope — the default GITHUB_TOKEN cannot read/write Projects (v2)"
+        required: true
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'issues' || github.event_name == 'pull_request' || github.event_name == 'pull_request_target'
+    env:
+      GH_TOKEN: ${{ secrets.project_token }}
+    steps:
+      - name: Determine item URL and target status
+        id: vars
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "${{ github.event_name }}" in
+            issues)
+              url='${{ github.event.issue.html_url }}'
+              if [ "${{ github.event.action }}" = "closed" ]; then
+                status='${{ inputs.status_on_close }}'
+              else
+                status='${{ inputs.status_on_issue_open }}'
+              fi
+              ;;
+            pull_request|pull_request_target)
+              url='${{ github.event.pull_request.html_url }}'
+              if [ "${{ github.event.action }}" = "closed" ]; then
+                status='${{ inputs.status_on_close }}'
+              elif [ "${{ github.event.action }}" = "ready_for_review" ]; then
+                status='${{ inputs.status_on_pr_ready }}'
+              else
+                status='${{ inputs.status_on_pr_open }}'
+              fi
+              ;;
+            *)
+              echo "::error::reusable-project-sync.yml does not support event '${{ github.event_name }}'. Trigger it from issues or pull_request events."
+              exit 1
+              ;;
+          esac
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve Project node ID
+        id: project
+        shell: bash
+        run: |
+          set -euo pipefail
+          project_id="$(gh project view "${{ inputs.project_number }}" --owner "${{ inputs.project_owner }}" --format json | jq -r '.id')"
+          if [ -z "$project_id" ] || [ "$project_id" = "null" ]; then
+            echo "::error::Could not resolve Project #${{ inputs.project_number }} for owner '${{ inputs.project_owner }}'. Check project_owner/project_number inputs and that project_token has the 'project' scope (gh auth refresh -s project)."
+            exit 1
+          fi
+          echo "id=$project_id" >> "$GITHUB_OUTPUT"
+
+      - name: Add item to Project
+        id: add
+        shell: bash
+        run: |
+          set -euo pipefail
+          item_id="$(gh project item-add "${{ inputs.project_number }}" \
+            --owner "${{ inputs.project_owner }}" \
+            --url "${{ steps.vars.outputs.url }}" \
+            --format json | jq -r '.id')"
+          echo "item_id=$item_id" >> "$GITHUB_OUTPUT"
+
+      - name: Set Status field
+        shell: bash
+        run: |
+          set -euo pipefail
+          fields_json="$(gh project field-list "${{ inputs.project_number }}" --owner "${{ inputs.project_owner }}" --format json)"
+          field_id="$(echo "$fields_json" | jq -r '.fields[] | select(.name=="Status") | .id')"
+          option_id="$(echo "$fields_json" | jq -r --arg s "${{ steps.vars.outputs.status }}" \
+            '.fields[] | select(.name=="Status") | .options[]? | select(.name==$s) | .id')"
+
+          if [ -z "$field_id" ]; then
+            echo "::error::Project #${{ inputs.project_number }} has no 'Status' field. Create it as a single-select field with the statuses from docs/ai/AGENT_WORKFLOW.md."
+            exit 1
+          fi
+          if [ -z "$option_id" ]; then
+            echo "::error::Project 'Status' field has no option named '${{ steps.vars.outputs.status }}'."
+            exit 1
+          fi
+
+          gh project item-edit \
+            --id "${{ steps.add.outputs.item_id }}" \
+            --project-id "${{ steps.project.outputs.id }}" \
+            --field-id "$field_id" \
+            --single-select-option-id "$option_id"
+
+          echo "Set Status -> ${{ steps.vars.outputs.status }} for ${{ steps.vars.outputs.url }}"

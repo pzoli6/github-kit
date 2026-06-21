@@ -1,0 +1,59 @@
+name: Reusable - CI (Python)
+
+on:
+  workflow_call:
+    inputs:
+      python_version:
+        type: string
+        default: "3.12"
+      run_compileall:
+        type: boolean
+        default: true
+      run_pytest:
+        type: boolean
+        default: true
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout caller repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ inputs.python_version }}
+
+      - name: Install dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -f requirements.txt ]; then
+            echo "Installing from requirements.txt"
+            pip install -r requirements.txt
+          elif [ -f pyproject.toml ]; then
+            echo "Installing project from pyproject.toml"
+            pip install .
+          else
+            echo "No requirements.txt or pyproject.toml found — skipping dependency install."
+          fi
+
+      - name: Run compileall
+        if: inputs.run_compileall
+        shell: bash
+        run: python -m compileall -q .
+
+      - name: Run pytest
+        if: inputs.run_pytest
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -d tests ] || find . -name 'test_*.py' -o -name '*_test.py' 2>/dev/null | grep -q .; then
+            pip install --quiet pytest
+            pytest
+          else
+            echo "No tests found — skipping pytest."
+          fi

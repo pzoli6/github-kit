@@ -1,0 +1,104 @@
+name: Reusable - Agent Workflow Verify
+
+on:
+  workflow_call:
+    inputs:
+      require_claude:
+        description: "Require Claude Code adapter files (CLAUDE.md, .claude/skills/...)"
+        type: boolean
+        default: true
+      require_cursor:
+        description: "Require Cursor rule files (.cursor/rules/...)"
+        type: boolean
+        default: true
+      require_skills:
+        description: "Require the generic agent skill (.agents/skills/...)"
+        type: boolean
+        default: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout caller repository
+        uses: actions/checkout@v4
+
+      - name: Verify required agent workflow files and key phrases
+        shell: bash
+        env:
+          REQUIRE_CLAUDE: ${{ inputs.require_claude }}
+          REQUIRE_CURSOR: ${{ inputs.require_cursor }}
+          REQUIRE_SKILLS: ${{ inputs.require_skills }}
+        run: |
+          set -uo pipefail
+          missing=0
+
+          check_file() {
+            local f="$1"
+            if [ ! -e "$f" ]; then
+              echo "::error::Missing required file: $f"
+              missing=1
+            else
+              echo "OK file: $f"
+            fi
+          }
+
+          check_phrase() {
+            local phrase="$1"
+            if grep -RFq -- "$phrase" \
+                --include='*.md' --include='*.yml' --include='*.yaml' \
+                --exclude-dir=node_modules --exclude-dir=.git --exclude-dir=dist --exclude-dir=build \
+                . ; then
+              echo "OK phrase: $phrase"
+            else
+              echo "::error::Missing required key phrase: $phrase"
+              missing=1
+            fi
+          }
+
+          check_file "AGENTS.md"
+          check_file "docs/ai/PROJECT_CONFIG.md"
+          check_file "docs/ai/AGENT_WORKFLOW.md"
+          check_file "docs/ai/HANDOFF_INDEX.md"
+          check_file ".github/PULL_REQUEST_TEMPLATE.md"
+          check_file ".github/ISSUE_TEMPLATE/agent_task.yml"
+          check_file ".github/copilot-instructions.md"
+          check_file ".github/CODEOWNERS"
+          check_file "scripts/project/project_add_item.sh"
+          check_file "scripts/project/project_set_status.sh"
+          check_file "scripts/project/project_set_text.sh"
+          check_file "scripts/project/verify_agent_workflow.sh"
+
+          if [ "$REQUIRE_CLAUDE" = "true" ]; then
+            check_file "CLAUDE.md"
+            check_file ".claude/skills/issue-to-pr-project/SKILL.md"
+          fi
+
+          if [ "$REQUIRE_CURSOR" = "true" ]; then
+            check_file ".cursor/rules/agent-workflow.mdc"
+            check_file ".cursor/rules/git-safety.mdc"
+            check_file ".cursor/rules/project-board.mdc"
+          fi
+
+          if [ "$REQUIRE_SKILLS" = "true" ]; then
+            check_file ".agents/skills/issue-to-pr-project/SKILL.md"
+          fi
+
+          check_phrase "approve issue-to-pr-project"
+          check_phrase "Plan Review"
+          check_phrase "Ready"
+          check_phrase "In Progress"
+          check_phrase "In Review"
+          check_phrase "Changes Requested"
+          check_phrase "Validation"
+          check_phrase "Handoff"
+          check_phrase "Last Agent Update"
+
+          if [ "$missing" -ne 0 ]; then
+            echo "::error::Agent workflow verification failed — see missing items above."
+            exit 1
+          fi
+
+          echo "Agent workflow verification passed."

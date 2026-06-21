@@ -1,0 +1,25 @@
+---
+description: Universal issue-to-PR-Project agent workflow for this repository
+globs:
+alwaysApply: true
+---
+
+# Agent workflow
+
+Read `AGENTS.md`, `docs/ai/PROJECT_CONFIG.md`, and `docs/ai/AGENT_WORKFLOW.md` before doing
+non-trivial work in this repo. They are the source of truth; this rule is a summary, not a
+replacement.
+
+- Plan before implementing. For any non-trivial task, write a plan and stop.
+- Do not create branches, write implementation code, or run install/update scripts until the human
+  replies with the exact phrase `approve issue-to-pr-project`.
+- Once approved: create/locate the GitHub issue, add it to the configured Project, branch with the
+  configured agent prefix (default `agent/`) from the configured base branch, implement only what
+  was approved, validate with the commands in `docs/ai/PROJECT_CONFIG.md`, and open a **draft** PR
+  using `.github/PULL_REQUEST_TEMPLATE.md`.
+- Keep the Project's `Status`, `Validation`, and `Last Agent Update` fields current via
+  `scripts/project/project_set_status.sh` / `project_set_text.sh` as you move through phases.
+- Before stopping mid-task (context limit, end of session, or handing off to a different agent or
+  tool), write `docs/ai/handoffs/issue-<number>.md` describing current state, what's left, and the
+  next step.
+- A human approves plans and merges PRs — never act past those boundaries on your own judgment.
