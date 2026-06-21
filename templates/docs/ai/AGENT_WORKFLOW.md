@@ -77,3 +77,81 @@ This is the detailed, phase-by-phase version of the lifecycle summarized in
 - A human merges the PR — no agent merges its own or anyone else's PR.
 - Once merged/closed, set `Status` to `Done` (or `Cancelled` if the work was abandoned).
 - Optionally remove or archive the task's handoff file once the Project item is `Done`.
+
+---
+
+The sections below are cross-cutting — they apply at any phase above, not just one step in the
+sequence.
+
+## Free-tier limitations
+
+- Private repositories on the GitHub Free plan cannot enforce branch protection rulesets: no
+  required reviews, no required status checks blocking a merge at the platform level. This is a
+  GitHub plan limitation, not something to work around by changing repo visibility or plan without
+  explicit human instruction.
+- CI workflows (`ci-node.yml`, `ci-python.yml`, etc.) still run and still report pass/fail — they
+  just can't be made "required" to block a merge. Treat a failing check as a real signal to fix,
+  even though GitHub won't stop a human from merging anyway.
+- Compensate with process: always open as draft, always wait for actual human review, never
+  self-merge (see Phase 9). If this repo is later upgraded to a plan that supports branch
+  protection, a human can enable required reviews/status checks at that point.
+
+## Pausing for AI usage limits (Codex, Claude Code, others)
+
+AI coding agents can hit a usage limit mid-task. Treat that as a controlled pause:
+
+1. Commit anything that's safely committable with explicit `git add <file>` staging.
+2. For changes that aren't ready to commit, run `git stash push -m "issue-<number>: <short
+   description>"` so the stash message identifies which task it belongs to.
+3. Write or update `handoffs/issue-<number>.md` stating: the branch name, whether a stash exists
+   and its message, what's done, what's left, and the exact next step.
+4. Set `Status` to `Blocked` with the reason "paused — AI usage limit" if no one can continue this
+   session, or leave it at `In Progress` if another session/agent will pick it up immediately.
+5. Update `Last Agent Update`.
+
+Never stop with uncommitted, unstashed, undocumented changes sitting in the worktree — the next
+agent (or human) has no way to know whether those changes are intentional work-in-progress or
+accidental local clutter.
+
+## Resuming stashed work
+
+Before writing any new code on a branch you're resuming:
+
+1. Read `handoffs/issue-<number>.md` first — it should say whether a stash exists and what it
+   contains.
+2. Run `git status` and `git stash list` and confirm they match what the handoff file describes.
+   If they don't match, stop and investigate before doing anything else — don't assume.
+3. If a stash exists for this branch, apply it with `git stash apply` (not `pop`) so you can
+   review the resulting diff before dropping the stash explicitly with `git stash drop`.
+4. Re-run the validation commands in `PROJECT_CONFIG.md` before continuing — the pause may have
+   been long enough that the base branch moved.
+5. Update the handoff file once work resumes so it no longer describes a stale "paused" state.
+
+Never start fresh work in a worktree that has unexplained stashed or uncommitted changes without
+reading the handoff file that should account for them first.
+
+## When Project Sync isn't enabled
+
+`.github/workflows/project-sync.yml` (which would update Project fields automatically from PR/issue
+activity) is **not installed by default** — see `docs/ai/PROJECT_CONFIG.md` for whether it's
+enabled in this repo. If it isn't:
+
+- `Status`, `Validation`, `Last Agent Update`, `PR URL`, and `Branch` do not update themselves.
+  Every phase above that says "set `Status` to ..." or "update the `X` field" means *you* run
+  `scripts/project/project_set_status.sh` / `scripts/project/project_set_text.sh` (or edit the
+  Project UI) at that point — it will not happen as a side effect of pushing a commit or opening a
+  PR.
+- Don't assume a field is current just because the underlying GitHub state (PR merged, issue
+  closed) changed. Check the Project directly if you're unsure.
+
+## Manual Project update fallback
+
+If `gh` isn't authenticated, the Project helper scripts fail, or the environment has no network
+access to the GitHub API:
+
+- Update the Project via the GitHub web UI directly instead of skipping the update.
+- Note in the handoff file that the automation scripts were unavailable and updates were made (or
+  need to be made) manually — so the next agent or human knows why field updates might be delayed
+  or inconsistent, rather than assuming the workflow was skipped carelessly.
+- Never silently skip a required Project update because the script failed — either do it by hand
+  or say explicitly in the handoff file that it still needs to happen.

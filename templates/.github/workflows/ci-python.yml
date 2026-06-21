@@ -7,7 +7,7 @@ on:
 
 jobs:
   ci:
-    uses: pzoli6/github-kit/.github/workflows/reusable-ci-python.yml@main
+    uses: pzoli6/github-kit/.github/workflows/reusable-ci-python.yml@GITHUB_KIT_VERSION
     with:
       python_version: "3.12"
       run_compileall: true

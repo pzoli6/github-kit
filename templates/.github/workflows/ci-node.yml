@@ -7,7 +7,7 @@ on:
 
 jobs:
   ci:
-    uses: pzoli6/github-kit/.github/workflows/reusable-ci-node.yml@main
+    uses: pzoli6/github-kit/.github/workflows/reusable-ci-node.yml@GITHUB_KIT_VERSION
     with:
       node_version: "22"
       package_manager: npm

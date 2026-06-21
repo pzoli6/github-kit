@@ -111,6 +111,16 @@ Use `scripts/project/project_set_status.sh` and `scripts/project/project_set_tex
 these fields rather than editing the Project UI by hand when working from a terminal/agent session
 — it keeps the values consistent with what's recorded in the issue/PR/handoff file.
 
+Automatic Project Sync (`.github/workflows/project-sync.yml`, which would update these fields from
+PR/issue activity automatically) is **Phase 2** and is not installed by default — most repos
+update the fields above by running the `project_set_*.sh` scripts (or editing the Project UI)
+rather than relying on an automation. Check `docs/ai/PROJECT_CONFIG.md` for whether Project Sync is
+enabled in this repo before assuming field updates happen automatically.
+
+The `status:`/`type:`/`risk:` labels created by `scripts/project/create_standard_labels.sh` are an
+optional convenience for filtering issues/PRs — their absence must never block creating an issue,
+opening a PR, or moving a tracked item through the workflow above.
+
 ## Branch and worktree rules
 
 - Branch names must start with the agent branch prefix configured in
@@ -119,6 +129,35 @@ these fields rather than editing the Project UI by hand when working from a term
   this repo at the same time — never have two agents committing to the same working tree.
 - Never commit directly to the production/default branch. Always branch first.
 - Never force-push a branch another agent or human might also be working on.
+
+## Free-tier limitations and branch protection
+
+- Private repositories on the GitHub Free plan cannot enforce branch protection rulesets (no
+  required reviews, no required status checks enforced at the platform level) — this is a
+  platform limitation, not a misconfiguration. Don't treat a missing/unenforceable ruleset as
+  something to "fix" by changing repo visibility or plan without explicit human instruction.
+- Compensate with process discipline instead: always open PRs as drafts, always wait for actual
+  human review before a human marks a PR ready and merges it, and still configure the CI checks
+  in `.github/workflows/` even though they can't be made "required" — they're still useful signal.
+- If this repo is later upgraded to a plan that supports branch protection (or made public), a
+  human can enable required reviews/status checks at that point — see `README.md`.
+
+## Pausing and resuming work
+
+AI coding agents (Codex, Claude Code, and others) can hit a usage limit mid-task. Handle that as a
+controlled pause, not an abandoned task:
+
+- Before stopping: commit what's safely committable, or `git stash` any in-progress changes that
+  aren't ready to commit. Write the handoff file (see "Handoff rules" below) stating explicitly
+  what's stashed/uncommitted, on which branch, and how to resume.
+- Set the Project's `Status` to `Blocked` (with the reason: "paused — AI usage limit") if the task
+  can't continue at all this session, or leave it at `In Progress` if another session/agent can
+  pick it up immediately.
+- When resuming (same agent, later session, or a different agent/tool entirely): read the handoff
+  file first, run `git stash list` and `git status` to confirm the working tree matches what the
+  handoff file describes, then `git stash pop`/`apply` before continuing. Never start fresh work in
+  a worktree that has unexplained stashed or uncommitted changes without reading the handoff file
+  that should account for them.
 
 ## Commit rules
 

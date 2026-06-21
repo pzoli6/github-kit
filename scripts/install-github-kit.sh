@@ -10,19 +10,34 @@ set -euo pipefail
 KIT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TEMPLATES="$KIT_ROOT/templates"
 
+DEFAULT_WORKFLOW_REF="v0.2.0"
+
 TARGET="."
 MODE="merge"
+ALLOW_DIRTY=0
+INCLUDE_PROJECT_SYNC=0
+WORKFLOW_REF=""
 
 usage() {
   cat <<'EOF'
-Usage: install-github-kit.sh [--target <path>] [--mode merge|force]
+Usage: install-github-kit.sh [--target <path>] [--mode merge|force] [--allow-dirty]
+                              [--include-project-sync] [--workflow-ref <ref>]
 
-  --target <path>   Target repository root (default: current directory)
-  --mode merge      Copy missing files, never overwrite existing ones (default)
-  --mode force      Also refresh github-kit-owned boilerplate that's already installed
-                     (caller workflows, Cursor rules, skills, CODEOWNERS,
-                     copilot-instructions.md, project helper scripts, docs/ai/AGENT_WORKFLOW.md,
-                     docs/ai/HANDOFF_INDEX.md, docs/ai/PROJECT_CONFIG.env.example).
+  --target <path>          Target repository root (default: current directory)
+  --mode merge              Copy missing files, never overwrite existing ones (default)
+  --mode force              Also refresh github-kit-owned boilerplate that's already installed
+                             (caller workflows, Cursor rules, skills, CODEOWNERS,
+                             copilot-instructions.md, project helper scripts,
+                             docs/ai/AGENT_WORKFLOW.md, docs/ai/HANDOFF_INDEX.md,
+                             docs/ai/PROJECT_CONFIG.env.example).
+  --allow-dirty             Proceed even if the target repo has uncommitted changes
+                             (default: refuse and ask you to commit/stash first).
+  --include-project-sync    Also install .github/workflows/project-sync.yml. Off by default —
+                             Project Sync needs a real GitHub Project number and an
+                             AGENT_PROJECT_TOKEN secret, so most repos should add it later.
+  --workflow-ref <ref>      Git ref (tag/branch/sha) used in caller workflows' uses: lines when
+                             referencing pzoli6/github-kit reusable workflows.
+                             Default: see DEFAULT_WORKFLOW_REF below.
 
   Regardless of mode, this script NEVER overwrites:
     - docs/ai/PROJECT_CONFIG.md (repo-specific, edit it yourself)
@@ -30,6 +45,7 @@ Usage: install-github-kit.sh [--target <path>] [--mode merge|force]
       exist (they may already contain repo-specific customization)
     - AGENTS.md / CLAUDE.md content outside the managed block markers
 EOF
+  echo "  (current default workflow ref: $DEFAULT_WORKFLOW_REF)"
   exit 1
 }
 
@@ -43,6 +59,19 @@ while [ "$#" -gt 0 ]; do
     --mode)
       [ "$#" -ge 2 ] || usage
       MODE="$2"
+      shift 2
+      ;;
+    --allow-dirty)
+      ALLOW_DIRTY=1
+      shift
+      ;;
+    --include-project-sync)
+      INCLUDE_PROJECT_SYNC=1
+      shift
+      ;;
+    --workflow-ref)
+      [ "$#" -ge 2 ] || usage
+      WORKFLOW_REF="$2"
       shift 2
       ;;
     -h|--help)
@@ -60,17 +89,39 @@ case "$MODE" in
   *) echo "error: --mode must be 'merge' or 'force'" >&2; exit 1 ;;
 esac
 
+WORKFLOW_REF="${WORKFLOW_REF:-$DEFAULT_WORKFLOW_REF}"
+
 [ -d "$TARGET" ] || { echo "error: target directory '$TARGET' does not exist." >&2; exit 1; }
 TARGET="$(cd "$TARGET" && pwd)"
+
+if git -C "$TARGET" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  if [ -n "$(git -C "$TARGET" status --porcelain 2>/dev/null)" ]; then
+    if [ "$ALLOW_DIRTY" -ne 1 ]; then
+      echo "error: target repository has uncommitted changes." >&2
+      echo "Commit or stash your work first, then re-run — or pass --allow-dirty if you understand" >&2
+      echo "the risk (the installer only creates/updates github-kit-owned files, but review the diff" >&2
+      echo "afterwards either way)." >&2
+      exit 1
+    else
+      echo "warning: target repository has uncommitted changes (--allow-dirty passed, continuing)."
+    fi
+  fi
+fi
 
 echo "github-kit source: $KIT_ROOT"
 echo "Target repository:  $TARGET"
 echo "Mode:                $MODE"
+echo "Workflow ref:        $WORKFLOW_REF"
+echo "Project Sync:        $([ "$INCLUDE_PROJECT_SYNC" -eq 1 ] && echo "included" || echo "not included (default)")"
 echo
 
 cd "$TARGET"
 
 # --- helpers ---------------------------------------------------------------
+
+CREATED_COUNT=0
+UPDATED_COUNT=0
+SKIPPED_COUNT=0
 
 copy_if_missing() {
   # Copies $1 -> $2. In merge mode, skips if $2 exists. In force mode, overwrites.
@@ -80,13 +131,16 @@ copy_if_missing() {
       mkdir -p "$(dirname "$dst")"
       cp "$src" "$dst"
       echo "updated (force): $dst"
+      UPDATED_COUNT=$((UPDATED_COUNT + 1))
     else
       echo "skip (exists):   $dst"
+      SKIPPED_COUNT=$((SKIPPED_COUNT + 1))
     fi
   else
     mkdir -p "$(dirname "$dst")"
     cp "$src" "$dst"
     echo "created:         $dst"
+    CREATED_COUNT=$((CREATED_COUNT + 1))
   fi
 }
 
@@ -95,10 +149,34 @@ copy_create_only() {
   local src="$1" dst="$2"
   if [ -e "$dst" ]; then
     echo "skip (never overwritten): $dst"
+    SKIPPED_COUNT=$((SKIPPED_COUNT + 1))
   else
     mkdir -p "$(dirname "$dst")"
     cp "$src" "$dst"
     echo "created:                  $dst"
+    CREATED_COUNT=$((CREATED_COUNT + 1))
+  fi
+}
+
+copy_workflow() {
+  # Copies $1 -> $2, substituting the GITHUB_KIT_VERSION placeholder (in `@GITHUB_KIT_VERSION`
+  # workflow refs) with the resolved --workflow-ref. Same merge/force semantics as copy_if_missing.
+  local src="$1" dst="$2"
+  if [ -e "$dst" ]; then
+    if [ "$MODE" = "force" ]; then
+      mkdir -p "$(dirname "$dst")"
+      sed "s/GITHUB_KIT_VERSION/$WORKFLOW_REF/g" "$src" > "$dst"
+      echo "updated (force): $dst"
+      UPDATED_COUNT=$((UPDATED_COUNT + 1))
+    else
+      echo "skip (exists):   $dst"
+      SKIPPED_COUNT=$((SKIPPED_COUNT + 1))
+    fi
+  else
+    mkdir -p "$(dirname "$dst")"
+    sed "s/GITHUB_KIT_VERSION/$WORKFLOW_REF/g" "$src" > "$dst"
+    echo "created:         $dst"
+    CREATED_COUNT=$((CREATED_COUNT + 1))
   fi
 }
 
@@ -191,9 +269,16 @@ copy_create_only "$TEMPLATES/.github/PULL_REQUEST_TEMPLATE.md" ".github/PULL_REQ
 copy_if_missing  "$TEMPLATES/.github/copilot-instructions.md" ".github/copilot-instructions.md"
 copy_if_missing  "$TEMPLATES/.github/CODEOWNERS" ".github/CODEOWNERS"
 
-for wf in agent-workflow-verify project-sync pr-policy ci-node ci-python; do
-  copy_if_missing "$TEMPLATES/.github/workflows/$wf.yml" ".github/workflows/$wf.yml"
+for wf in agent-workflow-verify pr-policy ci-node ci-python; do
+  copy_workflow "$TEMPLATES/.github/workflows/$wf.yml" ".github/workflows/$wf.yml"
 done
+
+if [ "$INCLUDE_PROJECT_SYNC" -eq 1 ]; then
+  copy_workflow "$TEMPLATES/.github/workflows/project-sync.yml" ".github/workflows/project-sync.yml"
+else
+  echo "skip (default):  .github/workflows/project-sync.yml (pass --include-project-sync to install it)"
+  SKIPPED_COUNT=$((SKIPPED_COUNT + 1))
+fi
 
 # --- .agents / .claude / .cursor ------------------------------------------
 
@@ -206,7 +291,7 @@ done
 
 # --- scripts/project/ --------------------------------------------------
 
-for script in project_add_item project_set_status project_set_text verify_agent_workflow; do
+for script in project_add_item project_set_status project_set_text verify_agent_workflow create_standard_labels; do
   copy_if_missing "$TEMPLATES/scripts/project/$script.sh" "scripts/project/$script.sh"
   chmod +x "scripts/project/$script.sh" 2>/dev/null || true
 done
@@ -226,6 +311,11 @@ else
   echo "created:         .gitignore"
 fi
 
+# --- summary --------------------------------------------------------------
+
+echo
+echo "Summary: $CREATED_COUNT created, $UPDATED_COUNT updated, $SKIPPED_COUNT skipped."
+
 # --- verify -------------------------------------------------------------
 
 echo
@@ -238,3 +328,17 @@ else
   echo "github-kit installed, but verification reported issues — see output above."
   echo "This is expected if you still need to fill in docs/ai/PROJECT_CONFIG.md."
 fi
+
+echo
+echo "Next steps:"
+echo "  1. Fill in docs/ai/PROJECT_CONFIG.md with this repo's Project name/number, base branch,"
+echo "     validation commands, and forbidden files."
+echo "  2. Optional: run scripts/project/create_standard_labels.sh to create the standard"
+echo "     status:/type:/risk: labels (gh auth login with repo scope required)."
+echo "  3. Project Sync (.github/workflows/project-sync.yml) was $([ "$INCLUDE_PROJECT_SYNC" -eq 1 ] && echo "installed" || echo "NOT installed (default)")."
+echo "     It needs a real GitHub Project number and an AGENT_PROJECT_TOKEN secret before use —"
+echo "     re-run with --include-project-sync once those exist."
+echo "  4. Private repos on the GitHub Free plan can't enforce branch protection rulesets — rely on"
+echo "     PR review discipline and required status checks instead (see README.md)."
+echo "  5. If you're picking this up after an AI usage-limit pause, see"
+echo "     docs/ai/AGENT_WORKFLOW.md for the resume procedure."
