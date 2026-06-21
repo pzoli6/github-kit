@@ -1,0 +1,90 @@
+name: Reusable - CI (Node)
+
+on:
+  workflow_call:
+    inputs:
+      node_version:
+        type: string
+        default: "22"
+      package_manager:
+        description: "npm, pnpm, or yarn"
+        type: string
+        default: "npm"
+      run_build:
+        type: boolean
+        default: true
+      run_lint:
+        type: boolean
+        default: true
+      run_test:
+        type: boolean
+        default: true
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout caller repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node_version }}
+          cache: ${{ inputs.package_manager == 'yarn' && 'yarn' || inputs.package_manager }}
+
+      - name: Enable pnpm
+        if: inputs.package_manager == 'pnpm'
+        uses: pnpm/action-setup@v4
+
+      - name: Install dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "${{ inputs.package_manager }}" in
+            npm)
+              if [ -f package-lock.json ]; then npm ci; else npm install; fi
+              ;;
+            pnpm)
+              if [ -f pnpm-lock.yaml ]; then pnpm install --frozen-lockfile; else pnpm install; fi
+              ;;
+            yarn)
+              if [ -f yarn.lock ]; then yarn install --frozen-lockfile; else yarn install; fi
+              ;;
+            *)
+              echo "::error::Unknown package_manager '${{ inputs.package_manager }}' — expected npm, pnpm, or yarn."
+              exit 1
+              ;;
+          esac
+
+      - name: Build / lint / test (skip missing optional scripts)
+        shell: bash
+        env:
+          PM: ${{ inputs.package_manager }}
+          RUN_BUILD: ${{ inputs.run_build }}
+          RUN_LINT: ${{ inputs.run_lint }}
+          RUN_TEST: ${{ inputs.run_test }}
+        run: |
+          set -euo pipefail
+
+          run_if_present() {
+            local script="$1"
+            local has_script
+            has_script="$(node -e "const s=(require('./package.json').scripts||{}); process.stdout.write(s['$script'] ? 'yes' : 'no')" 2>/dev/null || echo no)"
+            if [ "$has_script" != "yes" ]; then
+              echo "Skipping '$script': no \"$script\" script in package.json."
+              return 0
+            fi
+            echo "Running '$PM run $script'..."
+            case "$PM" in
+              npm) npm run "$script" ;;
+              pnpm) pnpm run "$script" ;;
+              yarn) yarn run "$script" ;;
+            esac
+          }
+
+          if [ "$RUN_BUILD" = "true" ]; then run_if_present build; fi
+          if [ "$RUN_LINT" = "true" ]; then run_if_present lint; fi
+          if [ "$RUN_TEST" = "true" ]; then run_if_present test; fi

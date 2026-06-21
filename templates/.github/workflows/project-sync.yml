@@ -1,0 +1,21 @@
+name: Project Sync
+
+on:
+  issues:
+    types: [opened, closed, reopened]
+  pull_request:
+    types: [opened, ready_for_review, closed]
+
+jobs:
+  sync:
+    uses: pzoli6/github-kit/.github/workflows/reusable-project-sync.yml@main
+    with:
+      # TODO: replace with this repo's values from docs/ai/PROJECT_CONFIG.md
+      project_owner: pzoli6
+      project_number: "TBD"
+      status_on_issue_open: Backlog
+      status_on_pr_open: "In Review"
+      status_on_pr_ready: "In Review"
+      status_on_close: Done
+    secrets:
+      project_token: ${{ secrets.AGENT_PROJECT_TOKEN }}

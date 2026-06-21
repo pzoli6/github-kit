@@ -1,0 +1,14 @@
+name: CI (Python)
+
+on:
+  pull_request:
+  push:
+    branches: [main, develop]
+
+jobs:
+  ci:
+    uses: pzoli6/github-kit/.github/workflows/reusable-ci-python.yml@main
+    with:
+      python_version: "3.12"
+      run_compileall: true
+      run_pytest: true

@@ -1,0 +1,14 @@
+name: PR Policy
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+jobs:
+  policy:
+    uses: pzoli6/github-kit/.github/workflows/reusable-pr-policy.yml@main
+    with:
+      # TODO: confirm this matches Base branch in docs/ai/PROJECT_CONFIG.md
+      required_base_branch: develop
+      require_agent_branch_prefix: agent/
+      allow_hotfix: true
