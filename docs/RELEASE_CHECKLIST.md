@@ -39,10 +39,12 @@ summarize the release in one line — detail belongs in the merged PR's descript
 
 ## After tagging
 
-- [ ] Update any target repo you control to the new ref when convenient (not required
-      immediately): `update-github-kit.sh --target . --workflow-ref vX.Y.Z` /
-      `update-github-kit.ps1 -Target . -WorkflowRef vX.Y.Z`, then bump the `github-kit version` /
-      `Workflow ref` rows in that repo's `docs/ai/PROJECT_CONFIG.md` to match.
+- [ ] Repos auto-tracking `@main` (the default) need no action — they already pick up this
+      release's changes on their next CI run. For any repo deliberately pinned via `--ref`/`-Ref`
+      (see README.md → "Pinning to a fixed ref"), update it when convenient:
+      `update-github-kit.sh --target . --ref vX.Y.Z` / `update-github-kit.ps1 -Target . -Ref
+      vX.Y.Z`, then update the `github-kit ref` row in that repo's `docs/ai/PROJECT_CONFIG.md` to
+      match.
 - [ ] If this release fixes a regression that affected already-installed repos (e.g. the DancePass
       CRLF/Node-version/`@main` issues this kit was hardened against), consider proactively
       flagging those repos rather than waiting for them to notice on their own.

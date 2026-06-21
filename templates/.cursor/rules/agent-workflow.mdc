@@ -26,3 +26,6 @@ replacement.
   tool), write `docs/ai/handoffs/issue-<number>.md` describing current state, what's left, and the
   next step.
 - A human approves plans and merges PRs — never act past those boundaries on your own judgment.
+- This repo's reusable workflows auto-track `pzoli6/github-kit@main` by default — local bootstrap
+  files (this rule included) only refresh when `/github_kit_update` or the update script runs; see
+  `.cursor/rules/github-kit-command.mdc`.

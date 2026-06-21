@@ -66,6 +66,32 @@ phase-by-phase specification (including free-tier limitations, pausing/resuming 
 limits, and the manual-Project-update fallback), and [`templates/AGENTS.md`](templates/AGENTS.md)
 for the rules every agent must follow.
 
+## Always-latest main channel
+
+By default, `install-github-kit.sh`/`.ps1` write caller `uses:` lines as literal
+`pzoli6/github-kit/<path>@main` — not a tag, not a placeholder. Once a repo has `github-kit`
+installed, its CI workflows automatically pick up every change merged to this repo's `main` branch
+on their very next run.
+
+What auto-tracks `@main` and what doesn't:
+
+- **Reusable workflows auto-track `@main`.** Fix or extend a reusable workflow once here, and every
+  repo that calls it gets the fix on its next workflow run — no version bump, no re-running the
+  installer.
+- **Local bootstrap files never auto-track anything.** `AGENTS.md`/`CLAUDE.md`, Cursor rules, the
+  Claude/Codex skills, and this kit's own scripts live in the target repo's working tree. They only
+  refresh when you explicitly run `update-github-kit.sh`/`.ps1`, or its `/github_kit_update` wrapper
+  (see below) — `@main` auto-tracking has no effect on them.
+- **Pinning is still supported, just no longer the default.** Pass `--ref <tag-or-sha>` /
+  `-Ref <tag-or-sha>` to either the installer or the updater to deliberately pin a repo instead of
+  auto-tracking `main`. The legacy `--workflow-ref`/`-WorkflowRef` flag names still work as aliases.
+  If you pin, update `docs/ai/PROJECT_CONFIG.md`: set `github-kit ref` to the pinned ref and
+  `github-kit update mode` to `pinned` (instead of the default `main-channel`), so agents don't
+  assume auto-updates are happening that aren't.
+
+Because a merge to this repo's `main` is live for every installed repo on their next CI run, with no
+opt-in step, changes here deserve a higher review bar than a typical app repo.
+
 ## Fast-path trigger: /github_kit
 
 `/github_kit <task description>` is a pre-approved alternative entry point into the same lifecycle
@@ -81,6 +107,25 @@ Claude Code's `/github_kit` slash command, the generic `.agents/skills/github_ki
 and the `.cursor/rules/github-kit-command.mdc` Cursor rule — see the table below and
 [`templates/docs/ai/AGENT_WORKFLOW.md`](templates/docs/ai/AGENT_WORKFLOW.md) → "Fast-path trigger:
 /github_kit" for the full spec.
+
+`/github_kit` is unrelated to the always-latest `@main` channel above: it runs entirely from
+whatever local files already exist in the repo's working tree and never requires network access.
+Refreshing those local files from `pzoli6/github-kit@main` is a separate, optional command —
+`/github_kit_update`, described next.
+
+## Local bootstrap refresh: /github_kit_update
+
+`@main` auto-tracking only covers reusable workflows. `AGENTS.md`/`CLAUDE.md`, Cursor rules,
+Claude/Codex skills, `copilot-instructions.md`, and this kit's own helper scripts are local files
+that lag behind until something explicitly refreshes them. `/github_kit_update`
+(`.claude/skills/github_kit_update/SKILL.md`, `.agents/skills/github_kit_update/SKILL.md`) is that
+something: it runs `update-github-kit.sh`/`.ps1` against `pzoli6/github-kit@main`, refuses a dirty
+working tree unless told otherwise, never overwrites `docs/ai/PROJECT_CONFIG.md` unless
+`--force-config`/`-ForceConfig`, never installs Project Sync unless requested, and always stops at a
+**draft PR** for human review — it never merges. Unlike `/github_kit`, this command requires
+actually reaching `github-kit@main`; if it can't, it stops and reports the block rather than
+silently doing nothing. Run it whenever local bootstrap files seem stale — it's optional precisely
+because the reusable-workflow callers already auto-track `@main` on their own.
 
 ## Enabling private reusable workflow access
 
@@ -257,27 +302,31 @@ git status
 git diff --stat
 ```
 
-Both updaters refresh managed files and managed blocks (and bump the `@GITHUB_KIT_VERSION`
-placeholder in caller workflows to whatever `--workflow-ref`/`-WorkflowRef` resolves to) but never
-overwrite `docs/ai/PROJECT_CONFIG.md` or `docs/ai/PROJECT_CONFIG.env` unless you pass
-`--force-config` / `-ForceConfig`.
+Both updaters refresh managed files and managed blocks (caller workflows stay pinned to literal
+`@main` unless you pass `--ref`/`-Ref` to deliberately repoint them) but never overwrite
+`docs/ai/PROJECT_CONFIG.md` or `docs/ai/PROJECT_CONFIG.env` unless you pass `--force-config` /
+`-ForceConfig`.
 
-## Version-upgrade path
+## Pinning to a fixed ref (opt-out of the main channel)
 
-Target repos pin the reusable-workflow ref via the `@GITHUB_KIT_VERSION` placeholder, resolved at
-copy time to a real tag (default `v0.2.0`). To move a target repo to a newer `github-kit` release:
+Target repos default to the always-latest `@main` channel (see above) and need no action to stay
+current. If you'd rather pin a repo to a fixed tag or commit SHA instead — e.g. to freeze behavior
+during a migration, or to review `github-kit` changes before they land — pass `--ref`/`-Ref` to the
+installer or updater:
 
 ```bash
-/path/to/github-kit/scripts/update-github-kit.sh --target . --workflow-ref v0.3.0
+/path/to/github-kit/scripts/update-github-kit.sh --target . --ref v0.3.0
 ```
 
 ```powershell
-& "C:\path\to\github-kit\scripts\update-github-kit.ps1" -Target . -WorkflowRef v0.3.0
+& "C:\path\to\github-kit\scripts\update-github-kit.ps1" -Target . -Ref v0.3.0
 ```
 
-Then update the `github-kit version` and `Workflow ref` rows in `docs/ai/PROJECT_CONFIG.md` to
-match, and review the diff — caller workflows' `uses:` lines are the only thing the ref bump
-changes.
+This repoints only the `uses: pzoli6/github-kit/...` lines in caller workflows — it never touches
+unrelated occurrences of "main" (e.g. `branches: [main, develop]` triggers). Afterward, update
+`docs/ai/PROJECT_CONFIG.md`: set `github-kit ref` to the pinned value and `github-kit update mode`
+to `pinned`, so agents and the verifier know not to expect auto-updates. To move a pinned repo to a
+newer ref later, re-run the same command with a different `--ref`/`-Ref` value.
 
 ## Recommended rollout sequence
 
@@ -296,13 +345,16 @@ For a brand-new repo, in order:
 
 Run `scripts/doctor-github-kit.sh` (or `.ps1`) inside `github-kit` itself — not a target repo —
 before tagging a new release, to catch packaging regressions (CRLF line endings, stale Action
-versions, floating `@main` refs, missing required files/phrases).
+versions, template caller workflows missing literal `@main`, stale `GITHUB_KIT_VERSION`
+placeholders, missing required files/phrases).
 
 ## Versioning
 
-`github-kit` uses tags (`v0.1.0`, `v0.2.0`, ...) as the stable refs target repos pin against via
-`@GITHUB_KIT_VERSION`. Bump the minor version for additive changes (new optional scripts/templates,
-new flags with safe defaults) and the patch version for fixes that don't change behavior for repos
-that don't opt in to anything new. See [`docs/RELEASE_CHECKLIST.md`](docs/RELEASE_CHECKLIST.md) for
-the exact tagging procedure — tagging is a human action taken after a hardening/feature PR merges,
-never something an agent does as part of implementing that PR.
+Tags (`v0.1.0`, `v0.2.0`, ...) remain available as optional pin targets for repos that opt out of
+the always-latest `@main` channel (see "Pinning to a fixed ref" above) — they are no longer the
+default for new installs. Bump the minor version for additive changes (new optional
+scripts/templates, new flags with safe defaults) and the patch version for fixes that don't change
+behavior for repos that don't opt in to anything new. See
+[`docs/RELEASE_CHECKLIST.md`](docs/RELEASE_CHECKLIST.md) for the exact tagging procedure — tagging
+is a human action taken after a hardening/feature PR merges, never something an agent does as part
+of implementing that PR, and is now a courtesy for pinned repos rather than a required release step.

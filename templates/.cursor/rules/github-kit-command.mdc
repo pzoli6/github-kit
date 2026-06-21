@@ -21,3 +21,8 @@ branch, still write a handoff file before stopping mid-task.
 This trigger is additive — `approve issue-to-pr-project` remains the default gate for any task not
 invoked via `/github_kit`. See `docs/ai/AGENT_WORKFLOW.md` → "Fast-path trigger: /github_kit" for
 the full spec.
+
+This repo's reusable workflows auto-track `pzoli6/github-kit@main` (the always-latest channel) —
+local files like this one are bootstraps that lag behind until `/github_kit_update` or
+`update-github-kit.sh`/`.ps1` is run. `/github_kit` works fully offline from local files; only
+`/github_kit_update` requires reaching `github-kit@main`.

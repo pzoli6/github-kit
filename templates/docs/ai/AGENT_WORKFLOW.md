@@ -111,6 +111,23 @@ above. It changes exactly one thing — **Phase 2's stop-and-wait** — and noth
   (`.cursor/rules/github-kit-command.mdc`). Any agent without a dedicated adapter recognizes the
   trigger from this section and `AGENTS.md` directly — a message starting with `/github_kit`
   followed by a task description is the signal, regardless of tool.
+- `/github_kit` runs entirely from local files and never requires network access — it is distinct
+  from this repo's reusable-workflow auto-tracking of `pzoli6/github-kit@main` (see "Always-latest
+  main channel" in `README.md`). Do not confuse the two: workflows auto-update, local bootstrap
+  files do not.
+
+## Local bootstrap refresh: /github_kit_update
+
+A separate, optional command/skill (`.claude/skills/github_kit_update/SKILL.md`,
+`.agents/skills/github_kit_update/SKILL.md`) refreshes this repo's *local* github-kit bootstrap
+files — `AGENTS.md`/`CLAUDE.md` managed block, skills, Cursor rules, `copilot-instructions.md`,
+this file, project helper scripts — from `pzoli6/github-kit@main`. Unlike `/github_kit`, this
+command requires reaching `github-kit@main` (that's its whole purpose); if it can't, it stops and
+reports the block rather than silently doing nothing. It refuses a dirty working tree unless
+explicitly allowed, never overwrites `docs/ai/PROJECT_CONFIG.md` unless `--force-config`, never
+installs Project Sync unless requested, and always stops at a draft PR for human review — it never
+merges. This command is optional because the reusable-workflow callers already auto-track `@main`
+on their own; it only matters for local files, which lag behind until it's run.
 
 ## Free-tier limitations
 

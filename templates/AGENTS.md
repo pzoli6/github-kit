@@ -45,6 +45,13 @@ the full phase-by-phase spec, and the `github_kit` skill/command files (`.claude
 github_kit.md`, `.claude/skills/github_kit/SKILL.md`, `.agents/skills/github_kit/SKILL.md`,
 `.cursor/rules/github-kit-command.mdc`) for the per-agent entry points.
 
+`/github_kit` works entirely from local files and never requires network access. This repo's
+reusable workflows separately auto-track `pzoli6/github-kit@main` (see "Always-latest main
+channel" in `README.md` and `github-kit ref` in `docs/ai/PROJECT_CONFIG.md`) — but the *local*
+bootstrap files (this file included) only refresh when `/github_kit_update` is run explicitly
+(`.claude/skills/github_kit_update/SKILL.md`, `.agents/skills/github_kit_update/SKILL.md`). Don't
+assume local files are current with `github-kit/main` just because the reusable workflows are.
+
 ## Issue-to-PR workflow
 
 Every implementation task follows the same lifecycle, regardless of which agent or human is

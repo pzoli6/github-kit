@@ -24,10 +24,10 @@ check_file() {
 
 check_phrase() {
   local phrase="$1"
-  if grep -RFq -- "$phrase" \
+  if grep -RFq \
       --include='*.md' --include='*.yml' --include='*.yaml' \
       --exclude-dir=node_modules --exclude-dir=.git --exclude-dir=dist --exclude-dir=build \
-      . 2>/dev/null; then
+      -- "$phrase" . 2>/dev/null; then
     echo "OK      phrase: $phrase"
   else
     echo "MISSING phrase: $phrase"
@@ -69,6 +69,7 @@ fi
 
 check_phrase "approve issue-to-pr-project"
 check_phrase "/github_kit"
+check_phrase "git add ."
 check_phrase "Plan Review"
 check_phrase "Ready"
 check_phrase "In Progress"
@@ -77,6 +78,37 @@ check_phrase "Changes Requested"
 check_phrase "Validation"
 check_phrase "Handoff"
 check_phrase "Last Agent Update"
+
+# --- github-kit ref: this repo may auto-track @main (default) or deliberately pin via
+# docs/ai/PROJECT_CONFIG.md's "github-kit ref" key. Either is fine; what matters is that the
+# caller workflows' uses: lines agree with whatever PROJECT_CONFIG.md says.
+
+PROJECT_REF=""
+if [ -f "docs/ai/PROJECT_CONFIG.md" ]; then
+  if grep -Fq "github-kit ref" docs/ai/PROJECT_CONFIG.md; then
+    echo "OK      docs/ai/PROJECT_CONFIG.md documents github-kit ref"
+  else
+    echo "MISSING docs/ai/PROJECT_CONFIG.md key: github-kit ref"
+    missing=1
+  fi
+  PROJECT_REF="$(grep -F 'github-kit ref' docs/ai/PROJECT_CONFIG.md | head -1 | sed -E 's/.*`([^`]+)`.*/\1/')"
+fi
+EXPECTED_REF="${PROJECT_REF:-main}"
+
+ref_ok=1
+for wf in .github/workflows/agent-workflow-verify.yml .github/workflows/pr-policy.yml \
+          .github/workflows/ci-node.yml .github/workflows/ci-python.yml; do
+  [ -e "$wf" ] || continue
+  if ! grep -Eq "uses: pzoli6/github-kit/.*@${EXPECTED_REF}([[:space:]]|\$)" "$wf"; then
+    echo "MISMATCH workflow ref in $wf (expected @$EXPECTED_REF per docs/ai/PROJECT_CONFIG.md \"github-kit ref\")"
+    ref_ok=0
+  fi
+done
+if [ "$ref_ok" -eq 1 ]; then
+  echo "OK      caller workflows reference @$EXPECTED_REF"
+else
+  missing=1
+fi
 
 echo
 if [ "$missing" -ne 0 ]; then

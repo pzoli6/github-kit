@@ -53,8 +53,12 @@ scoped to its own task.)
 
 This repo also carries its own root copies of the `/github_kit` fast-path adapters (`.claude/
 commands/github_kit.md`, `.claude/skills/github_kit/SKILL.md`, `.agents/skills/github_kit/
-SKILL.md`, `.cursor/rules/github-kit-command.mdc`) so that working on `github-kit` itself dogfoods
-the same trigger every target repo gets — see `templates/docs/ai/AGENT_WORKFLOW.md` → "Fast-path
-trigger: /github_kit" for the spec.
+SKILL.md`, `.cursor/rules/github-kit-command.mdc`) and the `/github_kit_update` skill (`.claude/
+skills/github_kit_update/SKILL.md`, `.agents/skills/github_kit_update/SKILL.md`) so that working on
+`github-kit` itself dogfoods the same triggers every target repo gets — see
+`templates/docs/ai/AGENT_WORKFLOW.md` → "Fast-path trigger: /github_kit" and "Local bootstrap
+refresh: /github_kit_update" for the spec. Note that `github-kit`'s own root `AGENTS.md`/`CLAUDE.md`
+are this repo's *own* instruction files, not copies installed from `templates/` — `/github_kit_update`
+would have nothing meaningful to refresh against them, since this repo doesn't install itself.
 
 Agents must not push to `main`, merge PRs, modify Actions access settings, or commit secrets.

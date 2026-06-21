@@ -130,31 +130,28 @@ if (-not $deprecatedFound) {
 
 Write-Host ""
 
-# --- no literal @main in template caller workflows ---------------------------
+# --- template caller workflows use literal @main (always-latest channel) ----
 
-$callerFiles = & git ls-files -- 'templates/.github/workflows/*.yml'
-$mainFound = $false
-foreach ($f in $callerFiles) {
-    $matches = Select-String -Path $f -Pattern 'pzoli6/github-kit/.*@main' -ErrorAction SilentlyContinue
-    if ($matches) {
-        $matches | ForEach-Object { Write-Host "FLOATING @main in: $($_.Path):$($_.LineNumber): $($_.Line.Trim())" }
-        $mainFound = $true
-    }
-}
-if (-not $mainFound) {
-    Write-Host "OK      no floating @main refs in template caller workflows"
+$callerFiles = Get-ChildItem -Path "templates/.github/workflows" -Filter "*.yml" -ErrorAction SilentlyContinue
+$mainFiles = $callerFiles | Where-Object { (Get-Content -LiteralPath $_.FullName -Raw) -match 'pzoli6/github-kit/.*@main' }
+if ($mainFiles.Count -ge 4) {
+    Write-Host "OK      caller workflow templates use literal @main ($($mainFiles.Count) files)"
 } else {
-    Write-Host "FAILED  template caller workflows must use @GITHUB_KIT_VERSION, not @main (see above)"
+    Write-Host "MISSING literal @main in template caller workflows (found in $($mainFiles.Count) files, need >= 4)"
     $script:Missing = 1
 }
 
-$placeholderFiles = Get-ChildItem -Path "templates/.github/workflows" -Filter "*.yml" -ErrorAction SilentlyContinue |
-    Where-Object { (Get-Content -LiteralPath $_.FullName -Raw) -match 'GITHUB_KIT_VERSION' }
-if ($placeholderFiles.Count -ge 4) {
-    Write-Host "OK      caller workflows use the @GITHUB_KIT_VERSION placeholder ($($placeholderFiles.Count) files)"
-} else {
-    Write-Host "MISSING @GITHUB_KIT_VERSION placeholder in template caller workflows"
+$placeholderToken = "@GITHUB_KIT_VERSION"
+$placeholderHit = Get-ChildItem -Recurse -File -Include *.md,*.yml,*.yaml,*.sh,*.ps1 -ErrorAction SilentlyContinue |
+    Where-Object { $_.FullName -notmatch '\\(node_modules|\.git|dist|build)\\' } |
+    Where-Object { $_.Name -ne 'doctor-github-kit.sh' -and $_.Name -ne 'doctor-github-kit.ps1' } |
+    Select-String -SimpleMatch $placeholderToken -ErrorAction SilentlyContinue |
+    Select-Object -First 1
+if ($placeholderHit) {
+    Write-Host "FAILED  stale unsubstituted $placeholderToken placeholder still present (run: Select-String -Path **/* -SimpleMatch $placeholderToken)"
     $script:Missing = 1
+} else {
+    Write-Host "OK      no stale unsubstituted $placeholderToken placeholder remains"
 }
 
 Write-Host ""
