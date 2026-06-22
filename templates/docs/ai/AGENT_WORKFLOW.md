@@ -201,3 +201,50 @@ access to the GitHub API:
   or inconsistent, rather than assuming the workflow was skipped carelessly.
 - Never silently skip a required Project update because the script failed — either do it by hand
   or say explicitly in the handoff file that it still needs to happen.
+
+## GitHub relationships and development links
+
+Declare a real relationship between issues/PRs when one genuinely exists in Phase 3 or Phase 7 —
+but never invent one just to fill a field. `gh` (2.78.0) has no dedicated sub-issue/blocked-by/
+blocking subcommand; record real relationships as plain body-text references instead:
+
+```text
+Blocked by #12
+Blocks #15
+Part of #10
+```
+
+If no real relationship exists for a task, write this exact line in the issue or PR body rather
+than leaving the question unaddressed:
+
+```text
+Relationships: none declared
+```
+
+An issue's "Development" sidebar section links automatically once Phase 7's
+`scripts/project/create_agent_pr.sh` opens the PR — its `Closes #<n>` body line is what GitHub
+uses to associate the PR with the issue, no extra step required. To get a branch linked under
+Development *before* a PR exists, create it with `gh issue develop` instead of Phase 4's
+`scripts/project/publish_agent_branch.sh` (the two are alternatives, not complementary — `gh issue
+develop` creates the branch itself):
+
+```bash
+gh issue develop <issue-number> --name <agent/branch-name> [--branch-repo <owner/repo>]
+```
+
+## Notifications and participation
+
+`gh` has no command to directly subscribe a person to issue/PR notifications. Get the right people
+notified by participating them in the thread instead — assigning, requesting review, and
+@mentioning all trigger GitHub's normal notification delivery:
+
+```text
+Notifications: ensured through assignment
+```
+
+Phase 3's `scripts/project/create_agent_issue.sh` and Phase 7's `scripts/project/
+create_agent_pr.sh` set `--assignee` (and, for PRs, `--reviewer`) by default for exactly this
+reason — being assigned or requested as reviewer is what puts someone "on notifications" for that
+item; there is no separate subscribe step. If neither an assignee nor a reviewer is configured for
+this repo, say so in the issue/PR body and `@mention` the relevant person instead of assuming
+they'll see it.

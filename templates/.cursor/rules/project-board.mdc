@@ -36,13 +36,32 @@ Field vocabularies:
   `Mixed`
 - `Risk`: `Low`, `Medium`, `High`
 
-Update fields with the helper scripts rather than guessing at the GraphQL/CLI calls yourself:
+Update fields with the helper scripts rather than guessing at the GraphQL/CLI calls yourself.
+`scripts/project/create_agent_issue.sh` and `scripts/project/create_agent_pr.sh` create the
+issue/PR with full sidebar metadata (assignee, labels, milestone, reviewer) and add it to the
+Project in one call; `scripts/project/publish_agent_branch.sh` pushes the agent branch to `origin`
+immediately and updates `Status`/`Branch`. For every later checkpoint, prefer
+`scripts/project/sync_project_fields.sh <checkpoint> <issue-url> [text]` over calling
+`project_set_status.sh`/`project_set_text.sh` directly — it's the single place that maps a workflow
+checkpoint (`branch_published`, `implementation_started`, `blocked`, `validation_passed`,
+`handoff_updated`, `pr_opened`, `changes_requested`, `done`, `cancelled`, etc.) to the right
+`Status`/field update, so checkpoints stay consistent across agents:
 
 ```bash
-scripts/project/project_add_item.sh <issue-or-pr-url>
-scripts/project/project_set_status.sh <issue-or-pr-url> <Status>
-scripts/project/project_set_text.sh <issue-or-pr-url> "<Field Name>" "<value>"
+scripts/project/create_agent_issue.sh --title "<title>" --body-file <path>
+scripts/project/publish_agent_branch.sh --issue <issue-url> --slug <short-description>
+scripts/project/sync_project_fields.sh <checkpoint> <issue-or-pr-url> [text]
+scripts/project/create_agent_pr.sh --issue <issue-url> --base <base> --head <branch> \
+  --title "<title>" --body-file <path>
 ```
+
+The lower-level scripts (`project_add_item.sh`, `project_set_status.sh`, `project_set_text.sh`)
+still exist and are what the scripts above delegate to — call them directly only for one-off field
+edits that don't correspond to a documented checkpoint.
+
+Standard `status:`/`type:`/`risk:`/`agent:` labels are created and kept up to date by
+`scripts/project/create_standard_labels.sh` (idempotent — safe to re-run); `create_agent_issue.sh`
+and `create_agent_pr.sh` call it automatically, best-effort, before creating the issue/PR.
 
 If `Status` becomes `Blocked`, always say why (in the issue, PR, or handoff file) — a blocked item
 with no explanation isn't acceptable.

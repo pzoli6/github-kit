@@ -40,6 +40,28 @@ Project + `AGENT_PROJECT_TOKEN` secret — see "When Project Sync isn't enabled"
 Free plan (a platform limitation, not a config you can flip) — see "Free-tier limitations" in
 `AGENT_WORKFLOW.md`.
 
+## GitHub metadata defaults
+
+Defaults that `scripts/project/create_agent_issue.sh` and `scripts/project/create_agent_pr.sh`
+apply automatically, so issue/PR sidebar metadata (assignee, labels, milestone) is never left
+blank. Configure the real values in `docs/ai/PROJECT_CONFIG.env` (copy from `.env.example`) — this
+table documents what's expected, it isn't read directly by scripts.
+
+| Key | Value |
+|---|---|
+| Default issue assignee | `@me` |
+| Default PR assignee | `@me` |
+| Default reviewer | TBD |
+| Default issue labels | `status:ready-for-agent,type:agent-task` |
+| Default PR labels | `type:agent-task` |
+| Default milestone | TBD |
+
+`Default reviewer` and `Default milestone` are `TBD` until this repo configures them — leave the
+matching env var blank rather than guessing a real username or milestone title.
+`create_agent_issue.sh`/`create_agent_pr.sh` skip a flag entirely when its value is empty or `TBD`;
+they never fabricate one. If `Default milestone` is set but that milestone doesn't exist yet in
+this repo's GitHub Issues, the scripts stop and ask rather than silently creating or skipping it.
+
 ## Validation commands
 
 List the exact commands an agent must run before opening a PR. Keep this list accurate — agents

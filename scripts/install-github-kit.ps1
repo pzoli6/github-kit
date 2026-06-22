@@ -289,7 +289,7 @@ foreach ($rule in @("agent-workflow", "git-safety", "project-board", "github-kit
 
 # --- scripts/project/ --------------------------------------------------
 
-foreach ($script in @("project_add_item", "project_set_status", "project_set_text", "verify_agent_workflow", "create_standard_labels")) {
+foreach ($script in @("project_add_item", "project_set_status", "project_set_text", "verify_agent_workflow", "create_standard_labels", "create_agent_issue", "publish_agent_branch", "sync_project_fields", "create_agent_pr")) {
     Copy-IfMissing (Join-Path $Templates "scripts/project/$script.sh") "scripts/project/$script.sh"
 }
 

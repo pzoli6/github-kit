@@ -43,6 +43,10 @@ when local files seem stale, not as part of routine `/github_kit` runs.
   always a human action.
 - **Never push directly to the base or production branch**, and never run `git add -A` / `git add
   .` — stage explicit files only, per `AGENTS.md`.
+- **Declare relationships explicitly.** If an issue/PR is blocked by, blocks, or is part of
+  another, say so in the body (`Blocked by #12`); otherwise write `Relationships: none declared`
+  rather than leaving it unaddressed. See `AGENTS.md` → "GitHub relationships and development
+  links".
 
 <!-- BEGIN GITHUB-KIT UNIVERSAL WORKFLOW -->
 ## Universal AI-Agent Workflow

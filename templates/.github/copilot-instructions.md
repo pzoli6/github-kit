@@ -19,6 +19,9 @@ Follow that workflow exactly:
   "Fast-path trigger: /github_kit" for the scope and limits of that exception.
 - Open PRs as drafts targeting the base branch from `docs/ai/PROJECT_CONFIG.md`. Never merge.
 - Keep the Project's `Status`, `Validation`, and `Last Agent Update` fields current as you work.
+- Declare real issue/PR relationships in the body (`Blocked by #N`, `Blocks #N`, `Part of #N`);
+  otherwise write `Relationships: none declared`. See `AGENTS.md` → "GitHub relationships and
+  development links".
 - Before stopping mid-task, write `docs/ai/handoffs/issue-<number>.md` so another agent (or a
   human) can continue without re-deriving context.
 - This repo's reusable workflows auto-track `pzoli6/github-kit@main` (the always-latest channel) —

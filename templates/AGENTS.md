@@ -239,6 +239,51 @@ concurrent edits to any shared index.
 - Target the base branch configured in `docs/ai/PROJECT_CONFIG.md`, not the production branch,
   unless the task is an explicitly approved hotfix.
 
+## GitHub relationships and development links
+
+Record a real relationship between issues/PRs when one genuinely exists — but never invent one
+just to fill a field. `gh` (2.78.0) has no dedicated sub-issue/blocked-by/blocking subcommand;
+record real relationships as plain body-text references instead:
+
+```text
+Blocked by #12
+Blocks #15
+Part of #10
+```
+
+If no real relationship exists for a task, say so explicitly rather than leaving the question
+unaddressed — write this exact line in the issue or PR body:
+
+```text
+Relationships: none declared
+```
+
+An issue's "Development" sidebar section links automatically once `scripts/project/
+create_agent_pr.sh` opens a PR — its `Closes #<n>` body line is what GitHub uses to associate the
+PR with the issue, no extra step required. To get a branch linked under Development *before* a PR
+exists, create it with `gh issue develop` instead of `scripts/project/publish_agent_branch.sh` (the
+two are alternatives, not complementary — `gh issue develop` creates the branch itself):
+
+```bash
+gh issue develop <issue-number> --name <agent/branch-name> [--branch-repo <owner/repo>]
+```
+
+## Notifications and participation
+
+`gh` has no command to directly subscribe a person to issue/PR notifications. Get the right people
+notified by participating them in the thread instead — assigning, requesting review, and
+@mentioning all trigger GitHub's normal notification delivery:
+
+```text
+Notifications: ensured through assignment
+```
+
+`scripts/project/create_agent_issue.sh` and `scripts/project/create_agent_pr.sh` set `--assignee`
+(and, for PRs, `--reviewer`) by default for exactly this reason — being assigned or requested as
+reviewer is what puts someone "on notifications" for that item; there is no separate subscribe
+step. If neither an assignee nor a reviewer is configured for this repo, say so in the issue/PR
+body and `@mention` the relevant person instead of assuming they'll see it.
+
 ## Human authority
 
 - Humans approve plans, review PRs, and merge. No agent merges its own PR or anyone else's.

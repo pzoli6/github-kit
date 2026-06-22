@@ -16,7 +16,8 @@ Everything else about the workflow is unchanged from `agent-workflow.mdc`: still
 plan, still create the GitHub issue and track it on the Project, still branch with the configured
 agent prefix, still validate with the commands in `docs/ai/PROJECT_CONFIG.md`, still open the PR as
 **draft** using `.github/PULL_REQUEST_TEMPLATE.md`, still never merge or push to the base/production
-branch, still write a handoff file before stopping mid-task.
+branch, still declare real issue/PR relationships or write `Relationships: none declared`, still
+write a handoff file before stopping mid-task.
 
 This trigger is additive — `approve issue-to-pr-project` remains the default gate for any task not
 invoked via `/github_kit`. See `docs/ai/AGENT_WORKFLOW.md` → "Fast-path trigger: /github_kit" for

@@ -16,12 +16,20 @@ replacement.
   `/github_kit <task>`, which is itself the approval for that task; see
   `.cursor/rules/github-kit-command.mdc` and `docs/ai/AGENT_WORKFLOW.md` → "Fast-path trigger:
   /github_kit".
-- Once approved: create/locate the GitHub issue, add it to the configured Project, branch with the
-  configured agent prefix (default `agent/`) from the configured base branch, implement only what
-  was approved, validate with the commands in `docs/ai/PROJECT_CONFIG.md`, and open a **draft** PR
-  using `.github/PULL_REQUEST_TEMPLATE.md`.
-- Keep the Project's `Status`, `Validation`, and `Last Agent Update` fields current via
-  `scripts/project/project_set_status.sh` / `project_set_text.sh` as you move through phases.
+- Once approved: create the GitHub issue with `scripts/project/create_agent_issue.sh` (fills
+  assignee/labels/milestone and adds it to the Project), push the agent branch immediately with
+  `scripts/project/publish_agent_branch.sh` (default prefix `agent/`, from the configured base
+  branch) **before** writing implementation code, implement only what was approved, validate with
+  the commands in `docs/ai/PROJECT_CONFIG.md`, and open a **draft** PR with
+  `scripts/project/create_agent_pr.sh` using `.github/PULL_REQUEST_TEMPLATE.md`.
+- Keep the Project's `Status`, `Validation`, and `Last Agent Update` fields current by calling
+  `scripts/project/sync_project_fields.sh <checkpoint> <issue-url> [text]` at each workflow
+  checkpoint as you move through phases, rather than calling `project_set_status.sh`/
+  `project_set_text.sh` directly.
+- Declare real issue/PR relationships in the body (`Blocked by #N`, `Blocks #N`, `Part of #N`) or
+  write `Relationships: none declared`; rely on `--assignee`/`--reviewer` (set by the scripts
+  above) for notifications rather than assuming a separate subscribe step exists. See `AGENTS.md`
+  → "GitHub relationships and development links" / "Notifications and participation".
 - Before stopping mid-task (context limit, end of session, or handing off to a different agent or
   tool), write `docs/ai/handoffs/issue-<number>.md` describing current state, what's left, and the
   next step.

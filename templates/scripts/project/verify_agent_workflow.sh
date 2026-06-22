@@ -47,6 +47,10 @@ check_file "scripts/project/project_add_item.sh"
 check_file "scripts/project/project_set_status.sh"
 check_file "scripts/project/project_set_text.sh"
 check_file "scripts/project/verify_agent_workflow.sh"
+check_file "scripts/project/create_agent_issue.sh"
+check_file "scripts/project/publish_agent_branch.sh"
+check_file "scripts/project/sync_project_fields.sh"
+check_file "scripts/project/create_agent_pr.sh"
 
 if [ "$REQUIRE_CLAUDE" = "true" ]; then
   check_file "CLAUDE.md"
@@ -78,6 +82,8 @@ check_phrase "Changes Requested"
 check_phrase "Validation"
 check_phrase "Handoff"
 check_phrase "Last Agent Update"
+check_phrase "Relationships: none declared"
+check_phrase "Notifications: ensured through assignment"
 
 # --- github-kit ref: this repo may auto-track @main (default) or deliberately pin via
 # docs/ai/PROJECT_CONFIG.md's "github-kit ref" key. Either is fine; what matters is that the

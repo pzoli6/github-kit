@@ -66,6 +66,34 @@ phase-by-phase specification (including free-tier limitations, pausing/resuming 
 limits, and the manual-Project-update fallback), and [`templates/AGENTS.md`](templates/AGENTS.md)
 for the rules every agent must follow.
 
+## Remote-first metadata workflow
+
+An agent branch, issue, or PR with blank sidebar metadata is easy to lose track of — no assignee
+means no notification, no labels means it's invisible to filters, and a branch that only exists
+locally can vanish with the worktree. `github-kit` closes those gaps with four scripts in
+`templates/scripts/project/` that every agent workflow now calls instead of raw `gh` commands:
+
+| Script | When | What it fills in |
+|---|---|---|
+| `create_agent_issue.sh` | Creating the tracking issue | assignee, labels, milestone, adds the issue to the Project |
+| `publish_agent_branch.sh` | Immediately after the issue exists, **before any implementation code** | pushes the agent branch to `origin` right away — never local-only |
+| `sync_project_fields.sh <checkpoint> <issue-or-pr-url> [text]` | At each workflow checkpoint (issue created, branch pushed, PR opened, review states, done) | `Status`, `Validation`, `Last Agent Update`, and other Project fields, in one call |
+| `create_agent_pr.sh` | Opening the draft PR | assignee, reviewer, labels, milestone, adds the PR to the Project |
+
+Two policies apply alongside these scripts:
+
+- **Relationships.** Every issue/PR body either declares real relationships (`Blocked by #12`,
+  `Blocks #34`, `Part of #5`) or states `Relationships: none declared` — never silence on the
+  question. See `templates/AGENTS.md` → "GitHub relationships and development links".
+- **Notifications.** Agents rely on `--assignee`/`--reviewer` (set by the scripts above) to ensure
+  the right humans are notified, rather than assuming a separate subscribe/watch step exists. See
+  `templates/AGENTS.md` → "Notifications and participation".
+
+`scripts/project/verify_agent_workflow.sh` (and its CI mirror,
+`.github/workflows/reusable-agent-workflow-verify.yml`) checks that all four scripts are present
+and that both policy phrases appear somewhere in the repo, so a repo can't silently drift back to
+the old late-push, blank-metadata pattern.
+
 ## Always-latest main channel
 
 By default, `install-github-kit.sh`/`.ps1` write caller `uses:` lines as literal
