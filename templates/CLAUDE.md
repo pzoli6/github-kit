@@ -29,7 +29,7 @@ when local files seem stale, not as part of routine `/github_kit` runs.
 ## Non-negotiable behaviors for Claude Code specifically
 
 - **Plan first, then stop — unless invoked via `/github_kit`.** For any non-trivial task, produce a
-  plan and wait for the human to reply with `approve issue-to-pr-project` before creating a branch,
+  plan and wait for the human to reply with `approve` before creating a branch,
   writing code, or running installer/update scripts. Don't treat a description of the problem as
   approval to implement. The one exception: if the human's message is itself `/github_kit <task>`,
   that invocation is the approval for `<task>` — proceed per `.claude/skills/github_kit/SKILL.md`
@@ -63,7 +63,7 @@ User task → plan → human approval → GitHub issue → Project update → ag
 
 Required approval phrase:
 ```text
-approve issue-to-pr-project
+approve
 ```
 
 Fast path: `/github_kit <task>` is a pre-approved alternative entry point — the invocation itself is the approval for the described task, scoped to that task only. See `docs/ai/AGENT_WORKFLOW.md` → "Fast-path trigger: /github_kit".

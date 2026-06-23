@@ -23,19 +23,28 @@ Read, in this repo:
 ## Steps
 
 1. **Plan.** Write a concrete plan: files touched, approach, explicit non-goals. Do not implement
-   yet.
+   yet. If the task naturally decomposes into independent pieces, propose that breakdown as a
+   numbered list instead of picking one — see "Splitting a task into sub-tasks" in `AGENTS.md`.
 2. **Stop for approval.** Wait for the human to reply exactly:
    ```text
-   approve issue-to-pr-project
+   approve
    ```
-   Do not proceed past this point without it.
+   If you proposed a numbered sub-task breakdown in step 1, also accept `approve all` (run every
+   sub-task in sequence without stopping again) or `approve 1,3` (only the listed numbers). Do not
+   proceed past this point without one of these replies.
 3. **Create the issue with full metadata.**
    ```bash
-   scripts/project/create_agent_issue.sh --title "<title>" --body-file <path>
+   scripts/project/create_agent_issue.sh --title "<title>" --body-file <path> \
+     --agent "<name>" --area "<area>" --risk "<Low|Medium|High>" --environment "<env>" \
+     [--parent <parent-issue>]
    ```
-   This fills assignee/labels/milestone from `docs/ai/PROJECT_CONFIG.env` defaults (never leaves
-   them blank), adds the issue to the configured Project, and sets `Status` to `Ready` itself —
-   no separate `project_add_item.sh`/`project_set_status.sh` call needed.
+   Always pass `--agent`/`--area`/`--risk`/`--environment` explicitly — don't rely on the
+   `AGENT_DEFAULT_*` fallback in `docs/ai/PROJECT_CONFIG.env` to fill them in. This fills
+   assignee/labels/milestone from `docs/ai/PROJECT_CONFIG.env` defaults (never leaves them blank),
+   adds the issue to the configured Project, sets `Status` to `Ready`, and sets `Agent`/`Area`/
+   `Risk`/`Environment` itself — no separate `project_add_item.sh`/`project_set_status.sh`/
+   `project_set_text.sh` call needed. Pass `--parent <parent-issue>` when this issue is one of an
+   `approve all`/`approve 1,3` sub-task breakdown, to link it as a real GitHub sub-issue.
 4. **Declare relationships.** If this task is genuinely blocked by, blocks, or is part of another
    issue, say so in the issue body (`Blocked by #12`, `Blocks #15`, `Part of #10`). Otherwise write
    `Relationships: none declared` — never leave the question unaddressed. See `AGENTS.md` →
@@ -78,12 +87,16 @@ Read, in this repo:
 15. **Open a draft PR with full metadata.**
     ```bash
     scripts/project/create_agent_pr.sh --issue <issue-url> --base <base-branch> --head <branch> \
-      --title "<title>" --body-file <path>
+      --title "<title>" --body-file <path> --agent "<name>" --area "<area>" \
+      --risk "<Low|Medium|High>" --environment "<env>" --agent-run "<url>" --handoff "<note>"
     ```
-    This fills assignee/labels/milestone/reviewer from defaults, injects `Closes #<n>` into the
-    body if missing, fills in `.github/PULL_REQUEST_TEMPLATE.md` sections by hand before passing
-    `--body-file`, adds the PR to the Project, comments the PR URL on the issue, and sets the
-    issue's `Status` to `In Review` and `PR URL` itself.
+    Pass `--agent`/`--area`/`--risk`/`--environment` explicitly (same values as step 3), plus
+    `--agent-run` and `--handoff` for this PR. This fills assignee/labels/milestone/reviewer from
+    defaults, injects `Closes #<n>` into the body if missing, fills in
+    `.github/PULL_REQUEST_TEMPLATE.md` sections by hand before passing `--body-file`, adds the PR
+    to the Project, comments the PR URL on the issue, and sets the issue's `Status` to `In Review`,
+    `PR URL`, `Agent`, `Area`, `Risk`, `Environment`, `Agent Run`, and `Handoff` itself. See
+    "Field-completeness checklist" in `AGENTS.md` → "Project fields" for the full mapping.
 16. **Confirm notifications are covered.** Step 15's `--assignee`/`--reviewer` is what notifies
     people — there's no separate subscribe step (`gh` has none). If neither is configured for this
     repo, `@mention` the relevant person directly in the issue/PR body instead of assuming they'll
@@ -111,6 +124,9 @@ Read, in this repo:
 - Never leave issue/PR sidebar metadata (assignee, labels, milestone) blank when
   `docs/ai/PROJECT_CONFIG.env` has a default configured — use `create_agent_issue.sh`/
   `create_agent_pr.sh`, not raw `gh issue create`/`gh pr create`.
+- Never omit `--agent`/`--area`/`--risk`/`--environment` from `create_agent_issue.sh`/
+  `create_agent_pr.sh` — a blank Project metadata field after either script ran is a bug in this
+  workflow, not expected behavior.
 - Never leave the relationships question unaddressed — declare a real one or write
   `Relationships: none declared`.
 - Never merge a PR.

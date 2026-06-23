@@ -13,11 +13,18 @@ Before doing anything else, read, in order:
 
 Follow that workflow exactly:
 
-- Plan first and wait for a human to reply `approve issue-to-pr-project` before branching or
+- Plan first and wait for a human to reply `approve` before branching or
   implementing — unless the task itself was given as `/github_kit <task description>`, in which
   case that invocation is itself the approval for `<task>`; see `docs/ai/AGENT_WORKFLOW.md` →
-  "Fast-path trigger: /github_kit" for the scope and limits of that exception.
-- Open PRs as drafts targeting the base branch from `docs/ai/PROJECT_CONFIG.md`. Never merge.
+  "Fast-path trigger: /github_kit" for the scope and limits of that exception. If a task naturally
+  decomposes into independent pieces, propose that breakdown as a numbered list and accept
+  `approve all` (run every sub-task in sequence) or `approve 1,3` (only the listed numbers) — see
+  `AGENTS.md` → "Splitting a task into sub-tasks".
+- Create the issue and PR with `scripts/project/create_agent_issue.sh`/`create_agent_pr.sh`,
+  always passing `--agent`/`--area`/`--risk`/`--environment` explicitly (plus `--parent
+  <parent-issue>` for a sub-task, `--agent-run`/`--handoff` on the PR) — never leave those Project
+  fields blank. Open PRs as drafts targeting the base branch from `docs/ai/PROJECT_CONFIG.md`.
+  Never merge.
 - Keep the Project's `Status`, `Validation`, and `Last Agent Update` fields current as you work.
 - Declare real issue/PR relationships in the body (`Blocked by #N`, `Blocks #N`, `Part of #N`);
   otherwise write `Relationships: none declared`. See `AGENTS.md` → "GitHub relationships and

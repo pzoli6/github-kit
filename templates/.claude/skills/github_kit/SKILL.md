@@ -1,6 +1,6 @@
 ---
 name: github_kit
-description: Fast-path variant of issue-to-pr-project — run the full issue-to-PR-Project workflow for a task, treating the /github_kit invocation itself as the human's approval for that task instead of waiting for a separate "approve issue-to-pr-project" reply. Use when a user explicitly invokes /github_kit <task> with a task description.
+description: Fast-path variant of issue-to-pr-project — run the full issue-to-PR-Project workflow for a task, treating the /github_kit invocation itself as the human's approval for that task instead of waiting for a separate "approve" reply. Use when a user explicitly invokes /github_kit <task> with a task description.
 ---
 
 # github_kit
@@ -45,17 +45,28 @@ instruction files may lag behind `github-kit/main` until someone runs `/github_k
    same task (e.g. resuming after a pause) is fine; say so explicitly before continuing.
 3. **Treat the invocation as approval — do not stop.** The literal `/github_kit <task>` invocation
    *is* the human's approval for the task described in `<task>`, scoped strictly to that
-   description. Proceed straight to step 4 without waiting for `approve issue-to-pr-project`. If
+   description. Proceed straight to step 4 without waiting for `approve`. If
    you discover mid-task that the work needs to expand beyond what `<task>` described, stop and use
-   the normal approval gate (`approve issue-to-pr-project`) for the expanded part only — the
-   auto-approval never covers scope it didn't describe.
+   the normal approval gate (`approve`) for the expanded part only — the
+   auto-approval never covers scope it didn't describe. If `<task>` naturally decomposes into
+   independent pieces that all stay within what was described, you may split it into multiple
+   issues/PRs (linked with `--parent`, step 4) without asking again — splitting alone doesn't
+   expand scope. If a decomposition would expand scope, present it as a numbered breakdown and use
+   the `approve all`/`approve 1,3` gate from `AGENTS.md` → "Splitting a task into sub-tasks" for the
+   extra scope only.
 4. **Create the issue with full metadata.**
    ```bash
-   scripts/project/create_agent_issue.sh --title "<title>" --body-file <path>
+   scripts/project/create_agent_issue.sh --title "<title>" --body-file <path> \
+     --agent "<name>" --area "<area>" --risk "<Low|Medium|High>" --environment "<env>" \
+     [--parent <parent-issue>]
    ```
-   This fills assignee/labels/milestone from `docs/ai/PROJECT_CONFIG.env` defaults (never leaves
-   them blank), adds the issue to the configured Project, and sets `Status` to `Ready` itself —
-   no separate `project_add_item.sh`/`project_set_status.sh` call needed.
+   Always pass `--agent`/`--area`/`--risk`/`--environment` explicitly — don't rely on the
+   `AGENT_DEFAULT_*` fallback in `docs/ai/PROJECT_CONFIG.env` to fill them in. This fills
+   assignee/labels/milestone from `docs/ai/PROJECT_CONFIG.env` defaults (never leaves them blank),
+   adds the issue to the configured Project, sets `Status` to `Ready`, and sets `Agent`/`Area`/
+   `Risk`/`Environment` itself — no separate `project_add_item.sh`/`project_set_status.sh`/
+   `project_set_text.sh` call needed. Pass `--parent <parent-issue>` when this issue is one of a
+   sub-task breakdown.
 5. **Declare relationships.** If this task is genuinely blocked by, blocks, or is part of another
    issue, say so in the issue body (`Blocked by #12`, `Blocks #15`, `Part of #10`). Otherwise write
    `Relationships: none declared` — never leave the question unaddressed. See `AGENTS.md` →
@@ -98,12 +109,16 @@ instruction files may lag behind `github-kit/main` until someone runs `/github_k
 16. **Open a draft PR with full metadata.**
     ```bash
     scripts/project/create_agent_pr.sh --issue <issue-url> --base <base-branch> --head <branch> \
-      --title "<title>" --body-file <path>
+      --title "<title>" --body-file <path> --agent "<name>" --area "<area>" \
+      --risk "<Low|Medium|High>" --environment "<env>" --agent-run "<url>" --handoff "<note>"
     ```
-    This fills assignee/labels/milestone/reviewer from defaults, injects `Closes #<n>` into the
-    body if missing, fills in `.github/PULL_REQUEST_TEMPLATE.md` sections by hand before passing
-    `--body-file`, adds the PR to the Project, comments the PR URL on the issue, and sets the
-    issue's `Status` to `In Review` and `PR URL` itself.
+    Pass `--agent`/`--area`/`--risk`/`--environment` explicitly (same values as step 4), plus
+    `--agent-run` and `--handoff` for this PR. This fills assignee/labels/milestone/reviewer from
+    defaults, injects `Closes #<n>` into the body if missing, fills in
+    `.github/PULL_REQUEST_TEMPLATE.md` sections by hand before passing `--body-file`, adds the PR
+    to the Project, comments the PR URL on the issue, and sets the issue's `Status` to `In Review`,
+    `PR URL`, `Agent`, `Area`, `Risk`, `Environment`, `Agent Run`, and `Handoff` itself. See
+    "Field-completeness checklist" in `AGENTS.md` → "Project fields" for the full mapping.
 17. **Confirm notifications are covered.** Step 16's `--assignee`/`--reviewer` is what notifies
     people — there's no separate subscribe step (`gh` has none). If neither is configured for this
     repo, `@mention` the relevant person directly in the issue/PR body instead of assuming they'll
@@ -137,6 +152,9 @@ instruction files may lag behind `github-kit/main` until someone runs `/github_k
 - Never leave issue/PR sidebar metadata (assignee, labels, milestone) blank when
   `docs/ai/PROJECT_CONFIG.env` has a default configured — use `create_agent_issue.sh`/
   `create_agent_pr.sh`, not raw `gh issue create`/`gh pr create`.
+- Never omit `--agent`/`--area`/`--risk`/`--environment` from `create_agent_issue.sh`/
+  `create_agent_pr.sh` — a blank Project metadata field after either script ran is a bug in this
+  workflow, not expected behavior.
 - Never leave the relationships question unaddressed — declare a real one or write
   `Relationships: none declared`.
 - Never merge a PR.

@@ -175,7 +175,7 @@ User task → plan → human approval → GitHub issue → Project update → ag
 
 Required approval phrase:
 ```text
-approve issue-to-pr-project
+approve
 ```
 
 Fast path: `/github_kit <task>` is a pre-approved alternative entry point — the invocation itself is the approval for the described task, scoped to that task only. See `docs/ai/AGENT_WORKFLOW.md` → "Fast-path trigger: /github_kit".

@@ -173,9 +173,38 @@ if ($installerContent -match 'INCLUDE_PROJECT_SYNC' -and $installerContent -matc
 
 Write-Host ""
 
+# --- opt-in Project field completeness gate: wired into reusable-pr-policy.yml, the caller -------
+# template, and PROJECT_CONFIG.md docs (see "Project field completeness gate (CI)") ---------------
+
+$reusablePrPolicy = Get-Content -LiteralPath ".github/workflows/reusable-pr-policy.yml" -Raw -ErrorAction SilentlyContinue
+if ($reusablePrPolicy -match 'check_project_fields' -and $reusablePrPolicy -match 'project-fields:') {
+    Write-Host "OK      reusable-pr-policy.yml has the check_project_fields input and project-fields job"
+} else {
+    Write-Host "MISSING check_project_fields input / project-fields job in .github/workflows/reusable-pr-policy.yml"
+    $script:Missing = 1
+}
+
+$callerPrPolicy = Get-Content -LiteralPath "templates/.github/workflows/pr-policy.yml" -Raw -ErrorAction SilentlyContinue
+if ($callerPrPolicy -match 'check_project_fields') {
+    Write-Host "OK      templates/.github/workflows/pr-policy.yml wires up check_project_fields"
+} else {
+    Write-Host "MISSING check_project_fields wiring in templates/.github/workflows/pr-policy.yml"
+    $script:Missing = 1
+}
+
+$projectConfigDoc = Get-Content -LiteralPath "templates/docs/ai/PROJECT_CONFIG.md" -Raw -ErrorAction SilentlyContinue
+if ($projectConfigDoc -match [regex]::Escape('Project field completeness gate')) {
+    Write-Host "OK      templates/docs/ai/PROJECT_CONFIG.md documents the Project field completeness gate"
+} else {
+    Write-Host "MISSING `"Project field completeness gate`" section in templates/docs/ai/PROJECT_CONFIG.md"
+    $script:Missing = 1
+}
+
+Write-Host ""
+
 # --- required phrases / Project statuses / handoff terms ---------------------
 
-Check-Phrase "approve issue-to-pr-project"
+Check-Phrase "approve"
 Check-Phrase "/github_kit"
 Check-Phrase "Plan Review"
 Check-Phrase "Ready"

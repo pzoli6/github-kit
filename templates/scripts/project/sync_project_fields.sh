@@ -8,7 +8,7 @@ set -euo pipefail
 VALID_CHECKPOINTS=(
   issue_created branch_published plan_ready implementation_started blocked
   validation_passed validation_failed validation_partial validation_manual validation_na
-  handoff_updated pr_opened changes_requested done cancelled
+  handoff_updated pr_opened changes_requested done cancelled metadata
 )
 
 usage() {
@@ -21,6 +21,9 @@ Notes:
   pr_opened               [text] = the PR URL (required)
   implementation_started  [text] = optional Last Agent Update note
   handoff_updated         [text] = optional note (defaults to "Handoff file updated")
+  metadata                [text] = required "Field=Value,Field=Value" pairs, e.g.
+                          "Agent=Claude Code,Area=backend,Risk=Low,Environment=staging".
+                          Pairs with an empty or "TBD" value are skipped, not written.
 EOF
   exit 1
 }
@@ -86,6 +89,17 @@ case "$CHECKPOINT" in
     ;;
   cancelled)
     "$SET_STATUS" "$ITEM_URL" "Cancelled"
+    ;;
+  metadata)
+    [ -n "$TEXT" ] || { echo "error: 'metadata' requires 'Field=Value,Field=Value' pairs as [text]." >&2; exit 1; }
+    IFS=',' read -r -a pairs <<< "$TEXT"
+    for pair in "${pairs[@]}"; do
+      field="${pair%%=*}"
+      value="${pair#*=}"
+      if [ -n "$value" ] && [ "$value" != "TBD" ]; then
+        "$SET_TEXT" "$ITEM_URL" "$field" "$value"
+      fi
+    done
     ;;
   *)
     usage

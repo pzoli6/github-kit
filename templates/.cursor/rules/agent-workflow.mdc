@@ -10,18 +10,24 @@ Read `AGENTS.md`, `docs/ai/PROJECT_CONFIG.md`, and `docs/ai/AGENT_WORKFLOW.md` b
 non-trivial work in this repo. They are the source of truth; this rule is a summary, not a
 replacement.
 
-- Plan before implementing. For any non-trivial task, write a plan and stop.
+- Plan before implementing. For any non-trivial task, write a plan and stop. If the task naturally
+  decomposes into independent pieces, propose that breakdown as a numbered list rather than picking
+  one — see `AGENTS.md` → "Splitting a task into sub-tasks".
 - Do not create branches, write implementation code, or run install/update scripts until the human
-  replies with the exact phrase `approve issue-to-pr-project` — unless the task was given via
+  replies with the exact phrase `approve` — unless the task was given via
   `/github_kit <task>`, which is itself the approval for that task; see
   `.cursor/rules/github-kit-command.mdc` and `docs/ai/AGENT_WORKFLOW.md` → "Fast-path trigger:
-  /github_kit".
-- Once approved: create the GitHub issue with `scripts/project/create_agent_issue.sh` (fills
-  assignee/labels/milestone and adds it to the Project), push the agent branch immediately with
+  /github_kit". If a numbered sub-task breakdown was proposed, also accept `approve all` (run every
+  sub-task in sequence without stopping again) or `approve 1,3` (only the listed numbers).
+- Once approved: create the GitHub issue with `scripts/project/create_agent_issue.sh --agent <name>
+  --area <area> --risk <Low|Medium|High> --environment <env>` (always pass those four flags
+  explicitly — fills assignee/labels/milestone and adds it to the Project; add `--parent
+  <parent-issue>` for a sub-task), push the agent branch immediately with
   `scripts/project/publish_agent_branch.sh` (default prefix `agent/`, from the configured base
   branch) **before** writing implementation code, implement only what was approved, validate with
   the commands in `docs/ai/PROJECT_CONFIG.md`, and open a **draft** PR with
-  `scripts/project/create_agent_pr.sh` using `.github/PULL_REQUEST_TEMPLATE.md`.
+  `scripts/project/create_agent_pr.sh` (same four flags, plus `--agent-run`/`--handoff`) using
+  `.github/PULL_REQUEST_TEMPLATE.md`.
 - Keep the Project's `Status`, `Validation`, and `Last Agent Update` fields current by calling
   `scripts/project/sync_project_fields.sh <checkpoint> <issue-url> [text]` at each workflow
   checkpoint as you move through phases, rather than calling `project_set_status.sh`/

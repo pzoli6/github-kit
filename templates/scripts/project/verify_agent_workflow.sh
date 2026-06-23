@@ -71,7 +71,7 @@ if [ "$REQUIRE_SKILLS" = "true" ]; then
   check_file ".agents/skills/github_kit/SKILL.md"
 fi
 
-check_phrase "approve issue-to-pr-project"
+check_phrase "approve"
 check_phrase "/github_kit"
 check_phrase "git add ."
 check_phrase "Plan Review"

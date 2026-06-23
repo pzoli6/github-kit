@@ -12,3 +12,10 @@ jobs:
       required_base_branch: develop
       require_agent_branch_prefix: agent/
       allow_hotfix: true
+      # Opt-in Project field completeness gate — off until Project Sync is configured and
+      # working. See "Project field completeness gate (CI)" in docs/ai/PROJECT_CONFIG.md.
+      check_project_fields: false
+      # project_owner: pzoli6
+      # project_number: "TBD"
+    # secrets:
+    #   project_token: ${{ secrets.AGENT_PROJECT_TOKEN }}

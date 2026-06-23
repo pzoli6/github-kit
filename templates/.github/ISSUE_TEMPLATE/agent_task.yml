@@ -29,7 +29,7 @@ body:
     attributes:
       label: Approved plan
       description: >-
-        The plan a human approved with "approve issue-to-pr-project" (or a summary of it).
+        The plan a human approved with "approve" (or a summary of it).
         Leave blank if this issue is still in Plan Review.
     validations:
       required: false

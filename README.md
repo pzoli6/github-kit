@@ -48,7 +48,7 @@ Every repo that installs this kit follows the same lifecycle:
 User task
 → agent reads repo instructions (AGENTS.md, docs/ai/PROJECT_CONFIG.md, docs/ai/AGENT_WORKFLOW.md)
 → agent creates plan
-→ human approval ("approve issue-to-pr-project")
+→ human approval ("approve")
 → GitHub issue
 → GitHub Project update
 → agent branch
@@ -125,11 +125,11 @@ opt-in step, changes here deserve a higher review bar than a typical app repo.
 `/github_kit <task description>` is a pre-approved alternative entry point into the same lifecycle
 above. Typing it is itself the human's approval for `<task>`, scoped strictly to that description —
 the agent still writes a visible plan, still creates the issue and tracks it on the Project, still
-opens a **draft** PR, still never merges or tags, but skips the separate wait for `approve
-issue-to-pr-project`. If the work turns out to need more than `<task>` described, the agent falls
-back to the normal approval gate for the extra scope.
+opens a **draft** PR, still never merges or tags, but skips the separate wait for `approve`.
+If the work turns out to need more than `<task>` described, the agent falls back to the normal
+approval gate for the extra scope.
 
-This is additive: `approve issue-to-pr-project` remains the default gate for everything else, and
+This is additive: `approve` remains the default gate for everything else, and
 the existing `issue-to-pr-project` workflow is untouched. Each agent has its own entry point —
 Claude Code's `/github_kit` slash command, the generic `.agents/skills/github_kit/SKILL.md` skill,
 and the `.cursor/rules/github-kit-command.mdc` Cursor rule — see the table below and

@@ -18,27 +18,33 @@ This is the detailed, phase-by-phase version of the lifecycle summarized in
 - Produce a concrete plan: what will change, which files, what's explicitly out of scope.
 - Set/leave the tracking item's `Status` at `Plan Review` (create the issue first if one doesn't
   exist yet — see Phase 3 — or note the plan directly in the conversation if no issue exists yet).
-- **Stop and wait** for the human to reply `approve issue-to-pr-project`. Do not create branches,
+- **Stop and wait** for the human to reply `approve`. Do not create branches,
   install dependencies, or write implementation code before this.
 
 ## Phase 3 — Issue and Project setup
 
-- If no GitHub issue exists for this task yet, create one using
-  `.github/ISSUE_TEMPLATE/agent_task.yml` (problem, context, approved plan, acceptance criteria,
-  intended agent, risk, base branch).
-- Add the issue to the configured GitHub Project with
-  `scripts/project/project_add_item.sh <issue-url>`.
-- Set `Status` to `Ready` with `scripts/project/project_set_status.sh <issue-url> Ready`.
-- Set the `Agent`, `Area`, `Risk`, and `Base Branch` fields with
-  `scripts/project/project_set_text.sh` / the status script as appropriate.
+- If no GitHub issue exists for this task yet, create one with
+  `scripts/project/create_agent_issue.sh --title <title> --body-file <path> --agent <name>
+  --area <name> --risk <Low|Medium|High> --environment <name>`, using
+  `.github/ISSUE_TEMPLATE/agent_task.yml`'s structure for the body (problem, context, approved
+  plan, acceptance criteria, intended agent, risk, base branch). Pass `--parent <issue>` if this
+  task is a sub-task of a parent issue (see "Splitting a task into sub-tasks" in `AGENTS.md`).
+- This one script call adds the issue to the configured GitHub Project, sets `Status` to `Ready`,
+  and sets `Agent`, `Area`, `Risk`, and `Environment` — there is no separate manual step. Always
+  pass `--agent`/`--area`/`--risk`/`--environment` explicitly; don't rely on the
+  `AGENT_DEFAULT_*` fallback in `docs/ai/PROJECT_CONFIG.env` to do it for you.
+- `Base Branch` is set later, in Phase 4, once the actual base branch is resolved.
 
 ## Phase 4 — Branch and worktree
 
 - Branch from the configured base branch, name it with the configured agent prefix (default
-  `agent/`), e.g. `agent/issue-42-add-retry-logic`.
+  `agent/`), e.g. `agent/issue-42-add-retry-logic`. Use
+  `scripts/project/publish_agent_branch.sh --issue <issue> --slug <short-description>` to create
+  and push it.
 - Use an isolated worktree if this task may run concurrently with other agent sessions on the same
   repo.
-- Set `Status` to `In Progress` and update the `Branch` field.
+- This script call sets `Status` to `In Progress` and updates both `Branch` and `Base Branch` —
+  there is no separate step for `Base Branch`.
 
 ## Phase 5 — Implementation
 
@@ -57,11 +63,17 @@ This is the detailed, phase-by-phase version of the lifecycle summarized in
 
 ## Phase 7 — Commit and PR
 
-- Push the branch, open a **draft PR** targeting the configured base branch using
-  `.github/PULL_REQUEST_TEMPLATE.md` — fill in every section (summary, linked issue, Project
-  metadata, agent/tool used, Agent Run, area, risk, base branch, branch, handoff path, validation
-  state, commands run, results, human review focus, known risks, follow-up items).
-- Update the Project: `Status` → `In Review`, `PR URL`, `Last Agent Update`.
+- Push the branch, then open a **draft PR** targeting the configured base branch with
+  `scripts/project/create_agent_pr.sh --issue <issue> --base <branch> --head <branch> --title
+  <title> --body-file <path> --agent <name> --area <name> --risk <Low|Medium|High> --environment
+  <name> --agent-run <url> --handoff <note>`. Use `.github/PULL_REQUEST_TEMPLATE.md`'s structure
+  for the body file — fill in every section (summary, linked issue, Project metadata, validation
+  state, commands run, results, human review focus, known risks, follow-up items); the body text
+  is for human readers, the flags above are what actually update the Project.
+- This one script call adds the PR to the Project, sets `Status` to `In Review`, and sets `PR
+  URL`, `Agent`, `Area`, `Risk`, `Environment`, `Agent Run`, and `Handoff` — there is no separate
+  manual step. See "Field-completeness checklist" in `AGENTS.md` → "Project fields" for the
+  PR-template-section-to-Project-field mapping.
 
 ## Phase 8 — Review and continuation
 
@@ -90,18 +102,18 @@ above. It changes exactly one thing — **Phase 2's stop-and-wait** — and noth
 
 - The `/github_kit <task>` invocation itself **is** the human's approval for `<task>`, scoped
   strictly to the description supplied. The agent still writes a visible plan (Phase 2's first
-  bullet) for transparency, but does not stop and wait for a separate `approve issue-to-pr-project`
+  bullet) for transparency, but does not stop and wait for a separate `approve`
   reply before moving into Phase 3.
 - The pre-approval covers only what `<task>` describes. If the agent discovers mid-task that the
-  work needs to expand beyond that description, it stops and falls back to the normal `approve
-  issue-to-pr-project` gate for the additional scope — pre-approval never grows on its own.
+  work needs to expand beyond that description, it stops and falls back to the normal `approve`
+  gate for the additional scope — pre-approval never grows on its own.
 - Every other phase is unchanged: the issue still uses `.github/ISSUE_TEMPLATE/agent_task.yml`
   (note in the issue body that approval came via direct `/github_kit` invocation), the item still
   gets added to the Project, `Status` still moves through the same values (an agent may move
   straight from `Backlog` to `Ready` without dwelling in `Plan Review`, since there's no separate
   wait), branching/implementation/validation/PR/handoff/review/completion rules are identical to
   the rest of this document and to `AGENTS.md`.
-- This trigger is **additive**, not a replacement. `approve issue-to-pr-project` remains the
+- This trigger is **additive**, not a replacement. `approve` remains the
   default gate for any task not invoked this way, and the `issue-to-pr-project` skill/runbook
   remains available unchanged. Nothing here removes a label requirement, makes Project Sync
   default, or permits self-merging/tagging — every other rule in `AGENTS.md` still applies in full.
@@ -115,6 +127,36 @@ above. It changes exactly one thing — **Phase 2's stop-and-wait** — and noth
   from this repo's reusable-workflow auto-tracking of `pzoli6/github-kit@main` (see "Always-latest
   main channel" in `README.md`). Do not confuse the two: workflows auto-update, local bootstrap
   files do not.
+
+## Splitting a task into sub-tasks
+
+This applies inside Phase 2 (Plan review), as an alternative to presenting one plan for one issue.
+If the task naturally decomposes into independent pieces, propose that breakdown as a numbered
+list of sub-tasks instead of silently picking one, and offer both a bulk and a selective way to
+approve it (bulk first, since it's the more common preference):
+
+```text
+To approve all of the above and continue through them without stopping again, reply:
+
+approve all
+
+To approve only specific ones, reply with their numbers, e.g.:
+
+approve 1,3
+```
+
+- `approve all` approves every listed sub-task in one action. Once given, run Phases 3 through 7
+  for each sub-task in sequence without stopping to ask again: create each as its own issue via
+  `scripts/project/create_agent_issue.sh --parent <parent-issue>` (a real GitHub sub-issue of the
+  parent, so the Project's native "Sub-issues progress" column reflects them), then branch,
+  implement, validate, and open a draft PR for it before moving to the next. Only stop early if a
+  sub-task needs scope beyond what was described when it was approved (same rule as
+  `/github_kit`'s pre-approval never expanding on its own), or if one sub-task blocks on a human
+  decision before the next can start.
+- `approve 1,3` (or any subset) approves only the listed numbers; the rest stay in `Plan Review`,
+  unapproved, until a later reply approves them too.
+- Don't invent a breakdown just to have one — a task that's genuinely one unit of work stays one
+  issue and one PR.
 
 ## Local bootstrap refresh: /github_kit_update
 
@@ -182,11 +224,12 @@ reading the handoff file that should account for them first.
 activity) is **not installed by default** — see `docs/ai/PROJECT_CONFIG.md` for whether it's
 enabled in this repo. If it isn't:
 
-- `Status`, `Validation`, `Last Agent Update`, `PR URL`, and `Branch` do not update themselves.
-  Every phase above that says "set `Status` to ..." or "update the `X` field" means *you* run
-  `scripts/project/project_set_status.sh` / `scripts/project/project_set_text.sh` (or edit the
-  Project UI) at that point — it will not happen as a side effect of pushing a commit or opening a
-  PR.
+- `Status`, `Validation`, `Last Agent Update`, `PR URL`, `Branch`, `Base Branch`, `Agent`, `Area`,
+  `Risk`, `Environment`, `Agent Run`, and `Handoff` do not update themselves. Every phase above
+  means *you* run the matching wrapper script (`create_agent_issue.sh`, `publish_agent_branch.sh`,
+  `create_agent_pr.sh`, `sync_project_fields.sh`) — or, only if a wrapper genuinely can't cover the
+  case, the lower-level `project_set_status.sh`/`project_set_text.sh` directly, or edit the Project
+  UI — at that point. None of this happens as a side effect of pushing a commit or opening a PR.
 - Don't assume a field is current just because the underlying GitHub state (PR merged, issue
   closed) changed. Check the Project directly if you're unsure.
 

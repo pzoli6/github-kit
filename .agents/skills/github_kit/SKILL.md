@@ -1,6 +1,6 @@
 ---
 name: github_kit
-description: Fast-path variant of issue-to-pr-project — run the full issue-to-PR-Project workflow for a task, treating the /github_kit invocation itself as the human's approval for that task instead of waiting for a separate "approve issue-to-pr-project" reply. Use when a user explicitly invokes /github_kit <task> with a task description.
+description: Fast-path variant of issue-to-pr-project — run the full issue-to-PR-Project workflow for a task, treating the /github_kit invocation itself as the human's approval for that task instead of waiting for a separate "approve" reply. Use when a user explicitly invokes /github_kit <task> with a task description.
 ---
 
 # github_kit
@@ -44,10 +44,16 @@ instruction files may lag behind `github-kit/main` until someone runs `/github_k
    same task (e.g. resuming after a pause) is fine; say so explicitly before continuing.
 3. **Treat the invocation as approval — do not stop.** The literal `/github_kit <task>` invocation
    *is* the human's approval for the task described in `<task>`, scoped strictly to that
-   description. Proceed straight to step 4 without waiting for `approve issue-to-pr-project`. If
+   description. Proceed straight to step 4 without waiting for `approve`. If
    you discover mid-task that the work needs to expand beyond what `<task>` described, stop and use
-   the normal approval gate (`approve issue-to-pr-project`) for the expanded part only — the
-   auto-approval never covers scope it didn't describe.
+   the normal approval gate (`approve`) for the expanded part only — the
+   auto-approval never covers scope it didn't describe. If `<task>` naturally decomposes into
+   independent pieces that all stay within what was described, you may split it into multiple
+   issues/PRs (note `Part of #<parent-issue>` in each body) without asking again — splitting alone
+   doesn't expand scope. If a decomposition would expand scope, present it as a numbered breakdown
+   and use the `approve all`/`approve 1,3` gate from `templates/AGENTS.md` → "Splitting a task into
+   sub-tasks" for the extra scope only (this repo's own root `AGENTS.md` doesn't restate that
+   section; it lives in the payload doc).
 4. **Create the issue.** Use `.github/ISSUE_TEMPLATE/agent_task.yml` fields (problem, context,
    approved plan, acceptance criteria, intended agent, risk, base branch). Note in the issue body
    that approval came via direct `/github_kit` invocation rather than a separate approval reply.

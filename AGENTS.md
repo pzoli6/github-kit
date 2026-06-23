@@ -45,8 +45,8 @@ than a typical app repo:
 
 This repo follows the same lifecycle it defines for everyone else: plan → human approval → branch
 → implementation → validation → draft PR → human review/merge. The approval phrase for routine
-feature work on `github-kit` is `approve issue-to-pr-project`, same as any other repo using this
-kit. (The one-off setup of this repository's initial structure used the separate phrase
+feature work on `github-kit` is `approve`, same as any other repo using this kit. (The one-off
+setup of this repository's initial structure used the separate phrase
 `APPROVED: setup github-kit`, scoped to that single bootstrap task; later one-off structural tasks
 used `APPROVED: update github-kit` and `APPROVED: implement universal github-kit trigger`, each
 scoped to its own task.)

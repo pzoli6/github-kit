@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Open a draft PR with full sidebar metadata (assignee/labels/milestone/reviewer) and a
-# "Closes #<n>" body, add the PR to the configured Project, and update the linked issue's Status
-# and PR URL — so PR metadata and Project tracking are never left incomplete.
+# "Closes #<n>" body, add the PR to the configured Project, and update the linked issue's Status,
+# PR URL, Agent, Area, Risk, Environment, Agent Run, and Handoff fields — so PR metadata and
+# Project tracking are never left incomplete.
 set -euo pipefail
 
 usage() {
@@ -14,6 +15,12 @@ Options:
   --labels <a,b,c>      Comma-separated. Defaults to AGENT_DEFAULT_PR_LABELS
   --milestone <title>   Defaults to AGENT_DEFAULT_MILESTONE
   --reviewer <a,b,c>    Comma-separated. Defaults to AGENT_DEFAULT_REVIEWER
+  --agent <name>        Project field 'Agent'. Defaults to AGENT_DEFAULT_AGENT_NAME
+  --area <name>         Project field 'Area'. Defaults to AGENT_DEFAULT_AREA
+  --risk <Low|Medium|High>  Project field 'Risk'. Defaults to AGENT_DEFAULT_RISK
+  --environment <name>  Project field 'Environment'. Defaults to AGENT_DEFAULT_ENVIRONMENT
+  --agent-run <url>     Project field 'Agent Run' (e.g. a CI run or agent session URL)
+  --handoff <text>      Project field 'Handoff' (short note, not the handoff file contents)
   --no-project          Skip adding the PR to the configured GitHub Project
 EOF
   exit 1
@@ -28,6 +35,12 @@ ASSIGNEE=""
 LABELS=""
 MILESTONE=""
 REVIEWER=""
+AGENT_NAME=""
+AREA=""
+RISK=""
+ENVIRONMENT=""
+AGENT_RUN=""
+HANDOFF=""
 SKIP_PROJECT=0
 
 while [ "$#" -gt 0 ]; do
@@ -41,6 +54,12 @@ while [ "$#" -gt 0 ]; do
     --labels) LABELS="${2:-}"; shift 2 ;;
     --milestone) MILESTONE="${2:-}"; shift 2 ;;
     --reviewer) REVIEWER="${2:-}"; shift 2 ;;
+    --agent) AGENT_NAME="${2:-}"; shift 2 ;;
+    --area) AREA="${2:-}"; shift 2 ;;
+    --risk) RISK="${2:-}"; shift 2 ;;
+    --environment) ENVIRONMENT="${2:-}"; shift 2 ;;
+    --agent-run) AGENT_RUN="${2:-}"; shift 2 ;;
+    --handoff) HANDOFF="${2:-}"; shift 2 ;;
     --no-project) SKIP_PROJECT=1; shift ;;
     *) usage ;;
   esac
@@ -66,11 +85,19 @@ ENV_FILE="$REPO_ROOT/docs/ai/PROJECT_CONFIG.env"
 : "${AGENT_DEFAULT_PR_LABELS:=}"
 : "${AGENT_DEFAULT_MILESTONE:=}"
 : "${AGENT_DEFAULT_REVIEWER:=}"
+: "${AGENT_DEFAULT_AGENT_NAME:=}"
+: "${AGENT_DEFAULT_AREA:=}"
+: "${AGENT_DEFAULT_RISK:=}"
+: "${AGENT_DEFAULT_ENVIRONMENT:=}"
 
 [ -n "$ASSIGNEE" ] || ASSIGNEE="$AGENT_DEFAULT_PR_ASSIGNEE"
 [ -n "$LABELS" ] || LABELS="$AGENT_DEFAULT_PR_LABELS"
 [ -n "$MILESTONE" ] || MILESTONE="$AGENT_DEFAULT_MILESTONE"
 [ -n "$REVIEWER" ] || REVIEWER="$AGENT_DEFAULT_REVIEWER"
+[ -n "$AGENT_NAME" ] || AGENT_NAME="$AGENT_DEFAULT_AGENT_NAME"
+[ -n "$AREA" ] || AREA="$AGENT_DEFAULT_AREA"
+[ -n "$RISK" ] || RISK="$AGENT_DEFAULT_RISK"
+[ -n "$ENVIRONMENT" ] || ENVIRONMENT="$AGENT_DEFAULT_ENVIRONMENT"
 
 case "$ISSUE" in
   http*) ISSUE_URL="$ISSUE"; ISSUE_NUM="$(gh issue view "$ISSUE_URL" --json number --jq '.number')" ;;
@@ -126,6 +153,11 @@ gh issue comment "$ISSUE_URL" --body "Draft PR opened: $pr_url" >/dev/null
 if [ "$SKIP_PROJECT" -ne 1 ] && [ -n "$AGENT_PROJECT_OWNER" ] && [ -n "$AGENT_PROJECT_NUMBER" ] && [ "$AGENT_PROJECT_NUMBER" != "TBD" ]; then
   "$REPO_ROOT/scripts/project/project_add_item.sh" "$pr_url" >/dev/null
   "$REPO_ROOT/scripts/project/sync_project_fields.sh" pr_opened "$ISSUE_URL" "$pr_url" >&2
+  "$REPO_ROOT/scripts/project/sync_project_fields.sh" metadata "$ISSUE_URL" \
+    "Agent=$AGENT_NAME,Area=$AREA,Risk=$RISK,Environment=$ENVIRONMENT,Agent Run=$AGENT_RUN" >&2
+  if [ -n "$HANDOFF" ]; then
+    "$REPO_ROOT/scripts/project/sync_project_fields.sh" handoff_updated "$ISSUE_URL" "$HANDOFF" >&2
+  fi
 else
   echo "warning: Project not configured or --no-project passed — PR was not added to a Project." >&2
 fi

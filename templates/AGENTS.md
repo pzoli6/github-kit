@@ -20,12 +20,20 @@ Agents **must not** start implementation work — creating branches, writing cod
 installs, opening PRs — without explicit human approval. The required approval phrase is:
 
 ```text
-approve issue-to-pr-project
+approve
 ```
 
+When asking for approval, render that word **alone, on its own line, inside a fenced code
+block** — never embedded in a sentence (not "reply with approve to continue") — so the human can
+copy-paste it without editing anything out.
+
 A plan is not approved by silence, by the agent's own confidence, or by inference from an
-unrelated message. If the human hasn't used the phrase (or an unambiguous equivalent they've
-stated applies going forward), stay in the plan/review phase.
+unrelated message. Only treat the human's reply as approval if, once trimmed of surrounding
+whitespace, it is *exactly* `approve` (case-insensitive) — or an unambiguous standing override
+they've stated applies going forward (e.g. "approve everything in this session without asking
+again"). A sentence that merely contains the word ("I approve of this approach, but...") is not a
+match — that qualifier means they're not done talking. If in doubt, ask for a clean `approve`
+rather than guessing. If the human hasn't approved, stay in the plan/review phase.
 
 ## Fast-path trigger: /github_kit
 
@@ -33,11 +41,11 @@ stated applies going forward), stay in the plan/review phase.
 the invocation itself is the human's approval for the task described, scoped strictly to that
 description. An agent that receives this trigger still writes a visible plan for transparency, but
 proceeds straight into issue creation/branching/implementation instead of stopping to wait for
-`approve issue-to-pr-project`. If the work turns out to need more than the supplied description
+`approve`. If the work turns out to need more than the supplied description
 covers, the agent falls back to the normal approval gate for the additional scope — the
 pre-approval never expands on its own.
 
-This is additive, not a replacement: `approve issue-to-pr-project` remains the default gate for any
+This is additive, not a replacement: `approve` remains the default gate for any
 task not invoked via `/github_kit`, and nothing else about the lifecycle below changes — same issue
 template, same Project tracking, same draft-PR-only rule, same human-merges-only rule. See
 [`docs/ai/AGENT_WORKFLOW.md`](../docs/ai/AGENT_WORKFLOW.md) → "Fast-path trigger: /github_kit" for
@@ -52,6 +60,35 @@ bootstrap files (this file included) only refresh when `/github_kit_update` is r
 (`.claude/skills/github_kit_update/SKILL.md`, `.agents/skills/github_kit_update/SKILL.md`). Don't
 assume local files are current with `github-kit/main` just because the reusable workflows are.
 
+## Splitting a task into sub-tasks
+
+If a task naturally decomposes into independent pieces of work, propose that breakdown instead of
+quietly picking one — present it as a numbered list of sub-tasks during the plan/review phase, each
+one short enough to be its own issue. Offer the human two ways to approve it, bulk first since it's
+the more common preference:
+
+```text
+To approve all of the above and continue through them without stopping again, reply:
+
+approve all
+
+To approve only specific ones, reply with their numbers, e.g.:
+
+approve 1,3
+```
+
+- `approve all` approves every listed sub-task in one action. Once given, create each sub-task as
+  its own GitHub issue linked as a real **sub-issue** of the parent (`create_agent_issue.sh
+  --parent <parent-issue>`, see "Project fields" below) and proceed through the full lifecycle —
+  branch, implementation, validation, draft PR — for every one of them in sequence, without
+  stopping to ask again. Only stop early if a sub-task turns out to need scope beyond what was
+  described when it was approved (same rule as `/github_kit`'s pre-approval never expanding on its
+  own), or if one sub-task blocks and needs a human decision before the next can start.
+- `approve 1,3` (or any subset) approves only the listed numbers; treat the rest as still in
+  `Plan Review` and unapproved.
+- Don't invent a breakdown just to have one — a task that's genuinely one unit of work stays one
+  issue. Sub-tasks must be real, independently shippable slices, not busywork.
+
 ## Issue-to-PR workflow
 
 Every implementation task follows the same lifecycle, regardless of which agent or human is
@@ -61,7 +98,7 @@ driving it:
 User task
 → agent reads repo instructions (this file + docs/ai/PROJECT_CONFIG.md + docs/ai/AGENT_WORKFLOW.md)
 → agent creates plan
-→ human approval ("approve issue-to-pr-project")
+→ human approval ("approve")
 → GitHub issue
 → GitHub Project update
 → agent branch
@@ -132,15 +169,44 @@ Field value vocabularies:
 - **Agent**: `Codex`, `Claude Code`, `Antigravity`, `Cursor`, `ChatGPT`, `GitHub Copilot`, `Manual`, `Mixed`
 - **Risk**: `Low`, `Medium`, `High`
 
-Use `scripts/project/project_set_status.sh` and `scripts/project/project_set_text.sh` to update
-these fields rather than editing the Project UI by hand when working from a terminal/agent session
-— it keeps the values consistent with what's recorded in the issue/PR/handoff file.
+Don't set these fields by editing the Project UI by hand or calling `project_set_*.sh` piecemeal —
+use the wrapper scripts below, which set the right fields at the right moment automatically and
+keep values consistent with what's recorded in the issue/PR/handoff file:
 
-Automatic Project Sync (`.github/workflows/project-sync.yml`, which would update these fields from
-PR/issue activity automatically) is **Phase 2** and is not installed by default — most repos
-update the fields above by running the `project_set_*.sh` scripts (or editing the Project UI)
-rather than relying on an automation. Check `docs/ai/PROJECT_CONFIG.md` for whether Project Sync is
-enabled in this repo before assuming field updates happen automatically.
+| When | Script | Fields it sets |
+|---|---|---|
+| Issue created | `scripts/project/create_agent_issue.sh --agent --area --risk --environment` | `Status` (Ready), `Agent`, `Area`, `Risk`, `Environment` |
+| Branch published | `scripts/project/publish_agent_branch.sh` | `Status` (In Progress), `Branch`, `Base Branch` |
+| Validation runs | `scripts/project/sync_project_fields.sh validation_*` | `Validation` |
+| Handoff written | `scripts/project/sync_project_fields.sh handoff_updated` | `Handoff`, `Last Agent Update` |
+| Draft PR opened | `scripts/project/create_agent_pr.sh --agent --area --risk --environment --agent-run --handoff` | `Status` (In Review), `PR URL`, `Agent`, `Area`, `Risk`, `Environment`, `Agent Run`, `Handoff` |
+
+Always pass `--agent`/`--area`/`--risk`/`--environment` explicitly to `create_agent_issue.sh` and
+`create_agent_pr.sh` — you know your own tool identity and the task's area/risk/environment; don't
+rely on the `AGENT_DEFAULT_*` fallback in `docs/ai/PROJECT_CONFIG.env` to fill these in for you. A
+field left blank on the board after one of the steps above ran is a bug in this workflow, not
+expected behavior — fix the script call, don't shrug and leave it blank.
+
+**Field-completeness checklist** — every section of `.github/PULL_REQUEST_TEMPLATE.md` maps to a
+Project field; if you filled in the PR body section, the matching field must be set on the board
+too (the PR body alone never updates the Project — see `create_agent_pr.sh` above):
+
+| PR template section | Project field(s) |
+|---|---|
+| Project metadata → Agent | `Agent` |
+| Project metadata → Agent Run | `Agent Run` |
+| Project metadata → Area | `Area` |
+| Project metadata → Risk | `Risk` |
+| Project metadata → Base Branch | `Base Branch` |
+| Project metadata → Branch | `Branch` |
+| Project metadata → Handoff | `Handoff` |
+| Validation → State | `Validation` |
+
+Automatic Project Sync (`.github/workflows/project-sync.yml`, which would update `Status` from
+PR/issue activity automatically) is **Phase 2** and is not installed by default — it only ever
+covered `Status`, never the metadata fields above, which are the wrapper scripts' job regardless
+of whether Project Sync is enabled. Check `docs/ai/PROJECT_CONFIG.md` for whether Project Sync is
+enabled in this repo before assuming `Status` updates happen automatically from PR activity.
 
 The `status:`/`type:`/`risk:` labels created by `scripts/project/create_standard_labels.sh` are an
 optional convenience for filtering issues/PRs — their absence must never block creating an issue,
@@ -307,7 +373,7 @@ User task → plan → human approval → GitHub issue → Project update → ag
 
 Required approval phrase:
 ```text
-approve issue-to-pr-project
+approve
 ```
 
 Fast path: `/github_kit <task>` is a pre-approved alternative entry point — the invocation itself is the approval for the described task, scoped to that task only. See `docs/ai/AGENT_WORKFLOW.md` → "Fast-path trigger: /github_kit".

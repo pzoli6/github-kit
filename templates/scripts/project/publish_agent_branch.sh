@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Create an agent branch from the configured base branch and push it to origin immediately —
 # before any implementation code is written — so the branch is never local-only. Comments on the
-# issue and updates the Project's Status/Branch fields.
+# issue and updates the Project's Status/Branch/Base Branch fields.
 set -euo pipefail
 
 usage() {
@@ -77,5 +77,6 @@ gh issue comment "$ISSUE_URL" --body "Agent branch \`$BRANCH\` pushed: https://g
 
 "$REPO_ROOT/scripts/project/project_set_status.sh" "$ISSUE_URL" "In Progress" >&2
 "$REPO_ROOT/scripts/project/project_set_text.sh" "$ISSUE_URL" "Branch" "$BRANCH" >&2
+"$REPO_ROOT/scripts/project/project_set_text.sh" "$ISSUE_URL" "Base Branch" "$BASE" >&2
 
 echo "$BRANCH"

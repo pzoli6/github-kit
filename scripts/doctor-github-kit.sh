@@ -159,9 +159,36 @@ fi
 
 echo
 
+# --- opt-in Project field completeness gate: wired into reusable-pr-policy.yml, the caller -------
+# template, and PROJECT_CONFIG.md docs (see "Project field completeness gate (CI)") ---------------
+
+if grep -q 'check_project_fields' .github/workflows/reusable-pr-policy.yml 2>/dev/null \
+    && grep -q 'project-fields:' .github/workflows/reusable-pr-policy.yml 2>/dev/null; then
+  echo "OK      reusable-pr-policy.yml has the check_project_fields input and project-fields job"
+else
+  echo "MISSING check_project_fields input / project-fields job in .github/workflows/reusable-pr-policy.yml"
+  missing=1
+fi
+
+if grep -q 'check_project_fields' templates/.github/workflows/pr-policy.yml 2>/dev/null; then
+  echo "OK      templates/.github/workflows/pr-policy.yml wires up check_project_fields"
+else
+  echo "MISSING check_project_fields wiring in templates/.github/workflows/pr-policy.yml"
+  missing=1
+fi
+
+if grep -Fq 'Project field completeness gate' templates/docs/ai/PROJECT_CONFIG.md 2>/dev/null; then
+  echo "OK      templates/docs/ai/PROJECT_CONFIG.md documents the Project field completeness gate"
+else
+  echo "MISSING \"Project field completeness gate\" section in templates/docs/ai/PROJECT_CONFIG.md"
+  missing=1
+fi
+
+echo
+
 # --- required phrases / Project statuses / handoff terms ---------------------
 
-check_phrase "approve issue-to-pr-project"
+check_phrase "approve"
 check_phrase "/github_kit"
 check_phrase "Plan Review"
 check_phrase "Ready"
