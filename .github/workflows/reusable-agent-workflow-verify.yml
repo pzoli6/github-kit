@@ -15,6 +15,11 @@ on:
         description: "Require the generic agent skill (.agents/skills/...)"
         type: boolean
         default: true
+      require_gemini:
+        description: "Require the Gemini CLI adapter file (GEMINI.md). Default false so repos that
+          installed github-kit before Gemini support shipped don't fail until they refresh."
+        type: boolean
+        default: false
 
 jobs:
   verify:
@@ -31,6 +36,7 @@ jobs:
           REQUIRE_CLAUDE: ${{ inputs.require_claude }}
           REQUIRE_CURSOR: ${{ inputs.require_cursor }}
           REQUIRE_SKILLS: ${{ inputs.require_skills }}
+          REQUIRE_GEMINI: ${{ inputs.require_gemini }}
         run: |
           set -uo pipefail
           missing=0
@@ -74,6 +80,8 @@ jobs:
           check_file "scripts/project/publish_agent_branch.sh"
           check_file "scripts/project/sync_project_fields.sh"
           check_file "scripts/project/create_agent_pr.sh"
+          check_file "scripts/project/check_resume_safety.sh"
+          check_file "scripts/project/post_handoff_comment.sh"
 
           if [ "$REQUIRE_CLAUDE" = "true" ]; then
             check_file "CLAUDE.md"
@@ -94,7 +102,14 @@ jobs:
             check_file ".agents/skills/github_kit/SKILL.md"
           fi
 
+          if [ "$REQUIRE_GEMINI" = "true" ]; then
+            check_file "GEMINI.md"
+          fi
+
           check_phrase "approve"
+          check_phrase "approve main"
+          check_phrase "Production-branch authorization"
+          check_phrase "Stop-and-ask gates"
           check_phrase "/github_kit"
           check_phrase "git add ."
           check_phrase "Plan Review"

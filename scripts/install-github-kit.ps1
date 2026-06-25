@@ -5,7 +5,7 @@
 
 .DESCRIPTION
   Safe by default:
-    - never overwrites AGENTS.md/CLAUDE.md content outside the managed block
+    - never overwrites AGENTS.md/CLAUDE.md/GEMINI.md content outside the managed block
     - never overwrites docs/ai/PROJECT_CONFIG.md or an existing PR/issue template
     - everything else is created only if missing, unless -Mode force is passed
 
@@ -245,6 +245,7 @@ function Apply-ManagedBlock {
 
 Apply-ManagedBlock "AGENTS.md" (Join-Path $Templates "AGENTS.md")
 Apply-ManagedBlock "CLAUDE.md" (Join-Path $Templates "CLAUDE.md")
+Apply-ManagedBlock "GEMINI.md" (Join-Path $Templates "GEMINI.md")
 
 # --- docs/ai/ ----------------------------------------------------------
 
@@ -289,7 +290,7 @@ foreach ($rule in @("agent-workflow", "git-safety", "project-board", "github-kit
 
 # --- scripts/project/ --------------------------------------------------
 
-foreach ($script in @("project_add_item", "project_set_status", "project_set_text", "verify_agent_workflow", "create_standard_labels", "create_agent_issue", "publish_agent_branch", "sync_project_fields", "create_agent_pr")) {
+foreach ($script in @("project_add_item", "project_set_status", "project_set_text", "verify_agent_workflow", "create_standard_labels", "create_agent_issue", "publish_agent_branch", "sync_project_fields", "create_agent_pr", "check_resume_safety", "post_handoff_comment")) {
     Copy-IfMissing (Join-Path $Templates "scripts/project/$script.sh") "scripts/project/$script.sh"
 }
 

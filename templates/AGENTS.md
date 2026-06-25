@@ -1,10 +1,11 @@
 # AGENTS.md — Universal AI-Agent Workflow
 
 This file is tool-agnostic and applies to every AI coding agent working in this repository —
-ChatGPT Codex, Claude Code, GitHub Copilot coding agent, Cursor agents, Antigravity, ChatGPT with
-repo context, and any future agent — as well as to manual human development. Tool-specific
-adapters (`CLAUDE.md`, `.github/copilot-instructions.md`, `.cursor/rules/*.mdc`) all point back to
-this file; if anything here conflicts with a tool-specific adapter, this file wins.
+ChatGPT Codex, Claude Code, GitHub Copilot coding agent, Cursor agents, Antigravity, Gemini CLI,
+ChatGPT with repo context, and any future agent — as well as to manual human development.
+Tool-specific adapters (`CLAUDE.md`, `GEMINI.md`, `.github/copilot-instructions.md`,
+`.cursor/rules/*.mdc`) all point back to this file; if anything here conflicts with a tool-specific
+adapter, this file wins.
 
 This file is installed once by `github-kit`'s installer and is then **yours** — edit it freely for
 repo-specific conventions. The kit's managed updates only touch the block between
@@ -34,6 +35,75 @@ they've stated applies going forward (e.g. "approve everything in this session w
 again"). A sentence that merely contains the word ("I approve of this approach, but...") is not a
 match — that qualifier means they're not done talking. If in doubt, ask for a clean `approve`
 rather than guessing. If the human hasn't approved, stay in the plan/review phase.
+
+## Production-branch gate (`approve main`)
+
+Plain `approve` only authorizes work against the base branch configured in
+`docs/ai/PROJECT_CONFIG.md` (normally `develop`) — it never authorizes targeting the production
+branch. Before creating any branch/PR that targets the production branch directly, or
+pushing/merging the base branch into it, the human must additionally and explicitly say:
+
+```text
+approve main
+```
+
+(Substitute the repo's actual production-branch name from `docs/ai/PROJECT_CONFIG.md` if it isn't
+literally `main`.) The same rendering and exact-match rules as plain `approve` apply — alone, on
+its own line, inside a fenced code block, matched only if the human's reply, once trimmed, is
+*exactly* `approve main` (case-insensitive) or an unambiguous standing override they've stated
+applies going forward. `approve` alone does **not** imply `approve main` — they are independent
+gates. This applies to every route into the production branch, including what would previously
+have been called an "explicitly approved hotfix" — there is no separate hotfix exception to the
+base-branch rule; a hotfix still needs `approve main` to land there directly.
+
+Once granted, record that authorization on the PR itself — CI cannot see this conversation, so a
+PR opened against the production branch is verified mechanically instead. Add this exact line to
+the PR body:
+
+```text
+Production-branch authorization: approve main
+```
+
+The opt-in CI check for this marker is documented in `docs/ai/PROJECT_CONFIG.md` → "Production-
+branch approval gate (CI)" (`reusable-pr-policy.yml` → `require_production_branch_approval`); a PR
+that targets the production branch without the marker fails that check.
+
+## Stop-and-ask gates
+
+This is the complete list of moments an agent must stop and wait for a human reply. If a situation
+isn't on this list, don't stop to ask — use the rules elsewhere in this file and
+`docs/ai/PROJECT_CONFIG.md` to make the call and keep moving. The point of enumerating these is
+fewer interruptions, not more: anything not here is the agent's judgment call.
+
+1. **Starting implementation** — `approve` (or an equivalent standing override), or the task was
+   invoked via `/github_kit <task>`. See "Approval boundary" above.
+2. **Targeting the production branch** — `approve main`, separate from plain `approve`, before any
+   branch/PR aimed at the production branch or any push/merge of the base branch into it. See
+   "Production-branch gate" above.
+3. **A request is ambiguous or has multiple reasonable approaches** — ask which one before
+   producing a plan, rather than guessing and building the wrong thing.
+4. **Scope wants to expand mid-task** — if implementation reveals the task needs more than what
+   was approved (the plan, a sub-task's description, `/github_kit`'s description, or `approve
+   main`'s stated scope), stop and get approval for the added scope before doing it; don't fold it
+   into the current PR silently.
+5. **The task is genuinely blocked** — something outside the agent's control prevents progress
+   (missing credentials, a design decision only a human can make, a conflicting in-progress change
+   from another agent). Set `Status` to `Blocked` with the reason and say so; don't keep retrying
+   silently or guess past the blocker.
+6. **`check_resume_safety.sh` returns `STOP` or `ACTIVE_ELSEWHERE`** — report what it found
+   (closed/merged, or another agent's active claim) instead of resuming. See "Pausing and resuming
+   work" below.
+7. **An action this file marks as requiring "explicit human instruction"** — modifying GitHub
+   Actions permissions, branch protection, or repo secrets (see "Security rules"); destructive git
+   operations on a shared branch (force-push, `reset --hard`, rewriting history another agent/human
+   may have pulled).
+8. **Merging a PR, or marking one ready for review when validation hasn't actually run.**
+
+Everything else — file layout, naming, which files to touch for an approved task, how to phrase
+commit messages, which validation command to run first, whether to split work into more than one
+commit, what to write in the handoff file — is the agent's call. Don't manufacture a stop-and-ask
+moment out of caution for something not on this list; that defeats the point of approving a plan
+up front.
 
 ## Fast-path trigger: /github_kit
 
@@ -166,7 +236,7 @@ Agent Run
 Field value vocabularies:
 
 - **Validation**: `Not Run`, `Passed`, `Failed`, `Partial`, `Manual Required`, `Not Applicable`
-- **Agent**: `Codex`, `Claude Code`, `Antigravity`, `Cursor`, `ChatGPT`, `GitHub Copilot`, `Manual`, `Mixed`
+- **Agent**: `Codex`, `Claude Code`, `Antigravity`, `Cursor`, `Gemini`, `ChatGPT`, `GitHub Copilot`, `Manual`, `Mixed`
 - **Risk**: `Low`, `Medium`, `High`
 
 Don't set these fields by editing the Project UI by hand or calling `project_set_*.sh` piecemeal —
@@ -244,11 +314,15 @@ controlled pause, not an abandoned task:
 - Set the Project's `Status` to `Blocked` (with the reason: "paused — AI usage limit") if the task
   can't continue at all this session, or leave it at `In Progress` if another session/agent can
   pick it up immediately.
-- When resuming (same agent, later session, or a different agent/tool entirely): read the handoff
-  file first, run `git stash list` and `git status` to confirm the working tree matches what the
-  handoff file describes, then `git stash pop`/`apply` before continuing. Never start fresh work in
-  a worktree that has unexplained stashed or uncommitted changes without reading the handoff file
-  that should account for them.
+- When resuming (same agent, later session, or a different agent/tool entirely): first run
+  `scripts/project/check_resume_safety.sh --issue <number> --agent "<your agent name>"`. It exits
+  non-zero and prints `STOP: ...` if the issue is closed or its linked PR is already merged/closed,
+  or `ACTIVE_ELSEWHERE: ...` if another agent's claim on the Project item (`Status` +
+  `Last Agent Update`) still looks fresh — either way, report that to the user instead of resuming.
+  Only once it prints `SAFE_TO_PROCEED`: read the handoff file, run `git stash list` and `git
+  status` to confirm the working tree matches what the handoff file describes, then `git stash
+  pop`/`apply` before continuing. Never start fresh work in a worktree that has unexplained stashed
+  or uncommitted changes without reading the handoff file that should account for them.
 
 ## Commit rules
 
@@ -274,8 +348,12 @@ this is exactly how a task moves from one AI coding agent to another), an agent 
 
 1. Write or update `docs/ai/handoffs/issue-<number>.md` with current state, what's done, what's
    left, and any blockers or decisions made.
-2. Update the Project's `Last Agent Update` field.
-3. Update the Project's `Validation` field to reflect the true current state.
+2. If a PR already exists for this issue, mirror that same content onto the PR with
+   `scripts/project/post_handoff_comment.sh --pr <pr-url-or-number> --file
+   docs/ai/handoffs/issue-<number>.md --agent "<name>"` — it updates its own prior comment in
+   place (by marker) rather than piling up new ones, so re-running it every time is expected.
+3. Update the Project's `Last Agent Update` field.
+4. Update the Project's `Validation` field to reflect the true current state.
 
 See [`docs/ai/HANDOFF_INDEX.md`](../docs/ai/HANDOFF_INDEX.md) — one handoff file per issue, avoid
 concurrent edits to any shared index.
@@ -303,7 +381,8 @@ concurrent edits to any shared index.
 - Use the PR template (`.github/PULL_REQUEST_TEMPLATE.md`) — fill in Project metadata, agent/tool
   used, validation state, and human review focus. Don't leave placeholder text in a submitted PR.
 - Target the base branch configured in `docs/ai/PROJECT_CONFIG.md`, not the production branch,
-  unless the task is an explicitly approved hotfix.
+  unless the human has explicitly granted `approve main` for this task — see "Production-branch
+  gate" above — and the PR body carries the required authorization marker.
 
 ## GitHub relationships and development links
 

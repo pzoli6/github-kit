@@ -15,6 +15,18 @@ on:
         description: "Exempt hotfix/* branches from the agent branch prefix requirement"
         type: boolean
         default: true
+      production_branch:
+        description: "Name of this repo's production branch (e.g. main)"
+        type: string
+        default: "main"
+      require_production_branch_approval:
+        description: "Opt-in: when a PR targets production_branch directly (not required_base_branch), require an explicit human-authorization marker in the PR body. Default false so repos that installed github-kit before this gate shipped aren't broken until they refresh; the caller template turns it on for new/refreshed installs."
+        type: boolean
+        default: false
+      production_branch_marker:
+        description: "Exact line that must appear in the PR body to authorize targeting production_branch directly"
+        type: string
+        default: "Production-branch authorization: approve main"
       check_project_fields:
         description: "Opt-in: fail the PR check if its Project item is missing required field values"
         type: boolean
@@ -43,6 +55,8 @@ jobs:
     steps:
       - name: Check base branch and branch prefix
         shell: bash
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
         run: |
           set -euo pipefail
           base='${{ github.event.pull_request.base.ref }}'
@@ -50,14 +64,24 @@ jobs:
           required_base='${{ inputs.required_base_branch }}'
           prefix='${{ inputs.require_agent_branch_prefix }}'
           allow_hotfix='${{ inputs.allow_hotfix }}'
+          production_branch='${{ inputs.production_branch }}'
+          require_prod_approval='${{ inputs.require_production_branch_approval }}'
+          prod_marker='${{ inputs.production_branch_marker }}'
 
           fail=0
 
-          if [ "$base" != "$required_base" ]; then
+          if [ "$base" = "$required_base" ]; then
+            echo "OK: base branch '$base' matches required '$required_base'."
+          elif [ "$require_prod_approval" = "true" ] && [ "$base" = "$production_branch" ]; then
+            if printf '%s' "$PR_BODY" | grep -qF "$prod_marker"; then
+              echo "OK: PR targets the production branch '$base' directly and contains the required authorization marker."
+            else
+              echo "::error::PR targets the production branch '$base' directly (required base is '$required_base') but its description is missing the required human-authorization marker: \"$prod_marker\". A human must explicitly say 'approve $production_branch' (not just 'approve') before an agent opens a PR into $production_branch; the agent must then add that exact line to the PR body."
+              fail=1
+            fi
+          else
             echo "::error::PR targets base '$base' but the required base branch is '$required_base'."
             fail=1
-          else
-            echo "OK: base branch '$base' matches required '$required_base'."
           fi
 
           is_hotfix=0

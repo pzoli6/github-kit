@@ -2,7 +2,7 @@
 # Install github-kit templates into a target repository.
 #
 # Safe by default:
-#   - never overwrites AGENTS.md/CLAUDE.md content outside the managed block
+#   - never overwrites AGENTS.md/CLAUDE.md/GEMINI.md content outside the managed block
 #   - never overwrites docs/ai/PROJECT_CONFIG.md or an existing PR/issue template
 #   - everything else is created only if missing, unless --mode force is passed
 set -euo pipefail
@@ -47,7 +47,7 @@ Usage: install-github-kit.sh [--target <path>] [--mode merge|force] [--allow-dir
     - docs/ai/PROJECT_CONFIG.md (repo-specific, edit it yourself)
     - .github/ISSUE_TEMPLATE/agent_task.yml or .github/PULL_REQUEST_TEMPLATE.md, if they already
       exist (they may already contain repo-specific customization)
-    - AGENTS.md / CLAUDE.md content outside the managed block markers
+    - AGENTS.md / CLAUDE.md / GEMINI.md content outside the managed block markers
 EOF
   echo "  (current default ref: $DEFAULT_WORKFLOW_REF)"
   exit 1
@@ -260,6 +260,7 @@ apply_managed_block() {
 
 apply_managed_block "AGENTS.md" "$TEMPLATES/AGENTS.md"
 apply_managed_block "CLAUDE.md" "$TEMPLATES/CLAUDE.md"
+apply_managed_block "GEMINI.md" "$TEMPLATES/GEMINI.md"
 
 # --- docs/ai/ ----------------------------------------------------------
 
@@ -305,7 +306,8 @@ done
 # --- scripts/project/ --------------------------------------------------
 
 for script in project_add_item project_set_status project_set_text verify_agent_workflow create_standard_labels \
-              create_agent_issue publish_agent_branch sync_project_fields create_agent_pr; do
+              create_agent_issue publish_agent_branch sync_project_fields create_agent_pr \
+              check_resume_safety post_handoff_comment; do
   copy_if_missing "$TEMPLATES/scripts/project/$script.sh" "scripts/project/$script.sh"
   chmod +x "scripts/project/$script.sh" 2>/dev/null || true
 done

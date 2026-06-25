@@ -20,6 +20,18 @@ Read, in this repo:
   metadata defaults (assignee/labels/milestone/reviewer), forbidden files
 - `docs/ai/AGENT_WORKFLOW.md` — the detailed phase spec this skill walks through
 
+## If resuming existing work
+
+If this task continues an issue that already exists (not a fresh task), first run:
+```bash
+scripts/project/check_resume_safety.sh --issue <issue-number> --agent "<name>"
+```
+- `STOP: ...` (exit 2) — the issue is closed, or its linked PR is already merged/closed. Don't
+  resume; tell the user.
+- `ACTIVE_ELSEWHERE: ...` (exit 3) — another agent's claim still looks fresh. Report which agent
+  and when, instead of duplicating work.
+- `SAFE_TO_PROCEED` (exit 0) — continue per `docs/ai/AGENT_WORKFLOW.md` → "Resuming stashed work".
+
 ## Steps
 
 1. **Plan.** Write a concrete plan: files touched, approach, explicit non-goals. Do not implement
@@ -79,7 +91,14 @@ Read, in this repo:
     ```
     Never record `validation_passed` unless it actually ran and passed.
 13. **Create/update the handoff file.** Write or update `docs/ai/handoffs/issue-<number>.md` with
-    current state — do this whether or not you're about to stop, so it's never stale.
+    current state — do this whether or not you're about to stop, so it's never stale. If a PR
+    already exists for this issue (a re-handoff after step 15, e.g. on review feedback or a
+    paused session), also mirror it onto the PR:
+    ```bash
+    scripts/project/post_handoff_comment.sh --pr <pr-url> --file docs/ai/handoffs/issue-<number>.md --agent "<name>"
+    ```
+    This updates its own prior comment in place (by marker), so re-running it every time is
+    expected, not noisy.
 14. **Record the handoff update.**
     ```bash
     scripts/project/sync_project_fields.sh handoff_updated <issue-url> "<short note>"

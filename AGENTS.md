@@ -10,7 +10,7 @@
 
 `github-kit` is the **canonical source** of the reusable issue-to-PR-to-Project workflow used by
 every other repo that installs it. It is tool-agnostic (Claude Code, Codex, Copilot, Cursor,
-Antigravity, ChatGPT, manual dev) and repo-agnostic — nothing repo-specific belongs here. Anything
+Antigravity, Gemini, ChatGPT, manual dev) and repo-agnostic — nothing repo-specific belongs here. Anything
 that varies per target repo (Project number, base branch, validation commands, forbidden files)
 must live in the target repo's `docs/ai/PROJECT_CONFIG.md`, never hardcoded into a template or
 reusable workflow here.

@@ -12,3 +12,4 @@ jobs:
       require_claude: true
       require_cursor: true
       require_skills: true
+      require_gemini: true

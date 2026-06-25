@@ -32,8 +32,8 @@ Base Branch, Branch, PR URL, Last Agent Update, Handoff, Environment, Validation
 Field vocabularies:
 
 - `Validation`: `Not Run`, `Passed`, `Failed`, `Partial`, `Manual Required`, `Not Applicable`
-- `Agent`: `Codex`, `Claude Code`, `Antigravity`, `Cursor`, `ChatGPT`, `GitHub Copilot`, `Manual`,
-  `Mixed`
+- `Agent`: `Codex`, `Claude Code`, `Antigravity`, `Cursor`, `Gemini`, `ChatGPT`, `GitHub Copilot`,
+  `Manual`, `Mixed`
 - `Risk`: `Low`, `Medium`, `High`
 
 Update fields with the helper scripts rather than guessing at the GraphQL/CLI calls yourself.

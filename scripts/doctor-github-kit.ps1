@@ -57,6 +57,7 @@ Check-File "scripts/update-github-kit.ps1"
 
 Check-File "templates/AGENTS.md"
 Check-File "templates/CLAUDE.md"
+Check-File "templates/GEMINI.md"
 Check-File "templates/.github/CODEOWNERS"
 Check-File "templates/.github/copilot-instructions.md"
 Check-File "templates/.github/ISSUE_TEMPLATE/agent_task.yml"
@@ -84,6 +85,8 @@ Check-File "templates/scripts/project/create_agent_issue.sh"
 Check-File "templates/scripts/project/publish_agent_branch.sh"
 Check-File "templates/scripts/project/sync_project_fields.sh"
 Check-File "templates/scripts/project/create_agent_pr.sh"
+Check-File "templates/scripts/project/check_resume_safety.sh"
+Check-File "templates/scripts/project/post_handoff_comment.sh"
 Check-File "templates/.github/workflows/agent-workflow-verify.yml"
 Check-File "templates/.github/workflows/pr-policy.yml"
 Check-File "templates/.github/workflows/ci-node.yml"
@@ -202,9 +205,59 @@ if ($projectConfigDoc -match [regex]::Escape('Project field completeness gate'))
 
 Write-Host ""
 
+# --- opt-in production-branch approval gate: wired into reusable-pr-policy.yml, the caller -------
+# template, and PROJECT_CONFIG.md docs (see "Production-branch approval gate (CI)") ---------------
+
+if ($reusablePrPolicy -match 'require_production_branch_approval' -and $reusablePrPolicy -match 'production_branch_marker') {
+    Write-Host "OK      reusable-pr-policy.yml has the require_production_branch_approval input and marker check"
+} else {
+    Write-Host "MISSING require_production_branch_approval input / marker check in .github/workflows/reusable-pr-policy.yml"
+    $script:Missing = 1
+}
+
+if ($callerPrPolicy -match 'require_production_branch_approval') {
+    Write-Host "OK      templates/.github/workflows/pr-policy.yml wires up require_production_branch_approval"
+} else {
+    Write-Host "MISSING require_production_branch_approval wiring in templates/.github/workflows/pr-policy.yml"
+    $script:Missing = 1
+}
+
+if ($projectConfigDoc -match [regex]::Escape('Production-branch approval gate')) {
+    Write-Host "OK      templates/docs/ai/PROJECT_CONFIG.md documents the Production-branch approval gate"
+} else {
+    Write-Host "MISSING `"Production-branch approval gate`" section in templates/docs/ai/PROJECT_CONFIG.md"
+    $script:Missing = 1
+}
+
+Write-Host ""
+
+# --- require_gemini: wired into reusable-agent-workflow-verify.yml and the caller template --------
+# (see "Gemini agent identity support" -- GEMINI.md adapter) ---------------------------------------
+
+$reusableAgentWorkflowVerify = Get-Content -LiteralPath ".github/workflows/reusable-agent-workflow-verify.yml" -Raw -ErrorAction SilentlyContinue
+if ($reusableAgentWorkflowVerify -match 'require_gemini') {
+    Write-Host "OK      reusable-agent-workflow-verify.yml has the require_gemini input"
+} else {
+    Write-Host "MISSING require_gemini input in .github/workflows/reusable-agent-workflow-verify.yml"
+    $script:Missing = 1
+}
+
+$callerAgentWorkflowVerify = Get-Content -LiteralPath "templates/.github/workflows/agent-workflow-verify.yml" -Raw -ErrorAction SilentlyContinue
+if ($callerAgentWorkflowVerify -match 'require_gemini:\s*true') {
+    Write-Host "OK      templates/.github/workflows/agent-workflow-verify.yml wires up require_gemini: true"
+} else {
+    Write-Host "MISSING require_gemini: true wiring in templates/.github/workflows/agent-workflow-verify.yml"
+    $script:Missing = 1
+}
+
+Write-Host ""
+
 # --- required phrases / Project statuses / handoff terms ---------------------
 
 Check-Phrase "approve"
+Check-Phrase "approve main"
+Check-Phrase "Production-branch authorization"
+Check-Phrase "Stop-and-ask gates"
 Check-Phrase "/github_kit"
 Check-Phrase "Plan Review"
 Check-Phrase "Ready"

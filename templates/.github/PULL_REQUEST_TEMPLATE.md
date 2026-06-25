@@ -8,13 +8,18 @@ Closes #
 
 ## Project metadata
 
-- **Agent:** <!-- Codex / Claude Code / Antigravity / Cursor / ChatGPT / GitHub Copilot / Manual / Mixed -->
+- **Agent:** <!-- Codex / Claude Code / Antigravity / Cursor / Gemini / ChatGPT / GitHub Copilot / Manual / Mixed -->
 - **Agent Run:** <!-- link to the agent session/run, if applicable -->
 - **Area:** <!-- e.g. backend, frontend, infra, docs -->
 - **Risk:** <!-- Low / Medium / High -->
 - **Base Branch:** <!-- e.g. develop -->
 - **Branch:** <!-- e.g. agent/issue-42-add-retry-logic -->
 - **Handoff:** <!-- path to docs/ai/handoffs/issue-<number>.md, if one exists -->
+
+<!-- If this PR targets the production branch directly (not the configured base branch), the human
+must have explicitly said "approve main" first — see AGENTS.md → "Production-branch gate". Add
+this exact line below when that applies:
+Production-branch authorization: approve main -->
 
 ## Validation
 

@@ -33,6 +33,10 @@ CHECKPOINT="$1"
 ITEM_URL="$2"
 TEXT="${3:-}"
 
+# Every "Last Agent Update" write is timestamp-prefixed (UTC, ISO-8601) so
+# scripts/project/check_resume_safety.sh can tell how stale a claim is without a dedicated field.
+TIMESTAMP="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 SET_STATUS="$REPO_ROOT/scripts/project/project_set_status.sh"
 SET_TEXT="$REPO_ROOT/scripts/project/project_set_text.sh"
@@ -50,12 +54,12 @@ case "$CHECKPOINT" in
     "$SET_STATUS" "$ITEM_URL" "Plan Review"
     ;;
   implementation_started)
-    "$SET_TEXT" "$ITEM_URL" "Last Agent Update" "${TEXT:-Implementation started}"
+    "$SET_TEXT" "$ITEM_URL" "Last Agent Update" "$TIMESTAMP ${TEXT:-Implementation started}"
     ;;
   blocked)
     [ -n "$TEXT" ] || { echo "error: 'blocked' requires a reason as [text]." >&2; exit 1; }
     "$SET_STATUS" "$ITEM_URL" "Blocked"
-    "$SET_TEXT" "$ITEM_URL" "Last Agent Update" "Blocked: $TEXT"
+    "$SET_TEXT" "$ITEM_URL" "Last Agent Update" "$TIMESTAMP Blocked: $TEXT"
     ;;
   validation_passed)
     "$SET_TEXT" "$ITEM_URL" "Validation" "Passed"
@@ -74,7 +78,7 @@ case "$CHECKPOINT" in
     ;;
   handoff_updated)
     "$SET_TEXT" "$ITEM_URL" "Handoff" "${TEXT:-Handoff file updated}"
-    "$SET_TEXT" "$ITEM_URL" "Last Agent Update" "${TEXT:-Handoff file updated}"
+    "$SET_TEXT" "$ITEM_URL" "Last Agent Update" "$TIMESTAMP ${TEXT:-Handoff file updated}"
     ;;
   pr_opened)
     [ -n "$TEXT" ] || { echo "error: 'pr_opened' requires the PR URL as [text]." >&2; exit 1; }

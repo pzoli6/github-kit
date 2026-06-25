@@ -12,6 +12,12 @@ jobs:
       required_base_branch: develop
       require_agent_branch_prefix: agent/
       allow_hotfix: true
+      # Require a human-authorization marker in the PR body for any PR that targets the
+      # production branch directly. See "Production-branch approval gate (CI)" in
+      # docs/ai/PROJECT_CONFIG.md and "Production-branch gate (approve main)" in AGENTS.md.
+      production_branch: main
+      require_production_branch_approval: true
+      # production_branch_marker: "Production-branch authorization: approve main"  # default
       # Opt-in Project field completeness gate — off until Project Sync is configured and
       # working. See "Project field completeness gate (CI)" in docs/ai/PROJECT_CONFIG.md.
       check_project_fields: false

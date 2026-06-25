@@ -114,6 +114,44 @@ as Project Sync — you don't need a second token. Turning this on assumes the G
 has those fields configured (see `AGENTS.md` → "Project fields"); enable it only after Project Sync
 itself is working, since the gate reads the same Project the sync writes to.
 
+## Production-branch approval gate (CI)
+
+A CI check, in the same `policy` job that already enforces `required_base_branch`, that fails the
+PR if it targets the production branch (the "Production branch" key above, default `main`)
+directly and its description is missing a specific human-authorization marker. This is the
+mechanical enforcement of the conversational `approve main` gate — see `AGENTS.md` → "Production-
+branch gate (`approve main`)" for what an agent must do before opening such a PR. It lives in
+`reusable-pr-policy.yml`'s `policy` job, defaults to **off** centrally (so repos that installed
+github-kit before this gate shipped aren't broken until they refresh), and is turned **on** by the
+caller template in `.github/workflows/pr-policy.yml`:
+
+```yaml
+jobs:
+  policy:
+    uses: pzoli6/github-kit/.github/workflows/reusable-pr-policy.yml@main
+    with:
+      required_base_branch: develop
+      require_agent_branch_prefix: agent/
+      allow_hotfix: true
+      production_branch: main
+      require_production_branch_approval: true
+      # production_branch_marker: "Production-branch authorization: approve main"  # default
+```
+
+`production_branch` should match the "Production branch" key in the table above. The check only
+ever fires for a PR whose base is `production_branch` *and* doesn't already equal
+`required_base_branch` — repos where both are the same branch (no develop/main split) never hit
+this exception path, so there's nothing to configure for them beyond leaving the gate as-is or
+turning it off. When it does fire, the PR body must contain this exact line (the agent adds it once
+the human has said `approve main`):
+
+```text
+Production-branch authorization: approve main
+```
+
+The check reads the PR body only as data (never as a script), via GitHub Actions' `env:`
+indirection — untrusted PR text is never interpolated directly into a shell command.
+
 ## Validation commands
 
 List the exact commands an agent must run before opening a PR. Keep this list accurate — agents

@@ -2,9 +2,9 @@
 
 Before doing anything else, read, in order:
 
-1. [`AGENTS.md`](../AGENTS.md) — universal rules: approval boundary, issue-to-PR workflow, Project
-   status protocol and fields, branch/commit/validation/handoff/security/scope/PR rules, human
-   authority.
+1. [`AGENTS.md`](../AGENTS.md) — universal rules: approval boundary, production-branch gate,
+   stop-and-ask gates, issue-to-PR workflow, Project status protocol and fields,
+   branch/commit/validation/handoff/security/scope/PR rules, human authority.
 2. [`docs/ai/PROJECT_CONFIG.md`](../docs/ai/PROJECT_CONFIG.md) — this repo's Project number, base
    branch, validation commands, and forbidden files.
 3. [`docs/ai/AGENT_WORKFLOW.md`](../docs/ai/AGENT_WORKFLOW.md) — the detailed phase-by-phase
@@ -19,7 +19,12 @@ Follow that workflow exactly:
   "Fast-path trigger: /github_kit" for the scope and limits of that exception. If a task naturally
   decomposes into independent pieces, propose that breakdown as a numbered list and accept
   `approve all` (run every sub-task in sequence) or `approve 1,3` (only the listed numbers) — see
-  `AGENTS.md` → "Splitting a task into sub-tasks".
+  `AGENTS.md` → "Splitting a task into sub-tasks". Plain `approve` never authorizes targeting the
+  production branch directly — that needs a separate, explicit `approve main` plus the matching
+  marker line in the PR body; see `AGENTS.md` → "Production-branch gate (`approve main`)". Beyond
+  plan approval and that production-branch gate, `AGENTS.md` → "Stop-and-ask gates" is the
+  complete, enumerated list of moments that need a human reply — anything not on that list is your
+  judgment call, not a reason to pause.
 - Create the issue and PR with `scripts/project/create_agent_issue.sh`/`create_agent_pr.sh`,
   always passing `--agent`/`--area`/`--risk`/`--environment` explicitly (plus `--parent
   <parent-issue>` for a sub-task, `--agent-run`/`--handoff` on the PR) — never leave those Project

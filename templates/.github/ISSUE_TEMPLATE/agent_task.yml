@@ -52,6 +52,7 @@ body:
         - Claude Code
         - Antigravity
         - Cursor
+        - Gemini
         - ChatGPT
         - GitHub Copilot
         - Manual

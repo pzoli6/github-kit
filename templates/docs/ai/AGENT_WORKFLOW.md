@@ -10,7 +10,9 @@ This is the detailed, phase-by-phase version of the lifecycle summarized in
 - Read `AGENTS.md` and `PROJECT_CONFIG.md` for this repo's rules and config.
 - If a related issue already exists, read it and any linked handoff file in
   [`handoffs/`](handoffs/) before starting fresh — don't re-derive context that's already written
-  down.
+  down. Before treating that issue as available to pick up, run
+  `scripts/project/check_resume_safety.sh --issue <number> --agent "<your agent name>"` — see
+  "Resuming stashed work" below for what its exit codes mean.
 - If the request is ambiguous or has multiple reasonable approaches, ask before planning.
 
 ## Phase 2 — Plan review
@@ -20,6 +22,9 @@ This is the detailed, phase-by-phase version of the lifecycle summarized in
   exist yet — see Phase 3 — or note the plan directly in the conversation if no issue exists yet).
 - **Stop and wait** for the human to reply `approve`. Do not create branches,
   install dependencies, or write implementation code before this.
+- `approve` only covers the configured base branch. If this task's plan involves targeting the
+  production branch directly (or pushing/merging the base branch into it), that needs the
+  separate, explicit `approve main` — see "Production-branch gate: approve main" below.
 
 ## Phase 3 — Issue and Project setup
 
@@ -69,7 +74,10 @@ This is the detailed, phase-by-phase version of the lifecycle summarized in
   <name> --agent-run <url> --handoff <note>`. Use `.github/PULL_REQUEST_TEMPLATE.md`'s structure
   for the body file — fill in every section (summary, linked issue, Project metadata, validation
   state, commands run, results, human review focus, known risks, follow-up items); the body text
-  is for human readers, the flags above are what actually update the Project.
+  is for human readers, the flags above are what actually update the Project. If `--base` is the
+  production branch itself (not the configured base branch), the human must have already said
+  `approve main`, and the PR body must carry the marker line from "Production-branch gate: approve
+  main" below — a repo with `require_production_branch_approval` enabled fails CI without it.
 - This one script call adds the PR to the Project, sets `Status` to `In Review`, and sets `PR
   URL`, `Agent`, `Area`, `Risk`, `Environment`, `Agent Run`, and `Handoff` — there is no separate
   manual step. See "Field-completeness checklist" in `AGENTS.md` → "Project fields" for the
@@ -83,6 +91,13 @@ This is the detailed, phase-by-phase version of the lifecycle summarized in
   tool — write/update `handoffs/issue-<number>.md` with: current state, what's done, what's left,
   open decisions/blockers, and the exact next step. Update `Last Agent Update` and `Validation`.
   This is what lets a different agent (or a different AI tool entirely) pick the task back up.
+- If a PR already exists, also mirror that handoff onto the PR itself so it's visible without
+  opening the repo:
+  ```bash
+  scripts/project/post_handoff_comment.sh --pr <pr-url-or-number> --file docs/ai/handoffs/issue-<number>.md --agent "<name>"
+  ```
+  This finds-and-updates its own prior comment (by a hidden marker) rather than posting a new one
+  every time — re-running it after every update is expected, not noisy.
 
 ## Phase 9 — Completion
 
@@ -127,6 +142,43 @@ above. It changes exactly one thing — **Phase 2's stop-and-wait** — and noth
   from this repo's reusable-workflow auto-tracking of `pzoli6/github-kit@main` (see "Always-latest
   main channel" in `README.md`). Do not confuse the two: workflows auto-update, local bootstrap
   files do not.
+
+## Production-branch gate: approve main
+
+Plain `approve` (and `/github_kit`'s pre-approval) only ever covers the configured base branch.
+Neither one authorizes creating a branch/PR that targets the production branch directly, or
+pushing/merging the base branch into it — that requires a second, explicit phrase from the human:
+
+```text
+approve main
+```
+
+(Substitute the repo's actual production-branch name if it isn't literally `main`.) Same exact-
+match rule as plain `approve`: rendered alone on its own line in a fenced code block, matched only
+if the human's trimmed reply is exactly `approve main` (case-insensitive) or a standing override
+they've stated applies going forward. This replaces what earlier revisions of this workflow called
+an "explicitly approved hotfix" — there is no separate hotfix exception anymore; a hotfix that
+needs to land on the production branch directly still needs `approve main`, same as any other task.
+
+Once granted, the agent must add this exact line to the PR body before opening it — CI verifies it
+mechanically, since it cannot see the conversation:
+
+```text
+Production-branch authorization: approve main
+```
+
+See `AGENTS.md` → "Production-branch gate (`approve main`)" and `docs/ai/PROJECT_CONFIG.md` →
+"Production-branch approval gate (CI)" for the full rule and the opt-in CI check that enforces it.
+
+## Stop-and-ask gates
+
+The phases above mention several human-reply points individually (Phase 1's ambiguous-request
+check, Phase 2's `approve` stop, Phase 5's `Blocked` status, "Resuming stashed work"'s `STOP`/
+`ACTIVE_ELSEWHERE` handling). `AGENTS.md` → "Stop-and-ask gates" collects the complete list in one
+place — eight items, covering `approve`, `approve main`, ambiguous requests, mid-task scope
+expansion, genuine blockers, unsafe resumes, actions requiring explicit human instruction, and
+merging. Anything not on that list is the agent's call to make without stopping; the list exists
+to cut down on interruptions, not multiply them. Read it once per task, not once per decision.
 
 ## Splitting a task into sub-tasks
 
@@ -193,9 +245,12 @@ AI coding agents can hit a usage limit mid-task. Treat that as a controlled paus
    description>"` so the stash message identifies which task it belongs to.
 3. Write or update `handoffs/issue-<number>.md` stating: the branch name, whether a stash exists
    and its message, what's done, what's left, and the exact next step.
-4. Set `Status` to `Blocked` with the reason "paused — AI usage limit" if no one can continue this
+4. If a PR already exists, mirror that same content onto the PR with
+   `scripts/project/post_handoff_comment.sh --pr <pr-url-or-number> --file
+   handoffs/issue-<number>.md --agent "<name>"` so it's visible without opening the repo.
+5. Set `Status` to `Blocked` with the reason "paused — AI usage limit" if no one can continue this
    session, or leave it at `In Progress` if another session/agent will pick it up immediately.
-5. Update `Last Agent Update`.
+6. Update `Last Agent Update`.
 
 Never stop with uncommitted, unstashed, undocumented changes sitting in the worktree — the next
 agent (or human) has no way to know whether those changes are intentional work-in-progress or
@@ -205,15 +260,23 @@ accidental local clutter.
 
 Before writing any new code on a branch you're resuming:
 
-1. Read `handoffs/issue-<number>.md` first — it should say whether a stash exists and what it
+1. Run `scripts/project/check_resume_safety.sh --issue <number> --agent "<your agent name>"`:
+   - Exit 0 (`SAFE_TO_PROCEED`) — continue to step 2.
+   - Exit 2 (`STOP: ...`) — the issue is closed, or its linked PR (matched via the same
+     `Closes/Fixes/Resolves #<n>` convention `create_agent_pr.sh` writes) is already
+     merged/closed. Don't resume; tell the user.
+   - Exit 3 (`ACTIVE_ELSEWHERE: ...`) — another agent's claim on the Project item (`Status` +
+     `Last Agent Update`) is still within `AGENT_CLAIM_STALENESS_MINUTES` (default 120; see
+     `PROJECT_CONFIG.env`). Report which agent and when, instead of duplicating work.
+2. Read `handoffs/issue-<number>.md` first — it should say whether a stash exists and what it
    contains.
-2. Run `git status` and `git stash list` and confirm they match what the handoff file describes.
+3. Run `git status` and `git stash list` and confirm they match what the handoff file describes.
    If they don't match, stop and investigate before doing anything else — don't assume.
-3. If a stash exists for this branch, apply it with `git stash apply` (not `pop`) so you can
+4. If a stash exists for this branch, apply it with `git stash apply` (not `pop`) so you can
    review the resulting diff before dropping the stash explicitly with `git stash drop`.
-4. Re-run the validation commands in `PROJECT_CONFIG.md` before continuing — the pause may have
+5. Re-run the validation commands in `PROJECT_CONFIG.md` before continuing — the pause may have
    been long enough that the base branch moved.
-5. Update the handoff file once work resumes so it no longer describes a stale "paused" state.
+6. Update the handoff file once work resumes so it no longer describes a stale "paused" state.
 
 Never start fresh work in a worktree that has unexplained stashed or uncommitted changes without
 reading the handoff file that should account for them first.

@@ -18,7 +18,10 @@ replacement.
   `/github_kit <task>`, which is itself the approval for that task; see
   `.cursor/rules/github-kit-command.mdc` and `docs/ai/AGENT_WORKFLOW.md` → "Fast-path trigger:
   /github_kit". If a numbered sub-task breakdown was proposed, also accept `approve all` (run every
-  sub-task in sequence without stopping again) or `approve 1,3` (only the listed numbers).
+  sub-task in sequence without stopping again) or `approve 1,3` (only the listed numbers). Plain
+  `approve` never covers targeting the production branch directly — that needs a separate,
+  explicit `approve main` plus the matching marker line in the PR body; see `AGENTS.md` →
+  "Production-branch gate (`approve main`)".
 - Once approved: create the GitHub issue with `scripts/project/create_agent_issue.sh --agent <name>
   --area <area> --risk <Low|Medium|High> --environment <env>` (always pass those four flags
   explicitly — fills assignee/labels/milestone and adds it to the Project; add `--parent
@@ -40,6 +43,8 @@ replacement.
   tool), write `docs/ai/handoffs/issue-<number>.md` describing current state, what's left, and the
   next step.
 - A human approves plans and merges PRs — never act past those boundaries on your own judgment.
+  `AGENTS.md` → "Stop-and-ask gates" is the complete, enumerated list of moments that need a human
+  reply; anything not on that list is your judgment call, not a reason to stop and ask.
 - This repo's reusable workflows auto-track `pzoli6/github-kit@main` by default — local bootstrap
   files (this rule included) only refresh when `/github_kit_update` or the update script runs; see
   `.cursor/rules/github-kit-command.mdc`.

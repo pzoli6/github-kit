@@ -9,6 +9,10 @@ alwaysApply: true
 - Never commit directly to the base or production branch (see `docs/ai/PROJECT_CONFIG.md` for
   which branches those are in this repo). Always work on a branch prefixed per
   `docs/ai/PROJECT_CONFIG.md` (default `agent/`).
+- Never create a branch/PR that targets the production branch directly, or push/merge the base
+  branch into it, without the human explicitly saying `approve main` (separate from plain
+  `approve`) and the PR body carrying the required authorization marker — see `AGENTS.md` →
+  "Production-branch gate (`approve main`)".
 - Stage explicit files (`git add <file> <file>`). Never `git add -A` or `git add .` — you must
   know exactly what you're committing.
 - Never force-push a branch another agent or human might also be working on.
