@@ -310,6 +310,17 @@ instead of re-deriving context from scratch — this is what let this exact task
 Copilot to Claude Code mid-stream. See
 [`templates/docs/ai/HANDOFF_INDEX.md`](templates/docs/ai/HANDOFF_INDEX.md).
 
+## Local branch cleanup after merge
+
+Once an agent learns a PR has merged, it runs
+`scripts/project/cleanup_merged_branches.sh --branch <branch>` (or with no `--branch` to sweep
+every local `agent/`-prefixed branch at once). It deletes the **local** branch only when all of
+these hold: the branch isn't checked out here or in another worktree, its PR's state is actually
+`MERGED`, and the local branch's tip commit matches exactly what GitHub merged (no forgotten
+commits beyond what was pushed). Anything that fails a check is left alone with a `SKIPPED:
+<reason>` line instead of being force-deleted — the remote branch is never touched either way. See
+`templates/AGENTS.md` → "Branch and worktree rules" → "Local branch cleanup after merge".
+
 ## Updating target repos later
 
 ### Linux / macOS / WSL / Git Bash

@@ -135,6 +135,14 @@ scripts/project/check_resume_safety.sh --issue <issue-number> --agent "<name>"
     scripts/project/sync_project_fields.sh done <issue-url>
     # or: cancelled <issue-url>   (if the work was abandoned)
     ```
+21. **Clean up the local branch.**
+    ```bash
+    scripts/project/cleanup_merged_branches.sh --branch <branch>
+    ```
+    Deletes the local branch only if it's safe (not checked out anywhere, PR is actually merged,
+    no local commits beyond what merged) — see `AGENTS.md` → "Branch and worktree rules" → "Local
+    branch cleanup after merge". A `SKIPPED` line means leave it alone and read why, not
+    force-delete it.
 
 ## Hard rules
 

@@ -54,6 +54,7 @@ check_file "scripts/project/sync_project_fields.sh"
 check_file "scripts/project/create_agent_pr.sh"
 check_file "scripts/project/check_resume_safety.sh"
 check_file "scripts/project/post_handoff_comment.sh"
+check_file "scripts/project/cleanup_merged_branches.sh"
 
 if [ "$REQUIRE_CLAUDE" = "true" ]; then
   check_file "CLAUDE.md"
