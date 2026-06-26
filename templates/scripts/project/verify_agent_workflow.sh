@@ -9,6 +9,7 @@ cd "$REPO_ROOT"
 REQUIRE_CLAUDE="${REQUIRE_CLAUDE:-true}"
 REQUIRE_CURSOR="${REQUIRE_CURSOR:-true}"
 REQUIRE_SKILLS="${REQUIRE_SKILLS:-true}"
+REQUIRE_GEMINI="${REQUIRE_GEMINI:-false}"
 
 missing=0
 
@@ -47,6 +48,12 @@ check_file "scripts/project/project_add_item.sh"
 check_file "scripts/project/project_set_status.sh"
 check_file "scripts/project/project_set_text.sh"
 check_file "scripts/project/verify_agent_workflow.sh"
+check_file "scripts/project/create_agent_issue.sh"
+check_file "scripts/project/publish_agent_branch.sh"
+check_file "scripts/project/sync_project_fields.sh"
+check_file "scripts/project/create_agent_pr.sh"
+check_file "scripts/project/check_resume_safety.sh"
+check_file "scripts/project/post_handoff_comment.sh"
 
 if [ "$REQUIRE_CLAUDE" = "true" ]; then
   check_file "CLAUDE.md"
@@ -67,7 +74,14 @@ if [ "$REQUIRE_SKILLS" = "true" ]; then
   check_file ".agents/skills/github_kit/SKILL.md"
 fi
 
-check_phrase "approve issue-to-pr-project"
+if [ "$REQUIRE_GEMINI" = "true" ]; then
+  check_file "GEMINI.md"
+fi
+
+check_phrase "approve"
+check_phrase "approve main"
+check_phrase "Production-branch authorization"
+check_phrase "Stop-and-ask gates"
 check_phrase "/github_kit"
 check_phrase "git add ."
 check_phrase "Plan Review"
@@ -78,6 +92,8 @@ check_phrase "Changes Requested"
 check_phrase "Validation"
 check_phrase "Handoff"
 check_phrase "Last Agent Update"
+check_phrase "Relationships: none declared"
+check_phrase "Notifications: ensured through assignment"
 
 # --- github-kit ref: this repo may auto-track @main (default) or deliberately pin via
 # docs/ai/PROJECT_CONFIG.md's "github-kit ref" key. Either is fine; what matters is that the

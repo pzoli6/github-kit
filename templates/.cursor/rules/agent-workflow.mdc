@@ -10,22 +10,41 @@ Read `AGENTS.md`, `docs/ai/PROJECT_CONFIG.md`, and `docs/ai/AGENT_WORKFLOW.md` b
 non-trivial work in this repo. They are the source of truth; this rule is a summary, not a
 replacement.
 
-- Plan before implementing. For any non-trivial task, write a plan and stop.
+- Plan before implementing. For any non-trivial task, write a plan and stop. If the task naturally
+  decomposes into independent pieces, propose that breakdown as a numbered list rather than picking
+  one — see `AGENTS.md` → "Splitting a task into sub-tasks".
 - Do not create branches, write implementation code, or run install/update scripts until the human
-  replies with the exact phrase `approve issue-to-pr-project` — unless the task was given via
+  replies with the exact phrase `approve` — unless the task was given via
   `/github_kit <task>`, which is itself the approval for that task; see
   `.cursor/rules/github-kit-command.mdc` and `docs/ai/AGENT_WORKFLOW.md` → "Fast-path trigger:
-  /github_kit".
-- Once approved: create/locate the GitHub issue, add it to the configured Project, branch with the
-  configured agent prefix (default `agent/`) from the configured base branch, implement only what
-  was approved, validate with the commands in `docs/ai/PROJECT_CONFIG.md`, and open a **draft** PR
-  using `.github/PULL_REQUEST_TEMPLATE.md`.
-- Keep the Project's `Status`, `Validation`, and `Last Agent Update` fields current via
-  `scripts/project/project_set_status.sh` / `project_set_text.sh` as you move through phases.
+  /github_kit". If a numbered sub-task breakdown was proposed, also accept `approve all` (run every
+  sub-task in sequence without stopping again) or `approve 1,3` (only the listed numbers). Plain
+  `approve` never covers targeting the production branch directly — that needs a separate,
+  explicit `approve main` plus the matching marker line in the PR body; see `AGENTS.md` →
+  "Production-branch gate (`approve main`)".
+- Once approved: create the GitHub issue with `scripts/project/create_agent_issue.sh --agent <name>
+  --area <area> --risk <Low|Medium|High> --environment <env>` (always pass those four flags
+  explicitly — fills assignee/labels/milestone and adds it to the Project; add `--parent
+  <parent-issue>` for a sub-task), push the agent branch immediately with
+  `scripts/project/publish_agent_branch.sh` (default prefix `agent/`, from the configured base
+  branch) **before** writing implementation code, implement only what was approved, validate with
+  the commands in `docs/ai/PROJECT_CONFIG.md`, and open a **draft** PR with
+  `scripts/project/create_agent_pr.sh` (same four flags, plus `--agent-run`/`--handoff`) using
+  `.github/PULL_REQUEST_TEMPLATE.md`.
+- Keep the Project's `Status`, `Validation`, and `Last Agent Update` fields current by calling
+  `scripts/project/sync_project_fields.sh <checkpoint> <issue-url> [text]` at each workflow
+  checkpoint as you move through phases, rather than calling `project_set_status.sh`/
+  `project_set_text.sh` directly.
+- Declare real issue/PR relationships in the body (`Blocked by #N`, `Blocks #N`, `Part of #N`) or
+  write `Relationships: none declared`; rely on `--assignee`/`--reviewer` (set by the scripts
+  above) for notifications rather than assuming a separate subscribe step exists. See `AGENTS.md`
+  → "GitHub relationships and development links" / "Notifications and participation".
 - Before stopping mid-task (context limit, end of session, or handing off to a different agent or
   tool), write `docs/ai/handoffs/issue-<number>.md` describing current state, what's left, and the
   next step.
 - A human approves plans and merges PRs — never act past those boundaries on your own judgment.
+  `AGENTS.md` → "Stop-and-ask gates" is the complete, enumerated list of moments that need a human
+  reply; anything not on that list is your judgment call, not a reason to stop and ask.
 - This repo's reusable workflows auto-track `pzoli6/github-kit@main` by default — local bootstrap
   files (this rule included) only refresh when `/github_kit_update` or the update script runs; see
   `.cursor/rules/github-kit-command.mdc`.

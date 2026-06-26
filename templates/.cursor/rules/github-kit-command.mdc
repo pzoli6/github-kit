@@ -8,17 +8,18 @@ alwaysApply: true
 
 If the human's message starts with `/github_kit` followed by a task description, treat that
 invocation itself as the human's approval for the described task — do not also wait for the
-separate `approve issue-to-pr-project` phrase. The approval is scoped strictly to the task text
+separate `approve` phrase. The approval is scoped strictly to the task text
 supplied in that message; if the work turns out to need more than that description covers, stop
-and use the normal approval gate (`approve issue-to-pr-project`) for the additional scope.
+and use the normal approval gate (`approve`) for the additional scope.
 
 Everything else about the workflow is unchanged from `agent-workflow.mdc`: still produce a visible
 plan, still create the GitHub issue and track it on the Project, still branch with the configured
 agent prefix, still validate with the commands in `docs/ai/PROJECT_CONFIG.md`, still open the PR as
 **draft** using `.github/PULL_REQUEST_TEMPLATE.md`, still never merge or push to the base/production
-branch, still write a handoff file before stopping mid-task.
+branch, still declare real issue/PR relationships or write `Relationships: none declared`, still
+write a handoff file before stopping mid-task.
 
-This trigger is additive — `approve issue-to-pr-project` remains the default gate for any task not
+This trigger is additive — `approve` remains the default gate for any task not
 invoked via `/github_kit`. See `docs/ai/AGENT_WORKFLOW.md` → "Fast-path trigger: /github_kit" for
 the full spec.
 

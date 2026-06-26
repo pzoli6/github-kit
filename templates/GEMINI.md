@@ -1,6 +1,6 @@
-# CLAUDE.md — Claude Code Adapter
+# GEMINI.md — Gemini CLI Adapter
 
-This file tells Claude Code how to work in this repository. It is intentionally short — the actual
+This file tells Gemini CLI how to work in this repository. It is intentionally short — the actual
 rules live in the files below, which are tool-agnostic and shared with every other agent that
 works on this repo.
 
@@ -15,29 +15,30 @@ Read, in order, before doing anything else:
    workflow spec (task intake → plan review → issue/Project setup → branch/worktree →
    implementation → validation → commit/PR → review/continuation → completion).
 
-A matching Claude Skill describing this same workflow lives at
-`.claude/skills/issue-to-pr-project/SKILL.md` — use it when running the issue-to-PR-project flow
-end to end.
+A matching runbook describing this same workflow lives at
+`.agents/skills/issue-to-pr-project/SKILL.md` — read it when running the issue-to-PR-project flow
+end to end. Gemini CLI has no dedicated `.gemini/` skill directory in this kit; it shares the
+generic `.agents/skills/` runbooks used by Codex, Antigravity, and other non-Claude tools.
 
-A fast-path slash command, `/github_kit <task>`, is also available at
-`.claude/commands/github_kit.md` (runbook: `.claude/skills/github_kit/SKILL.md`) — invoking it is
-itself the human's approval for the described task, see "Non-negotiable behaviors" below. A
-companion command, `/github_kit_update` (`.claude/skills/github_kit_update/SKILL.md`), refreshes
-this repo's local github-kit bootstrap files from `pzoli6/github-kit@main` via a draft PR — use it
-when local files seem stale, not as part of routine `/github_kit` runs.
+A fast-path trigger, `/github_kit <task>`, is also available — runbook at
+`.agents/skills/github_kit/SKILL.md` — invoking it is itself the human's approval for the described
+task, see "Non-negotiable behaviors" below. A companion trigger, `/github_kit_update` (runbook:
+`.agents/skills/github_kit_update/SKILL.md`), refreshes this repo's local github-kit bootstrap
+files from `pzoli6/github-kit@main` via a draft PR — use it when local files seem stale, not as
+part of routine `/github_kit` runs.
 
-## Non-negotiable behaviors for Claude Code specifically
+## Non-negotiable behaviors for Gemini CLI specifically
 
 - **Plan first, then stop — unless invoked via `/github_kit`.** For any non-trivial task, produce a
   plan and wait for the human to reply with `approve` before creating a branch,
   writing code, or running installer/update scripts. Don't treat a description of the problem as
   approval to implement. The one exception: if the human's message is itself `/github_kit <task>`,
-  that invocation is the approval for `<task>` — proceed per `.claude/skills/github_kit/SKILL.md`
+  that invocation is the approval for `<task>` — proceed per `.agents/skills/github_kit/SKILL.md`
   instead of waiting for the separate phrase.
 - **Update handoff files before running low on context.** If you're approaching a context/token
   limit mid-task, write your current state to `docs/ai/handoffs/issue-<number>.md` and update the
-  Project's `Last Agent Update` and `Validation` fields *before* you stop — the next agent (Claude
-  Code again, or a completely different tool) picks up from that file, not from re-reading the
+  Project's `Last Agent Update` and `Validation` fields *before* you stop — the next agent (Gemini
+  CLI again, or a completely different tool) picks up from that file, not from re-reading the
   whole conversation.
 - **Never merge a PR.** Open draft PRs, push updates, respond to review feedback — merging is
   always a human action.

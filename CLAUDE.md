@@ -8,7 +8,7 @@ This file exists only to tell Claude Code two things AGENTS.md can't say on its 
    *other* repositories. If you're editing `github-kit` itself, follow the root `AGENTS.md`, not
    anything under `templates/`.
 2. **Plan first, wait for approval, never merge.** For routine work on this repo, wait for
-   `approve issue-to-pr-project` before branching/implementing, same as any repo using this kit.
+   `approve` before branching/implementing, same as any repo using this kit.
    The one exception is `/github_kit <task>` (see `.claude/commands/github_kit.md` and
    `.claude/skills/github_kit/SKILL.md`) — that invocation is itself the approval for `<task>`.
    Before stopping or running low on context, update the relevant `docs/ai/handoffs/issue-<n>.md`

@@ -15,6 +15,38 @@ on:
         description: "Exempt hotfix/* branches from the agent branch prefix requirement"
         type: boolean
         default: true
+      production_branch:
+        description: "Name of this repo's production branch (e.g. main)"
+        type: string
+        default: "main"
+      require_production_branch_approval:
+        description: "Opt-in: when a PR targets production_branch directly (not required_base_branch), require an explicit human-authorization marker in the PR body. Default false so repos that installed github-kit before this gate shipped aren't broken until they refresh; the caller template turns it on for new/refreshed installs."
+        type: boolean
+        default: false
+      production_branch_marker:
+        description: "Exact line that must appear in the PR body to authorize targeting production_branch directly"
+        type: string
+        default: "Production-branch authorization: approve main"
+      check_project_fields:
+        description: "Opt-in: fail the PR check if its Project item is missing required field values"
+        type: boolean
+        default: false
+      project_owner:
+        description: "GitHub org/user that owns the Project (required when check_project_fields is true)"
+        type: string
+        default: ""
+      project_number:
+        description: "GitHub Project (v2) number (required when check_project_fields is true)"
+        type: string
+        default: ""
+      required_project_fields:
+        description: "Comma-separated Project field names that must be non-empty on the PR's item"
+        type: string
+        default: "Agent,Area,Risk,Environment,Base Branch,Branch,PR URL"
+    secrets:
+      project_token:
+        description: "PAT with the 'project' scope. Required when check_project_fields is true — the default GITHUB_TOKEN cannot read Projects (v2)."
+        required: false
 
 jobs:
   policy:
@@ -23,6 +55,8 @@ jobs:
     steps:
       - name: Check base branch and branch prefix
         shell: bash
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
         run: |
           set -euo pipefail
           base='${{ github.event.pull_request.base.ref }}'
@@ -30,14 +64,24 @@ jobs:
           required_base='${{ inputs.required_base_branch }}'
           prefix='${{ inputs.require_agent_branch_prefix }}'
           allow_hotfix='${{ inputs.allow_hotfix }}'
+          production_branch='${{ inputs.production_branch }}'
+          require_prod_approval='${{ inputs.require_production_branch_approval }}'
+          prod_marker='${{ inputs.production_branch_marker }}'
 
           fail=0
 
-          if [ "$base" != "$required_base" ]; then
+          if [ "$base" = "$required_base" ]; then
+            echo "OK: base branch '$base' matches required '$required_base'."
+          elif [ "$require_prod_approval" = "true" ] && [ "$base" = "$production_branch" ]; then
+            if printf '%s' "$PR_BODY" | grep -qF "$prod_marker"; then
+              echo "OK: PR targets the production branch '$base' directly and contains the required authorization marker."
+            else
+              echo "::error::PR targets the production branch '$base' directly (required base is '$required_base') but its description is missing the required human-authorization marker: \"$prod_marker\". A human must explicitly say 'approve $production_branch' (not just 'approve') before an agent opens a PR into $production_branch; the agent must then add that exact line to the PR body."
+              fail=1
+            fi
+          else
             echo "::error::PR targets base '$base' but the required base branch is '$required_base'."
             fail=1
-          else
-            echo "OK: base branch '$base' matches required '$required_base'."
           fi
 
           is_hotfix=0
@@ -62,3 +106,84 @@ jobs:
           if [ "$fail" -ne 0 ]; then
             exit 1
           fi
+
+  project-fields:
+    runs-on: ubuntu-latest
+    if: |
+      inputs.check_project_fields &&
+      (github.event_name == 'pull_request' || github.event_name == 'pull_request_target')
+    env:
+      GH_TOKEN: ${{ secrets.project_token }}
+    steps:
+      - name: Validate inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${{ secrets.project_token }}" ]; then
+            echo "::error::check_project_fields is true but secrets.project_token was not provided. Pass a PAT with the 'project' scope."
+            exit 1
+          fi
+          if [ -z "${{ inputs.project_owner }}" ] || [ -z "${{ inputs.project_number }}" ]; then
+            echo "::error::check_project_fields is true but project_owner/project_number inputs are empty."
+            exit 1
+          fi
+
+      - name: Resolve Project item for this PR
+        id: item
+        shell: bash
+        run: |
+          set -euo pipefail
+          pr_url='${{ github.event.pull_request.html_url }}'
+          item_json="$(gh project item-add '${{ inputs.project_number }}' --owner '${{ inputs.project_owner }}' --url "$pr_url" --format json)"
+          item_id="$(echo "$item_json" | jq -r '.id')"
+          if [ -z "$item_id" ] || [ "$item_id" = "null" ]; then
+            echo "::error::Could not resolve a Project item for $pr_url. Check project_owner/project_number and that project_token has the 'project' scope."
+            exit 1
+          fi
+          echo "id=$item_id" >> "$GITHUB_OUTPUT"
+
+      - name: Check required fields are non-empty
+        shell: bash
+        run: |
+          set -euo pipefail
+          fields_json="$(gh api graphql -f query='
+            query($id: ID!) {
+              node(id: $id) {
+                ... on ProjectV2Item {
+                  fieldValues(first: 50) {
+                    nodes {
+                      ... on ProjectV2ItemFieldTextValue { text field { ... on ProjectV2FieldCommon { name } } }
+                      ... on ProjectV2ItemFieldSingleSelectValue { name field { ... on ProjectV2FieldCommon { name } } }
+                      ... on ProjectV2ItemFieldDateValue { date field { ... on ProjectV2FieldCommon { name } } }
+                      ... on ProjectV2ItemFieldNumberValue { number field { ... on ProjectV2FieldCommon { name } } }
+                    }
+                  }
+                }
+              }
+            }' -f id='${{ steps.item.outputs.id }}')"
+
+          IFS=',' read -r -a required <<< "${{ inputs.required_project_fields }}"
+          missing=()
+          for raw_name in "${required[@]}"; do
+            name="$(echo "$raw_name" | sed 's/^ *//;s/ *$//')"
+            [ -n "$name" ] || continue
+            value="$(echo "$fields_json" | jq -r --arg n "$name" '
+              .data.node.fieldValues.nodes[]
+              | select(.field.name == $n)
+              | if has("text") then .text
+                elif has("name") then .name
+                elif has("date") then .date
+                elif has("number") then (.number | tostring)
+                else "" end
+            ' | head -n1)"
+            if [ -z "$value" ] || [ "$value" = "null" ]; then
+              missing+=("$name")
+            fi
+          done
+
+          if [ "${#missing[@]}" -gt 0 ]; then
+            echo "::error::Project fields left blank on this PR's item: ${missing[*]}. Fill them via scripts/project/create_agent_pr.sh --agent/--area/--risk/--environment (or scripts/project/sync_project_fields.sh) before requesting review."
+            exit 1
+          fi
+
+          echo "OK: all required Project fields are set (${{ inputs.required_project_fields }})."

@@ -48,7 +48,7 @@ Every repo that installs this kit follows the same lifecycle:
 User task
 → agent reads repo instructions (AGENTS.md, docs/ai/PROJECT_CONFIG.md, docs/ai/AGENT_WORKFLOW.md)
 → agent creates plan
-→ human approval ("approve issue-to-pr-project")
+→ human approval ("approve")
 → GitHub issue
 → GitHub Project update
 → agent branch
@@ -65,6 +65,34 @@ See [`templates/docs/ai/AGENT_WORKFLOW.md`](templates/docs/ai/AGENT_WORKFLOW.md)
 phase-by-phase specification (including free-tier limitations, pausing/resuming for AI usage
 limits, and the manual-Project-update fallback), and [`templates/AGENTS.md`](templates/AGENTS.md)
 for the rules every agent must follow.
+
+## Remote-first metadata workflow
+
+An agent branch, issue, or PR with blank sidebar metadata is easy to lose track of — no assignee
+means no notification, no labels means it's invisible to filters, and a branch that only exists
+locally can vanish with the worktree. `github-kit` closes those gaps with four scripts in
+`templates/scripts/project/` that every agent workflow now calls instead of raw `gh` commands:
+
+| Script | When | What it fills in |
+|---|---|---|
+| `create_agent_issue.sh` | Creating the tracking issue | assignee, labels, milestone, adds the issue to the Project |
+| `publish_agent_branch.sh` | Immediately after the issue exists, **before any implementation code** | pushes the agent branch to `origin` right away — never local-only |
+| `sync_project_fields.sh <checkpoint> <issue-or-pr-url> [text]` | At each workflow checkpoint (issue created, branch pushed, PR opened, review states, done) | `Status`, `Validation`, `Last Agent Update`, and other Project fields, in one call |
+| `create_agent_pr.sh` | Opening the draft PR | assignee, reviewer, labels, milestone, adds the PR to the Project |
+
+Two policies apply alongside these scripts:
+
+- **Relationships.** Every issue/PR body either declares real relationships (`Blocked by #12`,
+  `Blocks #34`, `Part of #5`) or states `Relationships: none declared` — never silence on the
+  question. See `templates/AGENTS.md` → "GitHub relationships and development links".
+- **Notifications.** Agents rely on `--assignee`/`--reviewer` (set by the scripts above) to ensure
+  the right humans are notified, rather than assuming a separate subscribe/watch step exists. See
+  `templates/AGENTS.md` → "Notifications and participation".
+
+`scripts/project/verify_agent_workflow.sh` (and its CI mirror,
+`.github/workflows/reusable-agent-workflow-verify.yml`) checks that all four scripts are present
+and that both policy phrases appear somewhere in the repo, so a repo can't silently drift back to
+the old late-push, blank-metadata pattern.
 
 ## Always-latest main channel
 
@@ -97,11 +125,11 @@ opt-in step, changes here deserve a higher review bar than a typical app repo.
 `/github_kit <task description>` is a pre-approved alternative entry point into the same lifecycle
 above. Typing it is itself the human's approval for `<task>`, scoped strictly to that description —
 the agent still writes a visible plan, still creates the issue and tracks it on the Project, still
-opens a **draft** PR, still never merges or tags, but skips the separate wait for `approve
-issue-to-pr-project`. If the work turns out to need more than `<task>` described, the agent falls
-back to the normal approval gate for the extra scope.
+opens a **draft** PR, still never merges or tags, but skips the separate wait for `approve`.
+If the work turns out to need more than `<task>` described, the agent falls back to the normal
+approval gate for the extra scope.
 
-This is additive: `approve issue-to-pr-project` remains the default gate for everything else, and
+This is additive: `approve` remains the default gate for everything else, and
 the existing `issue-to-pr-project` workflow is untouched. Each agent has its own entry point —
 Claude Code's `/github_kit` slash command, the generic `.agents/skills/github_kit/SKILL.md` skill,
 and the `.cursor/rules/github-kit-command.mdc` Cursor rule — see the table below and

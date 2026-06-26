@@ -7,7 +7,7 @@
   Refreshes github-kit-owned boilerplate (caller workflows, Cursor rules, skills, CODEOWNERS,
   copilot-instructions.md, project helper scripts, docs/ai/AGENT_WORKFLOW.md,
   docs/ai/HANDOFF_INDEX.md, docs/ai/PROJECT_CONFIG.env.example) and the managed block in
-  AGENTS.md/CLAUDE.md. Never overwrites docs/ai/PROJECT_CONFIG.md, .github/ISSUE_TEMPLATE/
+  AGENTS.md/CLAUDE.md/GEMINI.md. Never overwrites docs/ai/PROJECT_CONFIG.md, .github/ISSUE_TEMPLATE/
   agent_task.yml, or .github/PULL_REQUEST_TEMPLATE.md -- those may contain repo-specific
   customization and this script has no flag to force them, except -ForceConfig for
   docs/ai/PROJECT_CONFIG.md specifically (rarely what you want -- prefer editing it by hand).
@@ -173,7 +173,7 @@ User task → plan → human approval → GitHub issue → Project update → ag
 
 Required approval phrase:
 ```text
-approve issue-to-pr-project
+approve
 ```
 
 Fast path: `/github_kit <task>` is a pre-approved alternative entry point — the invocation itself is the approval for the described task, scoped to that task only. See `docs/ai/AGENT_WORKFLOW.md` → "Fast-path trigger: /github_kit".
@@ -223,6 +223,7 @@ function Apply-ManagedBlock {
 
 Apply-ManagedBlock "AGENTS.md" (Join-Path $Templates "AGENTS.md")
 Apply-ManagedBlock "CLAUDE.md" (Join-Path $Templates "CLAUDE.md")
+Apply-ManagedBlock "GEMINI.md" (Join-Path $Templates "GEMINI.md")
 
 # --- docs/ai/ (PROJECT_CONFIG.md protected unless -ForceConfig) ---------
 
@@ -289,7 +290,7 @@ foreach ($rule in @("agent-workflow", "git-safety", "project-board", "github-kit
 
 # --- scripts/project/ -------------------------------------------------
 
-foreach ($script in @("project_add_item", "project_set_status", "project_set_text", "verify_agent_workflow", "create_standard_labels")) {
+foreach ($script in @("project_add_item", "project_set_status", "project_set_text", "verify_agent_workflow", "create_standard_labels", "create_agent_issue", "publish_agent_branch", "sync_project_fields", "create_agent_pr", "check_resume_safety", "post_handoff_comment")) {
     Refresh-File (Join-Path $Templates "scripts/project/$script.sh") "scripts/project/$script.sh"
 }
 

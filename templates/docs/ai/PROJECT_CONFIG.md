@@ -21,6 +21,7 @@
 | github-kit ref | `main` |
 | github-kit update mode | `main-channel` |
 | Project Sync enabled | `false` |
+| Project field completeness gate enabled | `false` |
 | Branch protection enforced | `false` |
 
 This repository follows `pzoli6/github-kit@main` for central reusable workflows. Local agent files
@@ -39,6 +40,117 @@ Project + `AGENT_PROJECT_TOKEN` secret — see "When Project Sync isn't enabled"
 `AGENT_WORKFLOW.md`. `Branch protection enforced` is `false` for any private repo on the GitHub
 Free plan (a platform limitation, not a config you can flip) — see "Free-tier limitations" in
 `AGENT_WORKFLOW.md`.
+
+## GitHub metadata defaults
+
+Defaults that `scripts/project/create_agent_issue.sh` and `scripts/project/create_agent_pr.sh`
+apply automatically, so issue/PR sidebar metadata (assignee, labels, milestone) is never left
+blank. Configure the real values in `docs/ai/PROJECT_CONFIG.env` (copy from `.env.example`) — this
+table documents what's expected, it isn't read directly by scripts.
+
+| Key | Value |
+|---|---|
+| Default issue assignee | `@me` |
+| Default PR assignee | `@me` |
+| Default reviewer | TBD |
+| Default issue labels | `status:ready-for-agent,type:agent-task` |
+| Default PR labels | `type:agent-task` |
+| Default milestone | TBD |
+
+`Default reviewer` and `Default milestone` are `TBD` until this repo configures them — leave the
+matching env var blank rather than guessing a real username or milestone title.
+`create_agent_issue.sh`/`create_agent_pr.sh` skip a flag entirely when its value is empty or `TBD`;
+they never fabricate one. If `Default milestone` is set but that milestone doesn't exist yet in
+this repo's GitHub Issues, the scripts stop and ask rather than silently creating or skipping it.
+
+## Project field defaults
+
+Defaults for the GitHub Project custom fields (`Agent`, `Area`, `Risk`, `Environment` — see
+`AGENTS.md` → "Project fields") that `create_agent_issue.sh` and `create_agent_pr.sh` write
+automatically at issue-creation and PR-open time, so these fields are never left blank on the
+board. Configure in `docs/ai/PROJECT_CONFIG.env`:
+
+| Key | Value |
+|---|---|
+| Default agent | TBD |
+| Default area | TBD |
+| Default risk | TBD |
+| Default environment | TBD |
+
+These are a fallback, not the primary source: every agent invoking `create_agent_issue.sh` /
+`create_agent_pr.sh` knows its own identity and the area/risk/environment of the task it's
+working on, and should pass `--agent`, `--area`, `--risk`, `--environment` explicitly per
+`docs/ai/AGENT_WORKFLOW.md` rather than relying on a repo-wide default. The env default only
+covers the case where a flag is omitted — e.g. a repo that's effectively single-agent, or a manual
+script invocation. Like the metadata above, a value left at `TBD` (or blank) means the script
+skips that field rather than writing a placeholder into the Project.
+
+## Project field completeness gate (CI)
+
+An opt-in PR check, separate from Project Sync, that fails the PR if its Project item is missing
+any of the fields agents are supposed to fill in (`Agent`, `Area`, `Risk`, `Environment`, `Base
+Branch`, `Branch`, `PR URL` by default) — the check this kit added after agents were observed
+opening PRs with those fields blank. It lives in `reusable-pr-policy.yml`'s `project-fields` job and
+is off by default; enable it in `.github/workflows/pr-policy.yml`:
+
+```yaml
+jobs:
+  policy:
+    uses: pzoli6/github-kit/.github/workflows/reusable-pr-policy.yml@main
+    with:
+      required_base_branch: develop
+      require_agent_branch_prefix: agent/
+      allow_hotfix: true
+      check_project_fields: true
+      project_owner: <owner>
+      project_number: <number>
+      # required_project_fields: "Agent,Area,Risk,Environment,Base Branch,Branch,PR URL"  # default
+    secrets:
+      project_token: ${{ secrets.AGENT_PROJECT_TOKEN }}
+```
+
+Reuses the same `AGENT_PROJECT_TOKEN` PAT (the `project` scope) and `project_owner`/`project_number`
+as Project Sync — you don't need a second token. Turning this on assumes the GitHub Project already
+has those fields configured (see `AGENTS.md` → "Project fields"); enable it only after Project Sync
+itself is working, since the gate reads the same Project the sync writes to.
+
+## Production-branch approval gate (CI)
+
+A CI check, in the same `policy` job that already enforces `required_base_branch`, that fails the
+PR if it targets the production branch (the "Production branch" key above, default `main`)
+directly and its description is missing a specific human-authorization marker. This is the
+mechanical enforcement of the conversational `approve main` gate — see `AGENTS.md` → "Production-
+branch gate (`approve main`)" for what an agent must do before opening such a PR. It lives in
+`reusable-pr-policy.yml`'s `policy` job, defaults to **off** centrally (so repos that installed
+github-kit before this gate shipped aren't broken until they refresh), and is turned **on** by the
+caller template in `.github/workflows/pr-policy.yml`:
+
+```yaml
+jobs:
+  policy:
+    uses: pzoli6/github-kit/.github/workflows/reusable-pr-policy.yml@main
+    with:
+      required_base_branch: develop
+      require_agent_branch_prefix: agent/
+      allow_hotfix: true
+      production_branch: main
+      require_production_branch_approval: true
+      # production_branch_marker: "Production-branch authorization: approve main"  # default
+```
+
+`production_branch` should match the "Production branch" key in the table above. The check only
+ever fires for a PR whose base is `production_branch` *and* doesn't already equal
+`required_base_branch` — repos where both are the same branch (no develop/main split) never hit
+this exception path, so there's nothing to configure for them beyond leaving the gate as-is or
+turning it off. When it does fire, the PR body must contain this exact line (the agent adds it once
+the human has said `approve main`):
+
+```text
+Production-branch authorization: approve main
+```
+
+The check reads the PR body only as data (never as a script), via GitHub Actions' `env:`
+indirection — untrusted PR text is never interpolated directly into a shell command.
 
 ## Validation commands
 

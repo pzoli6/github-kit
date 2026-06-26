@@ -48,6 +48,7 @@ check_file "scripts/update-github-kit.ps1"
 
 check_file "templates/AGENTS.md"
 check_file "templates/CLAUDE.md"
+check_file "templates/GEMINI.md"
 check_file "templates/.github/CODEOWNERS"
 check_file "templates/.github/copilot-instructions.md"
 check_file "templates/.github/ISSUE_TEMPLATE/agent_task.yml"
@@ -71,6 +72,12 @@ check_file "templates/scripts/project/project_set_status.sh"
 check_file "templates/scripts/project/project_set_text.sh"
 check_file "templates/scripts/project/verify_agent_workflow.sh"
 check_file "templates/scripts/project/create_standard_labels.sh"
+check_file "templates/scripts/project/create_agent_issue.sh"
+check_file "templates/scripts/project/publish_agent_branch.sh"
+check_file "templates/scripts/project/sync_project_fields.sh"
+check_file "templates/scripts/project/create_agent_pr.sh"
+check_file "templates/scripts/project/check_resume_safety.sh"
+check_file "templates/scripts/project/post_handoff_comment.sh"
 check_file "templates/.github/workflows/agent-workflow-verify.yml"
 check_file "templates/.github/workflows/pr-policy.yml"
 check_file "templates/.github/workflows/ci-node.yml"
@@ -155,9 +162,85 @@ fi
 
 echo
 
+# --- opt-in Project field completeness gate: wired into reusable-pr-policy.yml, the caller -------
+# template, and PROJECT_CONFIG.md docs (see "Project field completeness gate (CI)") ---------------
+
+if grep -q 'check_project_fields' .github/workflows/reusable-pr-policy.yml 2>/dev/null \
+    && grep -q 'project-fields:' .github/workflows/reusable-pr-policy.yml 2>/dev/null; then
+  echo "OK      reusable-pr-policy.yml has the check_project_fields input and project-fields job"
+else
+  echo "MISSING check_project_fields input / project-fields job in .github/workflows/reusable-pr-policy.yml"
+  missing=1
+fi
+
+if grep -q 'check_project_fields' templates/.github/workflows/pr-policy.yml 2>/dev/null; then
+  echo "OK      templates/.github/workflows/pr-policy.yml wires up check_project_fields"
+else
+  echo "MISSING check_project_fields wiring in templates/.github/workflows/pr-policy.yml"
+  missing=1
+fi
+
+if grep -Fq 'Project field completeness gate' templates/docs/ai/PROJECT_CONFIG.md 2>/dev/null; then
+  echo "OK      templates/docs/ai/PROJECT_CONFIG.md documents the Project field completeness gate"
+else
+  echo "MISSING \"Project field completeness gate\" section in templates/docs/ai/PROJECT_CONFIG.md"
+  missing=1
+fi
+
+echo
+
+# --- opt-in production-branch approval gate: wired into reusable-pr-policy.yml, the caller -------
+# template, and PROJECT_CONFIG.md docs (see "Production-branch approval gate (CI)") ---------------
+
+if grep -q 'require_production_branch_approval' .github/workflows/reusable-pr-policy.yml 2>/dev/null \
+    && grep -q 'production_branch_marker' .github/workflows/reusable-pr-policy.yml 2>/dev/null; then
+  echo "OK      reusable-pr-policy.yml has the require_production_branch_approval input and marker check"
+else
+  echo "MISSING require_production_branch_approval input / marker check in .github/workflows/reusable-pr-policy.yml"
+  missing=1
+fi
+
+if grep -q 'require_production_branch_approval' templates/.github/workflows/pr-policy.yml 2>/dev/null; then
+  echo "OK      templates/.github/workflows/pr-policy.yml wires up require_production_branch_approval"
+else
+  echo "MISSING require_production_branch_approval wiring in templates/.github/workflows/pr-policy.yml"
+  missing=1
+fi
+
+if grep -Fq 'Production-branch approval gate' templates/docs/ai/PROJECT_CONFIG.md 2>/dev/null; then
+  echo "OK      templates/docs/ai/PROJECT_CONFIG.md documents the Production-branch approval gate"
+else
+  echo "MISSING \"Production-branch approval gate\" section in templates/docs/ai/PROJECT_CONFIG.md"
+  missing=1
+fi
+
+echo
+
+# --- require_gemini: wired into reusable-agent-workflow-verify.yml and the caller template --------
+# (see "Gemini agent identity support" — GEMINI.md adapter) ----------------------------------------
+
+if grep -q 'require_gemini' .github/workflows/reusable-agent-workflow-verify.yml 2>/dev/null; then
+  echo "OK      reusable-agent-workflow-verify.yml has the require_gemini input"
+else
+  echo "MISSING require_gemini input in .github/workflows/reusable-agent-workflow-verify.yml"
+  missing=1
+fi
+
+if grep -q 'require_gemini: true' templates/.github/workflows/agent-workflow-verify.yml 2>/dev/null; then
+  echo "OK      templates/.github/workflows/agent-workflow-verify.yml wires up require_gemini: true"
+else
+  echo "MISSING require_gemini: true wiring in templates/.github/workflows/agent-workflow-verify.yml"
+  missing=1
+fi
+
+echo
+
 # --- required phrases / Project statuses / handoff terms ---------------------
 
-check_phrase "approve issue-to-pr-project"
+check_phrase "approve"
+check_phrase "approve main"
+check_phrase "Production-branch authorization"
+check_phrase "Stop-and-ask gates"
 check_phrase "/github_kit"
 check_phrase "Plan Review"
 check_phrase "Ready"
