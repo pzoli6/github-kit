@@ -104,6 +104,13 @@ This is the detailed, phase-by-phase version of the lifecycle summarized in
 - A human merges the PR — no agent merges its own or anyone else's PR.
 - Once merged/closed, set `Status` to `Done` (or `Cancelled` if the work was abandoned).
 - Optionally remove or archive the task's handoff file once the Project item is `Done`.
+- Clean up the local agent branch once you learn the PR was merged:
+  ```bash
+  scripts/project/cleanup_merged_branches.sh --branch <branch>
+  ```
+  This only deletes the *local* branch, and only when it's actually safe — see "Local branch
+  cleanup after merge" in `AGENTS.md` → "Branch and worktree rules" for the exact criteria. If it
+  reports `SKIPPED`, leave the branch alone and read the reason rather than force-deleting it.
 
 ---
 

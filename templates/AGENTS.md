@@ -291,6 +291,23 @@ opening a PR, or moving a tracked item through the workflow above.
 - Never commit directly to the production/default branch. Always branch first.
 - Never force-push a branch another agent or human might also be working on.
 
+### Local branch cleanup after merge
+
+Once you learn a PR has merged (Phase 9 — Completion), run
+`scripts/project/cleanup_merged_branches.sh --branch <branch>` (or with no `--branch` to sweep all
+local `agent/`-prefixed branches at once). It deletes a branch **only** when all of these hold:
+
+- The branch isn't currently checked out here, and isn't checked out in another worktree.
+- It has a PR, and that PR's state is `MERGED` (not just closed).
+- The local branch's tip commit matches exactly what GitHub merged — i.e. there are no local
+  commits beyond what was actually merged (catches forgotten work-in-progress commits made after
+  the PR was last pushed).
+
+If any of those don't hold, the script reports `SKIPPED: <reason>` and leaves the branch alone —
+never force-delete a branch yourself to "fix" a skip; the reason printed is what to go check. This
+only ever touches the **local** branch; the remote branch (and whether GitHub auto-deletes it on
+merge) is untouched.
+
 ## Free-tier limitations and branch protection
 
 - Private repositories on the GitHub Free plan cannot enforce branch protection rulesets (no
