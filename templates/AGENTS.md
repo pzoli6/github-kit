@@ -284,29 +284,51 @@ opening a PR, or moving a tracked item through the workflow above.
 
 ## Branch and worktree rules
 
+- **Every agent task runs in its own git worktree.** Multiple agents routinely work this repo in
+  parallel, so two agents must never share one working tree. Don't branch in place; create a
+  dedicated worktree at the very start of the task.
+- Create it with `scripts/project/publish_agent_branch.sh --issue <issue> --slug <short>` — it
+  fetches and forks from `origin/<base branch>` (never a stale local tip), creates a **real**
+  worktree (its own checkout with a `.git` file, registered in `git worktree list`), pushes the
+  branch, and prints the worktree's absolute path as its final line. **`cd` into that path and do
+  all implementation there.** Don't trust an ambient "you are in a worktree" banner without
+  confirming `git rev-parse --show-toplevel` actually points where you expect — a worktree git
+  doesn't know about is the single biggest setup time-sink, which is exactly what this script
+  prevents.
+- The script drops a `WORKTREE.md` preamble into the new worktree (issue number, base branch,
+  unique dev port, dev-server command, preview/QA route, auth notes, key paths, verify-command
+  pointer) sourced from `docs/ai/PROJECT_CONFIG`. Read it first — it's the facts you'd otherwise
+  reverse-engineer. `WORKTREE.md` is per-worktree scratch and is not committed.
 - Branch names must start with the agent branch prefix configured in
   `docs/ai/PROJECT_CONFIG.md` (default `agent/`), e.g. `agent/issue-42-add-retry-logic`.
-- Use an isolated worktree per concurrent task when more than one agent or session might touch
-  this repo at the same time — never have two agents committing to the same working tree.
+- The only exception to the worktree rule is `publish_agent_branch.sh --no-worktree` (in-place
+  branch switch), for environments that genuinely can't use worktrees (e.g. some CI). Never use it
+  when another agent or session might touch this repo concurrently.
 - Never commit directly to the production/default branch. Always branch first.
 - Never force-push a branch another agent or human might also be working on.
 
-### Local branch cleanup after merge
+### Worktree + branch + issue cleanup after merge
 
 Once you learn a PR has merged (Phase 9 — Completion), run
 `scripts/project/cleanup_merged_branches.sh --branch <branch>` (or with no `--branch` to sweep all
-local `agent/`-prefixed branches at once). It deletes a branch **only** when all of these hold:
+local `agent/`-prefixed branches at once). For a merged branch it **removes the task's worktree,
+deletes the local branch, and closes the linked issue** (Project `Status` → `Done` plus
+`gh issue close`) — the agent cleaning up after itself in one call. Each destructive step happens
+**only** when all of these hold:
 
-- The branch isn't currently checked out here, and isn't checked out in another worktree.
-- It has a PR, and that PR's state is `MERGED` (not just closed).
-- The local branch's tip commit matches exactly what GitHub merged — i.e. there are no local
-  commits beyond what was actually merged (catches forgotten work-in-progress commits made after
-  the PR was last pushed).
+- The branch's PR state is `MERGED` (not just closed).
+- The local branch's tip commit matches exactly what GitHub merged — no local commits beyond what
+  was actually merged (catches forgotten work-in-progress commits made after the last push).
+- The worktree has no uncommitted or untracked work beyond the kit's own scratch files
+  (`WORKTREE.md`, `.claude/launch.json`) — real unsaved work blocks removal.
+- The worktree isn't the one you're standing in, and isn't the repo's primary checkout.
 
-If any of those don't hold, the script reports `SKIPPED: <reason>` and leaves the branch alone —
-never force-delete a branch yourself to "fix" a skip; the reason printed is what to go check. This
-only ever touches the **local** branch; the remote branch (and whether GitHub auto-deletes it on
-merge) is untouched.
+If any check fails, the script reports `SKIPPED: <reason>` and leaves everything alone — never
+force-remove a worktree or force-delete a branch yourself to "fix" a skip; the reason printed is
+what to go check. The issue is only closed for branches it actually cleans up, and only the issues
+the PR declared it closes (`Closes/Fixes/Resolves #N`). This touches **local** artifacts and the
+issue; the remote branch (and whether GitHub auto-deletes it on merge) is untouched. Run it with
+`--dry-run` first if you want to see what it would do.
 
 ## Free-tier limitations and branch protection
 
@@ -423,11 +445,15 @@ Relationships: none declared
 An issue's "Development" sidebar section links automatically once `scripts/project/
 create_agent_pr.sh` opens a PR — its `Closes #<n>` body line is what GitHub uses to associate the
 PR with the issue, no extra step required. To get a branch linked under Development *before* a PR
-exists, create it with `gh issue develop` instead of `scripts/project/publish_agent_branch.sh` (the
-two are alternatives, not complementary — `gh issue develop` creates the branch itself):
+exists, you can create it with `gh issue develop` — but note this **bypasses the worktree
+workflow**: `gh issue develop` creates a branch, not a worktree, so you'd then have to create a
+worktree for it yourself (`git worktree add <dir> <agent/branch-name>`) to honor "Branch and
+worktree rules". In the common case skip this — the PR auto-links Development once it opens, and
+`scripts/project/publish_agent_branch.sh` already gives you the isolated worktree:
 
 ```bash
 gh issue develop <issue-number> --name <agent/branch-name> [--branch-repo <owner/repo>]
+git worktree add ../<repo>-worktrees/<slug> <agent/branch-name>   # required to stay worktree-isolated
 ```
 
 ## Notifications and participation

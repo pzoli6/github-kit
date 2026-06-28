@@ -71,20 +71,25 @@ instruction files may lag behind `github-kit/main` until someone runs `/github_k
    issue, say so in the issue body (`Blocked by #12`, `Blocks #15`, `Part of #10`). Otherwise write
    `Relationships: none declared` — never leave the question unaddressed. See `AGENTS.md` →
    "GitHub relationships and development links".
-6. **Publish the agent branch immediately.**
+6. **Create the worktree and publish the branch.**
    ```bash
-   scripts/project/publish_agent_branch.sh --issue <issue-url> --slug <short-description>
+   worktree="$(scripts/project/publish_agent_branch.sh --issue <issue-url> --slug <short-description>)"
+   cd "$worktree"
    ```
-   Run this **before writing any implementation code.** It branches from the configured base
-   branch, pushes to `origin` right away — the branch is never local-only — comments the branch
-   link on the issue, sets `Status` to `In Progress`, and sets the `Branch` field, all in one call.
+   Run this **before writing any implementation code.** Every task runs in its own git worktree —
+   the script forks from `origin/<base>` (never a stale local tip), creates a *real* worktree (own
+   checkout + `.git` file), pushes the branch, comments the link on the issue, sets `Status` to
+   `In Progress` and the `Branch`/`Base Branch` fields, and prints the worktree path (captured
+   above). **`cd` into it and read its `WORKTREE.md` first** — that's the base branch, unique dev
+   port, verify commands, and auth notes you'd otherwise reverse-engineer. See `AGENTS.md` →
+   "Branch and worktree rules".
 7. **Optional: pre-PR Development link.** If you want the branch visible under the issue's
    "Development" sidebar section *before* a PR exists, use `gh issue develop --name
-   <agent/branch-name> [--branch-repo <owner/repo>]` **instead of** step 6 — the two are
-   alternatives, not complementary, since `gh issue develop` creates the branch itself. In the
-   common case, skip this: step 16's PR body auto-links Development once the PR opens.
-8. **Implement.** Only what `<task>` describes. Stage explicit files; never `git add -A` /
-   `git add .`.
+   <agent/branch-name>` **instead of** step 6 — but then create a worktree for that branch yourself
+   (`git worktree add <dir> <agent/branch-name>`) to stay worktree-isolated. In the common case,
+   skip this: step 16's PR body auto-links Development once the PR opens.
+8. **Implement** in the worktree. Only what `<task>` describes. Stage explicit files; never
+   `git add -A` / `git add .`.
 9. **Mark implementation started.**
    ```bash
    scripts/project/sync_project_fields.sh implementation_started <issue-url> "<short note>"
@@ -133,11 +138,17 @@ instruction files may lag behind `github-kit/main` until someone runs `/github_k
     to `In Review`.
 20. **Completion is human-driven.** A human merges the PR — no agent merges its own or anyone
     else's.
-21. **Record completion.**
+21. **On merge, clean up after yourself.**
     ```bash
-    scripts/project/sync_project_fields.sh done <issue-url>
-    # or: cancelled <issue-url>   (if the work was abandoned)
+    scripts/project/cleanup_merged_branches.sh --branch <branch>
     ```
+    Removes the task's worktree, deletes the local branch, and closes the linked issue (Project
+    `Status` → `Done` plus `gh issue close`) — but only when the merge is real and nothing unsaved
+    would be lost. A `SKIPPED` line means leave it alone and read why, not force-remove it. Run it
+    from outside the task's own worktree (e.g. the main checkout). If the work was abandoned
+    instead, run `scripts/project/sync_project_fields.sh cancelled <issue-url>` and remove the
+    worktree by hand (`git worktree remove <path>`). See `AGENTS.md` → "Branch and worktree rules"
+    → "Worktree + branch + issue cleanup after merge".
 22. **Local bootstrap refresh is separate.** Refreshing this repo's *local* github-kit bootstrap
     files (skills, Cursor rules, instructions) from `github-kit/main` is the dedicated
     `/github_kit_update` command/skill's job — a distinct, explicit, opt-in operation, never a side

@@ -175,6 +175,32 @@ vendored code, secrets):
 # *.pem
 ```
 
+## Worktree and dev-environment facts
+
+Every agent task runs in its own git worktree (see `AGENTS.md` → "Branch and worktree rules").
+`scripts/project/publish_agent_branch.sh` creates that worktree freshly branched from
+`origin/<base branch>` and writes a `WORKTREE.md` preamble into it populated from the values below
+— the facts an agent otherwise wastes calls reverse-engineering. Configure these in
+`docs/ai/PROJECT_CONFIG.env` (copy from `.env.example`); this table documents what's expected, it
+isn't read directly. Every one is optional — a blank or `TBD` value is simply left out of
+`WORKTREE.md`.
+
+| Key | Value | Purpose |
+|---|---|---|
+| `AGENT_WORKTREE_BASE` | TBD | Parent dir for worktrees. Default `<repo-parent>/<repo-name>-worktrees/<slug>` |
+| `AGENT_DEV_SERVER_CMD` | TBD | Dev-server command, e.g. `npm run dev` |
+| `AGENT_DEV_PORT_BASE` | TBD | Base port; each worktree gets a deterministic unique port (base + hash(slug)%100) so parallel agents don't collide |
+| `AGENT_PREVIEW_ROUTE` | TBD | How to do visual QA without the auth wall, e.g. a `/dev` preview route |
+| `AGENT_AUTH_NOTE` | TBD | What to know about auth-gating before loading the app |
+| `AGENT_KEY_PATHS` | TBD | The few paths a newcomer needs first |
+| `AGENT_VISUAL_QA_NOTE` | TBD | Browser gotchas, e.g. `Playwright: launch chromium with channel:'chrome'` |
+| `AGENT_LAUNCH_TEMPLATE` | TBD | Optional path to a launch.json template copied into the worktree's `.claude/` with `__AGENT_DEV_PORT__` substituted |
+
+The dev port, dev-server command, preview route, auth note, key paths, and Playwright/browser note
+are exactly the things the github-kit authors found agents burning their first dozen calls
+rediscovering — fill in the ones that apply to this repo and every agent inherits them through
+`WORKTREE.md`.
+
 ## Repository-specific rules
 
 Add anything specific to this repo that isn't already covered by the universal `AGENTS.md` —

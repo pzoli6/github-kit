@@ -39,8 +39,10 @@ Field vocabularies:
 Update fields with the helper scripts rather than guessing at the GraphQL/CLI calls yourself.
 `scripts/project/create_agent_issue.sh` and `scripts/project/create_agent_pr.sh` create the
 issue/PR with full sidebar metadata (assignee, labels, milestone, reviewer) and add it to the
-Project in one call; `scripts/project/publish_agent_branch.sh` pushes the agent branch to `origin`
-immediately and updates `Status`/`Branch`. For every later checkpoint, prefer
+Project in one call; `scripts/project/publish_agent_branch.sh` creates the task's git worktree
+(forked from `origin/<base>`), pushes the branch, and updates `Status`/`Branch`/`Base Branch`;
+`scripts/project/cleanup_merged_branches.sh` removes the worktree, deletes the branch, and closes
+the linked issue once its PR is merged. For every later checkpoint, prefer
 `scripts/project/sync_project_fields.sh <checkpoint> <issue-url> [text]` over calling
 `project_set_status.sh`/`project_set_text.sh` directly — it's the single place that maps a workflow
 checkpoint (`branch_published`, `implementation_started`, `blocked`, `validation_passed`,
@@ -56,6 +58,7 @@ scripts/project/sync_project_fields.sh <checkpoint> <issue-or-pr-url> [text]
 scripts/project/create_agent_pr.sh --issue <issue-url> --base <base> --head <branch> \
   --title "<title>" --body-file <path> --agent "<name>" --area "<area>" \
   --risk "<Low|Medium|High>" --environment "<env>" --agent-run "<url>" --handoff "<note>"
+scripts/project/cleanup_merged_branches.sh --branch <branch>   # after merge: worktree+branch+issue
 ```
 
 Always pass `--agent`/`--area`/`--risk`/`--environment` explicitly to both scripts — don't rely on

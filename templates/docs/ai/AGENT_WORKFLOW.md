@@ -40,16 +40,25 @@ This is the detailed, phase-by-phase version of the lifecycle summarized in
   `AGENT_DEFAULT_*` fallback in `docs/ai/PROJECT_CONFIG.env` to do it for you.
 - `Base Branch` is set later, in Phase 4, once the actual base branch is resolved.
 
-## Phase 4 — Branch and worktree
+## Phase 4 — Worktree, branch, and preamble
 
-- Branch from the configured base branch, name it with the configured agent prefix (default
-  `agent/`), e.g. `agent/issue-42-add-retry-logic`. Use
-  `scripts/project/publish_agent_branch.sh --issue <issue> --slug <short-description>` to create
-  and push it.
-- Use an isolated worktree if this task may run concurrently with other agent sessions on the same
-  repo.
-- This script call sets `Status` to `In Progress` and updates both `Branch` and `Base Branch` —
-  there is no separate step for `Base Branch`.
+- **Always work in a dedicated git worktree** — agents run this repo in parallel, so never branch
+  in place or share a working tree. Run
+  `scripts/project/publish_agent_branch.sh --issue <issue> --slug <short-description>`. It fetches
+  and forks from `origin/<base branch>` (never a stale local tip), creates a real worktree (own
+  checkout + `.git` file, registered in `git worktree list`), names the branch with the configured
+  agent prefix (default `agent/`), pushes it, and prints the worktree's absolute path as its last
+  line.
+- **`cd` into that printed path and do all implementation there.** Confirm with
+  `git rev-parse --show-toplevel` that you're really in the worktree — don't rely on an ambient
+  banner.
+- Read the `WORKTREE.md` the script drops into the worktree before doing anything else — it carries
+  the issue number, base branch, unique dev port, dev-server command, preview/QA route, auth
+  notes, and key paths from `docs/ai/PROJECT_CONFIG`, the facts you'd otherwise reverse-engineer.
+- This script call also sets `Status` to `In Progress` and updates both `Branch` and `Base Branch`
+  — there is no separate step for `Base Branch`.
+- Only use `--no-worktree` (in-place switch) where worktrees genuinely aren't possible (e.g. some
+  CI); never when another agent might touch this repo concurrently.
 
 ## Phase 5 — Implementation
 
@@ -102,15 +111,19 @@ This is the detailed, phase-by-phase version of the lifecycle summarized in
 ## Phase 9 — Completion
 
 - A human merges the PR — no agent merges its own or anyone else's PR.
-- Once merged/closed, set `Status` to `Done` (or `Cancelled` if the work was abandoned).
-- Optionally remove or archive the task's handoff file once the Project item is `Done`.
-- Clean up the local agent branch once you learn the PR was merged:
+- Once you learn the PR merged, clean up after yourself in one call:
   ```bash
   scripts/project/cleanup_merged_branches.sh --branch <branch>
   ```
-  This only deletes the *local* branch, and only when it's actually safe — see "Local branch
-  cleanup after merge" in `AGENTS.md` → "Branch and worktree rules" for the exact criteria. If it
-  reports `SKIPPED`, leave the branch alone and read the reason rather than force-deleting it.
+  This removes the task's worktree, deletes the local branch, and closes the linked issue (Project
+  `Status` → `Done` plus `gh issue close`) — but only when the merge is real and nothing unsaved
+  would be lost. See "Worktree + branch + issue cleanup after merge" in `AGENTS.md` → "Branch and
+  worktree rules" for the exact safety criteria. If it reports `SKIPPED`, read the reason rather
+  than force-removing anything yourself. (Add `--dry-run` first to preview.)
+- If the work was abandoned rather than merged, set `Status` to `Cancelled` with
+  `scripts/project/sync_project_fields.sh cancelled <issue-url>` instead, and remove the worktree
+  by hand (`git worktree remove <path>`).
+- Optionally remove or archive the task's handoff file once the Project item is `Done`.
 
 ---
 
