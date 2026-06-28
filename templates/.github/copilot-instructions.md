@@ -30,6 +30,13 @@ Follow that workflow exactly:
   <parent-issue>` for a sub-task, `--agent-run`/`--handoff` on the PR) — never leave those Project
   fields blank. Open PRs as drafts targeting the base branch from `docs/ai/PROJECT_CONFIG.md`.
   Never merge.
+- Work in a dedicated git worktree. Create it with `scripts/project/publish_agent_branch.sh`
+  (forks a real worktree from `origin/<base>`, prints its path), `cd` into that path, and read the
+  `WORKTREE.md` it drops there before implementing — agents run this repo in parallel and must
+  never share a working tree. See `AGENTS.md` → "Branch and worktree rules".
+- After the PR merges, run `scripts/project/cleanup_merged_branches.sh --branch <branch>` to remove
+  the worktree, delete the local branch, and close the linked issue — only when the merge is real
+  and nothing unsaved would be lost (heed any `SKIPPED` line instead of forcing it).
 - Keep the Project's `Status`, `Validation`, and `Last Agent Update` fields current as you work.
 - Declare real issue/PR relationships in the body (`Blocked by #N`, `Blocks #N`, `Part of #N`);
   otherwise write `Relationships: none declared`. See `AGENTS.md` → "GitHub relationships and

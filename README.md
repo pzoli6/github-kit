@@ -310,16 +310,26 @@ instead of re-deriving context from scratch — this is what let this exact task
 Copilot to Claude Code mid-stream. See
 [`templates/docs/ai/HANDOFF_INDEX.md`](templates/docs/ai/HANDOFF_INDEX.md).
 
-## Local branch cleanup after merge
+## Worktree-per-task lifecycle
+
+Because multiple agents work a repo in parallel, every task runs in its own git worktree —
+`scripts/project/publish_agent_branch.sh --issue <issue> --slug <short>` fetches and forks a
+**real** worktree from `origin/<base branch>` (its own checkout + `.git` file, registered in
+`git worktree list`), pushes the branch, and prints the worktree path. It also drops a
+`WORKTREE.md` preamble into the worktree — issue number, base branch, a unique per-worktree dev
+port, dev-server command, preview/QA route, auth notes, and key paths sourced from
+`docs/ai/PROJECT_CONFIG` — so an agent doesn't burn its first dozen calls reverse-engineering the
+setup. Configure those facts once per repo in `docs/ai/PROJECT_CONFIG.env` (see "Worktree and
+dev-environment facts" in `templates/docs/ai/PROJECT_CONFIG.md`).
 
 Once an agent learns a PR has merged, it runs
 `scripts/project/cleanup_merged_branches.sh --branch <branch>` (or with no `--branch` to sweep
-every local `agent/`-prefixed branch at once). It deletes the **local** branch only when all of
-these hold: the branch isn't checked out here or in another worktree, its PR's state is actually
-`MERGED`, and the local branch's tip commit matches exactly what GitHub merged (no forgotten
-commits beyond what was pushed). Anything that fails a check is left alone with a `SKIPPED:
-<reason>` line instead of being force-deleted — the remote branch is never touched either way. See
-`templates/AGENTS.md` → "Branch and worktree rules" → "Local branch cleanup after merge".
+every local `agent/`-prefixed branch at once). For a merged branch it **removes the worktree,
+deletes the local branch, and closes the linked issue** (Project `Status` → `Done` plus
+`gh issue close`) — but only when its PR is actually `MERGED`, the local tip matches exactly what
+GitHub merged, and the worktree has no unsaved work beyond the kit's own scratch files. Anything
+that fails a check is left alone with a `SKIPPED: <reason>` line instead of being force-removed —
+the remote branch is never touched. See `templates/AGENTS.md` → "Branch and worktree rules".
 
 ## Updating target repos later
 

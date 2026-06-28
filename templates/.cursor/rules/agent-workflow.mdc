@@ -25,12 +25,19 @@ replacement.
 - Once approved: create the GitHub issue with `scripts/project/create_agent_issue.sh --agent <name>
   --area <area> --risk <Low|Medium|High> --environment <env>` (always pass those four flags
   explicitly — fills assignee/labels/milestone and adds it to the Project; add `--parent
-  <parent-issue>` for a sub-task), push the agent branch immediately with
-  `scripts/project/publish_agent_branch.sh` (default prefix `agent/`, from the configured base
-  branch) **before** writing implementation code, implement only what was approved, validate with
-  the commands in `docs/ai/PROJECT_CONFIG.md`, and open a **draft** PR with
-  `scripts/project/create_agent_pr.sh` (same four flags, plus `--agent-run`/`--handoff`) using
-  `.github/PULL_REQUEST_TEMPLATE.md`.
+  <parent-issue>` for a sub-task), then create the task's **git worktree** with
+  `scripts/project/publish_agent_branch.sh` (forks a *real* worktree from `origin/<base>`, default
+  prefix `agent/`) **before** writing implementation code — `cd` into the worktree path it prints
+  and read the `WORKTREE.md` it drops there before doing anything. Every task runs in its own
+  worktree; agents work this repo in parallel and must never share a working tree. Implement only
+  what was approved, validate with the commands in `docs/ai/PROJECT_CONFIG.md`, and open a **draft**
+  PR with `scripts/project/create_agent_pr.sh` (same four flags, plus `--agent-run`/`--handoff`)
+  using `.github/PULL_REQUEST_TEMPLATE.md`.
+- After the PR merges, clean up after yourself with
+  `scripts/project/cleanup_merged_branches.sh --branch <branch>` — it removes the worktree, deletes
+  the local branch, and closes the linked issue, but only when the merge is real and nothing
+  unsaved would be lost (a `SKIPPED` line means investigate, don't force it). See `AGENTS.md` →
+  "Branch and worktree rules".
 - Keep the Project's `Status`, `Validation`, and `Last Agent Update` fields current by calling
   `scripts/project/sync_project_fields.sh <checkpoint> <issue-url> [text]` at each workflow
   checkpoint as you move through phases, rather than calling `project_set_status.sh`/
