@@ -10,7 +10,11 @@ jobs:
     with:
       # TODO: confirm this matches Base branch in docs/ai/PROJECT_CONFIG.md
       required_base_branch: develop
-      require_agent_branch_prefix: agent/
+      # Comma-separated allowlist. agent/ is what the kit's own scripts create; claude/ and
+      # codex/ are what hosted agent platforms (Claude Code on the web, Codex cloud) assign on
+      # their own — they can't push to a differently-named branch without per-session approval,
+      # so rejecting their prefix only produces duplicate PRs and permanently red checks.
+      require_agent_branch_prefix: "agent/,claude/,codex/"
       allow_hotfix: true
       # Require a human-authorization marker in the PR body for any PR that targets the
       # production branch directly. See "Production-branch approval gate (CI)" in

@@ -7,9 +7,10 @@ Before doing anything else, read, in order:
    branch/commit/validation/handoff/security/scope/PR rules, human authority.
 2. [`docs/ai/PROJECT_CONFIG.md`](../docs/ai/PROJECT_CONFIG.md) — this repo's Project number, base
    branch, validation commands, and forbidden files.
-3. [`docs/ai/AGENT_WORKFLOW.md`](../docs/ai/AGENT_WORKFLOW.md) — the detailed phase-by-phase
-   workflow (task intake → plan review → issue/Project setup → branch/worktree → implementation →
-   validation → commit/PR → review/continuation → completion).
+3. [`docs/ai/AGENT_WORKFLOW.md`](../docs/ai/AGENT_WORKFLOW.md) — the workflow spec: a
+   happy-path checklist (task intake → plan review → issue/Project setup → branch/worktree →
+   implementation → validation → commit/PR → review/continuation → completion) plus an appendix
+   read only when a section's trigger applies.
 
 Follow that workflow exactly:
 

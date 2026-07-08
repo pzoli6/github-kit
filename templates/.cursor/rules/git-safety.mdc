@@ -8,7 +8,8 @@ alwaysApply: true
 
 - Never commit directly to the base or production branch (see `docs/ai/PROJECT_CONFIG.md` for
   which branches those are in this repo). Always work on a branch prefixed per
-  `docs/ai/PROJECT_CONFIG.md` (default `agent/`).
+  `docs/ai/PROJECT_CONFIG.md` (default allowlist `agent/,claude/,codex/` — `agent/` is what the
+  kit's own scripts create; keep a hosted platform's pre-assigned `claude/`/`codex/` branch as-is).
 - Never create a branch/PR that targets the production branch directly, or push/merge the base
   branch into it, without the human explicitly saying `approve main` (separate from plain
   `approve`) and the PR body carrying the required authorization marker — see `AGENTS.md` →

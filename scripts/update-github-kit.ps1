@@ -180,10 +180,12 @@ Fast path: `/github_kit <task>` is a pre-approved alternative entry point — th
 
 Agents must not push to protected branches, merge PRs, modify secrets, use `git add .`, or claim validation passed unless validation actually ran.
 
-Before stopping, losing context, or handing off to another agent, agents must update:
+Solo mode: `docs/ai/PROJECT_CONFIG.md` → "Solo mode" (default `auto` — active until a real GitHub Project is configured) collapses the lifecycle to plan → approval → branch/worktree → implementation → validation → draft PR: no issue for pre-approved iterations, no Project-field updates, handoff files only when actually stopping mid-task. Approval gates and git/PR safety rules apply unchanged.
+
+Before stopping mid-task, losing context, or handing off to another agent, agents must update:
 - `docs/ai/handoffs/issue-<number>.md`
-- Project field: `Last Agent Update`
-- Project field: `Validation`
+- Project field: `Last Agent Update` (full mode only)
+- Project field: `Validation` (full mode only)
 <!-- END GITHUB-KIT UNIVERSAL WORKFLOW -->
 '@
     return ($block -replace "`r`n", "`n")
@@ -286,6 +288,20 @@ Refresh-File (Join-Path $Templates ".claude/skills/github_kit_update/SKILL.md") 
 
 foreach ($rule in @("agent-workflow", "git-safety", "project-board", "github-kit-command")) {
     Refresh-File (Join-Path $Templates ".cursor/rules/$rule.mdc") ".cursor/rules/$rule.mdc"
+}
+
+
+# Legacy hygiene: only SKILL.md-based skill directories belong under .claude/skills/. Older kit
+# versions/manual copies sometimes left workflow YAMLs or STATUS_BADGES.md there, which clutter
+# the skills listing. Warn -- never delete automatically.
+if (Test-Path -LiteralPath ".claude/skills") {
+    $straySkills = Get-ChildItem -LiteralPath ".claude/skills" -File |
+        Where-Object { $_.Extension -in @(".yml", ".yaml") -or $_.Name -eq "STATUS_BADGES.md" }
+    if ($straySkills) {
+        Write-Host "warning: non-skill files found directly under .claude/skills/ -- they aren't skills;"
+        Write-Host "move workflow YAMLs to .github/workflows/ (or delete them):"
+        foreach ($f in $straySkills) { Write-Host "  .claude/skills/$($f.Name)" }
+    }
 }
 
 # --- scripts/project/ -------------------------------------------------

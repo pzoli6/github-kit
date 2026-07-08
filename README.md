@@ -62,9 +62,25 @@ User task
 ```
 
 See [`templates/docs/ai/AGENT_WORKFLOW.md`](templates/docs/ai/AGENT_WORKFLOW.md) for the full
-phase-by-phase specification (including free-tier limitations, pausing/resuming for AI usage
-limits, and the manual-Project-update fallback), and [`templates/AGENTS.md`](templates/AGENTS.md)
-for the rules every agent must follow.
+specification — a happy-path checklist plus an on-demand appendix (free-tier limitations,
+pausing/resuming for AI usage limits, the manual-Project-update fallback, and other
+conditionally-read sections) — and [`templates/AGENTS.md`](templates/AGENTS.md) for the rules
+every agent must follow.
+
+Two knobs adapt this lifecycle to how a repo is actually used:
+
+- **Solo mode** (`docs/ai/PROJECT_CONFIG.md` → "Solo mode", default `auto`) collapses the
+  team-scale ceremony for a single maintainer iterating quickly: no issue for pre-approved
+  iterations, no Project-field updates, handoff files only when actually stopping mid-task —
+  plan → implement → validate → draft PR. With the default `auto`, solo mode is active until a
+  real GitHub Project is configured, so fresh installs behave solo with nothing to set. The
+  approval gates and git/PR safety rules are unchanged.
+- **Branch-prefix allowlist.** The `pr-policy` check accepts a comma-separated list of branch
+  prefixes (default `agent/,claude/,codex/`): `agent/` is what the kit's scripts create, while
+  `claude/`/`codex/` are what hosted agent platforms (Claude Code on the web, Codex cloud) assign
+  on their own and can't rename without per-session approval. The policy's intent is "no
+  arbitrary branch names targeting the base branch" — rejecting a platform-assigned prefix only
+  produces duplicate PRs and permanently red checks.
 
 ## Remote-first metadata workflow
 
@@ -324,7 +340,8 @@ dev-environment facts" in `templates/docs/ai/PROJECT_CONFIG.md`).
 
 Once an agent learns a PR has merged, it runs
 `scripts/project/cleanup_merged_branches.sh --branch <branch>` (or with no `--branch` to sweep
-every local `agent/`-prefixed branch at once). For a merged branch it **removes the worktree,
+every local branch matching the configured agent prefixes — `agent/`, `claude/`, `codex/` by
+default — at once). For a merged branch it **removes the worktree,
 deletes the local branch, and closes the linked issue** (Project `Status` → `Done` plus
 `gh issue close`) — but only when its PR is actually `MERGED`, the local tip matches exactly what
 GitHub merged, and the worktree has no unsaved work beyond the kit's own scratch files. Anything

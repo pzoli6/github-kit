@@ -10,6 +10,15 @@ tracked on the GitHub Project, following this repo's `AGENTS.md` and `docs/ai/AG
 This skill is a runbook for those files, not a replacement — if anything here conflicts with
 `AGENTS.md`, `AGENTS.md` wins.
 
+## Solo mode
+
+Check `docs/ai/PROJECT_CONFIG.md` → "Solo mode" first (default `auto` — active while no real
+GitHub Project is configured). When active, skip the issue-creation step for pre-approved
+iterations and every Project-field / `sync_project_fields.sh` step in this runbook, drop the
+`Closes #` line when no issue exists, and write handoff files only when actually stopping
+mid-task — the flow collapses to plan → approval → branch/worktree → implement → validate →
+draft PR. Approval gates and all git/PR safety rules apply unchanged.
+
 ## Before you start
 
 Read, in this repo:

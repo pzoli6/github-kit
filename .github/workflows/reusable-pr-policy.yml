@@ -8,9 +8,9 @@ on:
         type: string
         default: "develop"
       require_agent_branch_prefix:
-        description: "Required branch name prefix for agent-authored PRs"
+        description: "Comma-separated list of allowed branch-name prefixes for agent-authored PRs. A PR passes if its head branch starts with any one of them. Hosted agent platforms assign their own prefixes (Claude Code on the web pushes claude/*, Codex cloud pushes codex/*), so the default accepts those alongside the kit's own agent/ prefix — the rule's intent is 'no arbitrary branch names targeting the base branch', not one specific spelling."
         type: string
-        default: "agent/"
+        default: "agent/,claude/,codex/"
       allow_hotfix:
         description: "Exempt hotfix/* branches from the agent branch prefix requirement"
         type: boolean
@@ -62,7 +62,7 @@ jobs:
           base='${{ github.event.pull_request.base.ref }}'
           head='${{ github.event.pull_request.head.ref }}'
           required_base='${{ inputs.required_base_branch }}'
-          prefix='${{ inputs.require_agent_branch_prefix }}'
+          prefixes='${{ inputs.require_agent_branch_prefix }}'
           allow_hotfix='${{ inputs.allow_hotfix }}'
           production_branch='${{ inputs.production_branch }}'
           require_prod_approval='${{ inputs.require_production_branch_approval }}'
@@ -89,19 +89,28 @@ jobs:
             hotfix/*) is_hotfix=1 ;;
           esac
 
-          case "$head" in
-            "$prefix"*)
-              echo "OK: branch '$head' has required prefix '$prefix'."
-              ;;
-            *)
-              if [ "$allow_hotfix" = "true" ] && [ "$is_hotfix" = "1" ]; then
-                echo "OK: branch '$head' is exempt from the '$prefix' prefix requirement (hotfix)."
-              else
-                echo "::error::Branch '$head' does not start with required prefix '$prefix' (and is not an allowed hotfix/* branch)."
-                fail=1
-              fi
-              ;;
-          esac
+          prefix_ok=0
+          IFS=',' read -r -a prefix_list <<< "$prefixes"
+          for raw_prefix in "${prefix_list[@]}"; do
+            prefix="$(echo "$raw_prefix" | sed 's/^ *//;s/ *$//')"
+            [ -n "$prefix" ] || continue
+            case "$head" in
+              "$prefix"*)
+                echo "OK: branch '$head' has allowed prefix '$prefix'."
+                prefix_ok=1
+                break
+                ;;
+            esac
+          done
+
+          if [ "$prefix_ok" -ne 1 ]; then
+            if [ "$allow_hotfix" = "true" ] && [ "$is_hotfix" = "1" ]; then
+              echo "OK: branch '$head' is exempt from the branch prefix requirement (hotfix)."
+            else
+              echo "::error::Branch '$head' does not start with any allowed prefix ($prefixes) and is not an allowed hotfix/* branch."
+              fail=1
+            fi
+          fi
 
           if [ "$fail" -ne 0 ]; then
             exit 1

@@ -119,7 +119,7 @@ This is additive, not a replacement: `approve` remains the default gate for any
 task not invoked via `/github_kit`, and nothing else about the lifecycle below changes — same issue
 template, same Project tracking, same draft-PR-only rule, same human-merges-only rule. See
 [`docs/ai/AGENT_WORKFLOW.md`](../docs/ai/AGENT_WORKFLOW.md) → "Fast-path trigger: /github_kit" for
-the full phase-by-phase spec, and the `github_kit` skill/command files (`.claude/commands/
+the full spec, and the `github_kit` skill/command files (`.claude/commands/
 github_kit.md`, `.claude/skills/github_kit/SKILL.md`, `.agents/skills/github_kit/SKILL.md`,
 `.cursor/rules/github-kit-command.mdc`) for the per-agent entry points.
 
@@ -181,9 +181,15 @@ User task
 → human merge
 ```
 
-See [`docs/ai/AGENT_WORKFLOW.md`](../docs/ai/AGENT_WORKFLOW.md) for the detailed phase-by-phase
-spec (task intake, plan review, issue/Project setup, branch/worktree, implementation, validation,
-commit/PR, review/continuation, completion).
+See [`docs/ai/AGENT_WORKFLOW.md`](../docs/ai/AGENT_WORKFLOW.md) for the step-by-step spec (task
+intake, plan review, issue/Project setup, branch/worktree, implementation, validation, commit/PR,
+review/continuation, completion).
+
+**Solo mode:** when solo mode is active (see `docs/ai/PROJECT_CONFIG.md` → "Solo mode"), the
+lifecycle above collapses to *plan → approval → branch/worktree → implementation → validation →
+draft PR* — no issue for pre-approved iterations, no Project updates, and a handoff file only
+when actually stopping mid-task. The approval boundary, production-branch gate, and all
+git/commit/PR safety rules apply unchanged.
 
 ## Project status protocol
 
@@ -207,6 +213,11 @@ An agent moving an item to `Blocked` must say why (in the issue, PR, or handoff 
 with no explanation is not acceptable.
 
 ## Project fields
+
+**Solo mode:** when solo mode is active (see `docs/ai/PROJECT_CONFIG.md` → "Solo mode" — the
+default `auto` makes it active while no real GitHub Project is configured), skip this entire
+section and the status protocol above: there is no board to update, and the PR body's Validation
+section is the record instead. The rest of this section describes full (team) mode.
 
 The GitHub Project backing this repo is assumed to have these fields. Agents update the ones
 relevant to their current phase as they work — don't leave them stale once the underlying state
@@ -259,7 +270,8 @@ expected behavior — fix the script call, don't shrug and leave it blank.
 
 **Field-completeness checklist** — every section of `.github/PULL_REQUEST_TEMPLATE.md` maps to a
 Project field; if you filled in the PR body section, the matching field must be set on the board
-too (the PR body alone never updates the Project — see `create_agent_pr.sh` above):
+too (the PR body alone never updates the Project — see `create_agent_pr.sh` above). Template
+lines marked optional (`Agent Run`, `Handoff`) map only when actually present in the body:
 
 | PR template section | Project field(s) |
 |---|---|
@@ -299,8 +311,12 @@ opening a PR, or moving a tracked item through the workflow above.
   unique dev port, dev-server command, preview/QA route, auth notes, key paths, verify-command
   pointer) sourced from `docs/ai/PROJECT_CONFIG`. Read it first — it's the facts you'd otherwise
   reverse-engineer. `WORKTREE.md` is per-worktree scratch and is not committed.
-- Branch names must start with the agent branch prefix configured in
-  `docs/ai/PROJECT_CONFIG.md` (default `agent/`), e.g. `agent/issue-42-add-retry-logic`.
+- Branch names must start with one of the agent branch prefixes configured in
+  `docs/ai/PROJECT_CONFIG.md` (default `agent/,claude/,codex/`), e.g.
+  `agent/issue-42-add-retry-logic`. `agent/` is what the kit's own scripts create; `claude/` and
+  `codex/` cover hosted agent platforms (Claude Code on the web, Codex cloud) that assign their
+  own branch names — an agent on those platforms keeps its assigned branch rather than recreating
+  the work under a different prefix, and CI accepts it.
 - The only exception to the worktree rule is `publish_agent_branch.sh --no-worktree` (in-place
   branch switch), for environments that genuinely can't use worktrees (e.g. some CI). Never use it
   when another agent or session might touch this repo concurrently.
@@ -309,7 +325,7 @@ opening a PR, or moving a tracked item through the workflow above.
 
 ### Worktree + branch + issue cleanup after merge
 
-Once you learn a PR has merged (Phase 9 — Completion), run
+Once you learn a PR has merged (step 9 — Completion in `docs/ai/AGENT_WORKFLOW.md`), run
 `scripts/project/cleanup_merged_branches.sh --branch <branch>` (or with no `--branch` to sweep all
 local `agent/`-prefixed branches at once). For a merged branch it **removes the task's worktree,
 deletes the local branch, and closes the linked issue** (Project `Status` → `Done` plus
@@ -382,7 +398,13 @@ controlled pause, not an abandoned task:
 
 ## Handoff rules
 
-Before stopping, losing context, or handing off to another agent (including a different tool —
+A handoff file is required when stopping **mid-task** — context limit, usage-limit pause, end of
+session with work unfinished, or an explicit handoff to another agent/tool. A task that ends at
+an open draft PR with nothing left in flight needs no handoff file (and in solo mode, that's the
+normal case — see `docs/ai/PROJECT_CONFIG.md` → "Solo mode"; skip the Project-field steps below
+there too).
+
+Before stopping mid-task or handing off to another agent (including a different tool —
 this is exactly how a task moves from one AI coding agent to another), an agent must:
 
 1. Write or update `docs/ai/handoffs/issue-<number>.md` with current state, what's done, what's
@@ -418,7 +440,12 @@ concurrent edits to any shared index.
 - Open PRs as **drafts** by default; only mark ready for review when validation has actually run
   and the PR template is filled in.
 - Use the PR template (`.github/PULL_REQUEST_TEMPLATE.md`) — fill in Project metadata, agent/tool
-  used, validation state, and human review focus. Don't leave placeholder text in a submitted PR.
+  used, validation state, and human review focus. Don't leave placeholder text in a submitted PR,
+  and **delete** sections the template marks optional when they don't apply rather than writing
+  "None"/"n/a".
+- After opening the PR, report its link and end the turn. Don't subscribe to PR activity,
+  schedule check-ins, or babysit CI on your own initiative — the human reviews and merges
+  promptly and will bring back feedback; watch a PR only when explicitly asked to.
 - Target the base branch configured in `docs/ai/PROJECT_CONFIG.md`, not the production branch,
   unless the human has explicitly granted `approve main` for this task — see "Production-branch
   gate" above — and the PR body carries the required authorization marker.
@@ -502,8 +529,10 @@ Fast path: `/github_kit <task>` is a pre-approved alternative entry point — th
 
 Agents must not push to protected branches, merge PRs, modify secrets, use `git add .`, or claim validation passed unless validation actually ran.
 
-Before stopping, losing context, or handing off to another agent, agents must update:
+Solo mode: `docs/ai/PROJECT_CONFIG.md` → "Solo mode" (default `auto` — active until a real GitHub Project is configured) collapses the lifecycle to plan → approval → branch/worktree → implementation → validation → draft PR: no issue for pre-approved iterations, no Project-field updates, handoff files only when actually stopping mid-task. Approval gates and git/PR safety rules apply unchanged.
+
+Before stopping mid-task, losing context, or handing off to another agent, agents must update:
 - `docs/ai/handoffs/issue-<number>.md`
-- Project field: `Last Agent Update`
-- Project field: `Validation`
+- Project field: `Last Agent Update` (full mode only)
+- Project field: `Validation` (full mode only)
 <!-- END GITHUB-KIT UNIVERSAL WORKFLOW -->

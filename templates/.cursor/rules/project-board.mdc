@@ -6,6 +6,10 @@ alwaysApply: true
 
 # Project board rules
 
+**Solo mode:** if solo mode is active per `docs/ai/PROJECT_CONFIG.md` → "Solo mode" (default
+`auto`: active while no real GitHub Project is configured), skip this entire file — there is no
+board to update. Everything below applies to full (team) mode only.
+
 Use only these `Status` values, in this order (you may move an item backward, e.g. `In Review` →
 `Changes Requested`, but never invent a status outside this list):
 

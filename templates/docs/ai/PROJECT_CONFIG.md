@@ -15,8 +15,9 @@
 | GitHub Project number | TBD |
 | Base branch | `develop` |
 | Production branch | `main` |
-| Agent branch prefix | `agent/` |
+| Agent branch prefix | `agent/,claude/,codex/` |
 | Default PR mode | draft |
+| Solo mode | `auto` |
 | github-kit installed | `true` |
 | github-kit ref | `main` |
 | github-kit update mode | `main-channel` |
@@ -40,6 +41,45 @@ Project + `AGENT_PROJECT_TOKEN` secret — see "When Project Sync isn't enabled"
 `AGENT_WORKFLOW.md`. `Branch protection enforced` is `false` for any private repo on the GitHub
 Free plan (a platform limitation, not a config you can flip) — see "Free-tier limitations" in
 `AGENT_WORKFLOW.md`.
+
+`Agent branch prefix` is a comma-separated allowlist of branch-name prefixes, matched by the
+`pr-policy` CI check and swept by `cleanup_merged_branches.sh`. The **first** entry is what the
+kit's own `publish_agent_branch.sh` uses when creating branches locally; the rest exist because
+hosted agent platforms assign their own branch names (Claude Code on the web pushes `claude/*`,
+Codex cloud pushes `codex/*`) and can't rename them without per-session human approval — the
+policy's intent is "no arbitrary branch names targeting the base branch", which those prefixes
+satisfy. Keep this list in sync with `require_agent_branch_prefix` in
+`.github/workflows/pr-policy.yml`.
+
+## Solo mode
+
+`Solo mode` collapses the multi-agent-team ceremony to what a single maintainer iterating quickly
+actually needs. Values:
+
+- `auto` (default) — solo mode is **active** whenever `Project Sync enabled` is `false` **or**
+  `GitHub Project number` is `TBD`; otherwise the full workflow applies. This means a fresh
+  install behaves solo until a real GitHub Project is configured, with nothing extra to set.
+- `true` — always active, even with a Project configured.
+- `false` — never active; always run the full workflow.
+
+While solo mode is active, agents follow the collapsed lifecycle in `AGENT_WORKFLOW.md` → "Solo
+mode" instead of the full phase list:
+
+- **Skip GitHub issue creation** for pre-approved iterations (`/github_kit` tasks, screenshot/
+  preview-feedback rounds, review-comment fixes). Create an issue only when the human asks for
+  one or the task will outlive the session. When no issue exists, drop the `Closes #` line from
+  the PR body instead of leaving it empty.
+- **Skip all Project-field steps** (`Status`, `Agent`, `Area`, `Risk`, `Environment`, `Branch`,
+  `Base Branch`, `PR URL`, `Validation`, `Last Agent Update`, `Handoff`, `Agent Run`) — there is
+  no board to update. The PR body's Validation section is the record instead.
+- **Skip handoff files unless actually stopping mid-task** — an unfinished task still gets
+  `docs/ai/handoffs/issue-<n>.md` (or `docs/ai/handoffs/<branch-slug>.md` when there's no issue)
+  before you stop, but a task that ends at an open draft PR needs no handoff file.
+- The lifecycle collapses to: **plan → implement → validate → draft PR.**
+
+Everything else is unchanged in solo mode: the approval boundary (`approve` / `/github_kit`),
+the production-branch gate (`approve main`), draft-first PRs, explicit `git add <file>` staging,
+honest validation reporting, and never merging. Solo mode removes bookkeeping, not safety rails.
 
 ## GitHub metadata defaults
 
@@ -99,7 +139,7 @@ jobs:
     uses: pzoli6/github-kit/.github/workflows/reusable-pr-policy.yml@main
     with:
       required_base_branch: develop
-      require_agent_branch_prefix: agent/
+      require_agent_branch_prefix: "agent/,claude/,codex/"
       allow_hotfix: true
       check_project_fields: true
       project_owner: <owner>
@@ -131,7 +171,7 @@ jobs:
     uses: pzoli6/github-kit/.github/workflows/reusable-pr-policy.yml@main
     with:
       required_base_branch: develop
-      require_agent_branch_prefix: agent/
+      require_agent_branch_prefix: "agent/,claude/,codex/"
       allow_hotfix: true
       production_branch: main
       require_production_branch_approval: true
