@@ -11,9 +11,10 @@ Read, in order, before doing anything else:
    branch/commit/validation/handoff/security/scope/PR rules, human authority.
 2. [`docs/ai/PROJECT_CONFIG.md`](../docs/ai/PROJECT_CONFIG.md) — this repo's specific Project
    number, base branch, validation commands, and forbidden files.
-3. [`docs/ai/AGENT_WORKFLOW.md`](../docs/ai/AGENT_WORKFLOW.md) — the detailed phase-by-phase
-   workflow spec (task intake → plan review → issue/Project setup → branch/worktree →
-   implementation → validation → commit/PR → review/continuation → completion).
+3. [`docs/ai/AGENT_WORKFLOW.md`](../docs/ai/AGENT_WORKFLOW.md) — the workflow spec: a
+   happy-path checklist (task intake → plan review → issue/Project setup → branch/worktree →
+   implementation → validation → commit/PR → review/continuation → completion) plus an appendix
+   read only when a section's trigger applies.
 
 A matching Claude Skill describing this same workflow lives at
 `.claude/skills/issue-to-pr-project/SKILL.md` — use it when running the issue-to-PR-project flow
@@ -78,8 +79,10 @@ Fast path: `/github_kit <task>` is a pre-approved alternative entry point — th
 
 Agents must not push to protected branches, merge PRs, modify secrets, use `git add .`, or claim validation passed unless validation actually ran.
 
-Before stopping, losing context, or handing off to another agent, agents must update:
+Solo mode: `docs/ai/PROJECT_CONFIG.md` → "Solo mode" (default `auto` — active until a real GitHub Project is configured) collapses the lifecycle to plan → approval → branch/worktree → implementation → validation → draft PR: no issue for pre-approved iterations, no Project-field updates, handoff files only when actually stopping mid-task. Approval gates and git/PR safety rules apply unchanged.
+
+Before stopping mid-task, losing context, or handing off to another agent, agents must update:
 - `docs/ai/handoffs/issue-<number>.md`
-- Project field: `Last Agent Update`
-- Project field: `Validation`
+- Project field: `Last Agent Update` (full mode only)
+- Project field: `Validation` (full mode only)
 <!-- END GITHUB-KIT UNIVERSAL WORKFLOW -->

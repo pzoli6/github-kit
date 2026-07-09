@@ -1,211 +1,140 @@
-# AGENT_WORKFLOW.md — Detailed Workflow Specification
+# AGENT_WORKFLOW.md — Workflow Specification
 
-This is the detailed, phase-by-phase version of the lifecycle summarized in
-[`../../AGENTS.md`](../../AGENTS.md). Read `AGENTS.md` and
-[`PROJECT_CONFIG.md`](PROJECT_CONFIG.md) first — this file assumes both.
+This is the delivery workflow summarized in [`../../AGENTS.md`](../../AGENTS.md). Read `AGENTS.md`
+and [`PROJECT_CONFIG.md`](PROJECT_CONFIG.md) first — this file assumes both.
 
-## Phase 1 — Task intake
+**How to read this file:** the "Happy path" checklist below is the whole workflow for a normal
+task — read it and go. Everything under "Appendix" is conditional: read a section only when its
+trigger actually applies to your current situation (you hit a usage limit, you're resuming stashed
+work, the human said `approve main`, …). Don't read the appendix front-to-back every session.
 
-- Read the user's request in full before doing anything else.
-- Read `AGENTS.md` and `PROJECT_CONFIG.md` for this repo's rules and config.
-- If a related issue already exists, read it and any linked handoff file in
-  [`handoffs/`](handoffs/) before starting fresh — don't re-derive context that's already written
-  down. Before treating that issue as available to pick up, run
-  `scripts/project/check_resume_safety.sh --issue <number> --agent "<your agent name>"` — see
-  "Resuming stashed work" below for what its exit codes mean.
-- If the request is ambiguous or has multiple reasonable approaches, ask before planning.
+## Solo mode
 
-## Phase 2 — Plan review
+Check `PROJECT_CONFIG.md` → "Solo mode" first. When solo mode is active (default `auto`: active
+while `Project Sync enabled` is `false` or `GitHub Project number` is `TBD`), the checklist below
+collapses — skip the struck-through ceremony and run only:
 
-- Produce a concrete plan: what will change, which files, what's explicitly out of scope.
-- Set/leave the tracking item's `Status` at `Plan Review` (create the issue first if one doesn't
-  exist yet — see Phase 3 — or note the plan directly in the conversation if no issue exists yet).
-- **Stop and wait** for the human to reply `approve`. Do not create branches,
-  install dependencies, or write implementation code before this.
-- `approve` only covers the configured base branch. If this task's plan involves targeting the
-  production branch directly (or pushing/merging the base branch into it), that needs the
-  separate, explicit `approve main` — see "Production-branch gate: approve main" below.
+**plan → (approval) → branch/worktree → implement → validate → draft PR.**
 
-## Phase 3 — Issue and Project setup
+Concretely: skip issue creation for pre-approved iterations (create one only when the human asks
+or the task will outlive the session; drop the `Closes #` line when no issue exists), skip every
+Project-field update (steps marked *[Project]* below), and write a handoff file only when actually
+stopping mid-task — a task that ends at an open draft PR needs no handoff. All safety rails still
+apply: `approve` / `approve main` gates, draft-first PRs, explicit staging, honest validation.
 
-- If no GitHub issue exists for this task yet, create one with
-  `scripts/project/create_agent_issue.sh --title <title> --body-file <path> --agent <name>
-  --area <name> --risk <Low|Medium|High> --environment <name>`, using
-  `.github/ISSUE_TEMPLATE/agent_task.yml`'s structure for the body (problem, context, approved
-  plan, acceptance criteria, intended agent, risk, base branch). Pass `--parent <issue>` if this
-  task is a sub-task of a parent issue (see "Splitting a task into sub-tasks" in `AGENTS.md`).
-- This one script call adds the issue to the configured GitHub Project, sets `Status` to `Ready`,
-  and sets `Agent`, `Area`, `Risk`, and `Environment` — there is no separate manual step. Always
-  pass `--agent`/`--area`/`--risk`/`--environment` explicitly; don't rely on the
-  `AGENT_DEFAULT_*` fallback in `docs/ai/PROJECT_CONFIG.env` to do it for you.
-- `Base Branch` is set later, in Phase 4, once the actual base branch is resolved.
+## Happy path
 
-## Phase 4 — Worktree, branch, and preamble
-
-- **Always work in a dedicated git worktree** — agents run this repo in parallel, so never branch
-  in place or share a working tree. Run
-  `scripts/project/publish_agent_branch.sh --issue <issue> --slug <short-description>`. It fetches
-  and forks from `origin/<base branch>` (never a stale local tip), creates a real worktree (own
-  checkout + `.git` file, registered in `git worktree list`), names the branch with the configured
-  agent prefix (default `agent/`), pushes it, and prints the worktree's absolute path as its last
-  line.
-- **`cd` into that printed path and do all implementation there.** Confirm with
-  `git rev-parse --show-toplevel` that you're really in the worktree — don't rely on an ambient
-  banner.
-- Read the `WORKTREE.md` the script drops into the worktree before doing anything else — it carries
-  the issue number, base branch, unique dev port, dev-server command, preview/QA route, auth
-  notes, and key paths from `docs/ai/PROJECT_CONFIG`, the facts you'd otherwise reverse-engineer.
-- This script call also sets `Status` to `In Progress` and updates both `Branch` and `Base Branch`
-  — there is no separate step for `Base Branch`.
-- Only use `--no-worktree` (in-place switch) where worktrees genuinely aren't possible (e.g. some
-  CI); never when another agent might touch this repo concurrently.
-
-## Phase 5 — Implementation
-
-- Implement only what the approved plan describes (see "Scope rules" in `AGENTS.md`).
-- Commit incrementally with explicit `git add <file>` staging — never `git add -A`/`git add .`.
-- If you hit a blocker you can't resolve, set `Status` to `Blocked`, write why in the issue, and
-  write a handoff file (Phase 8) before stopping.
-
-## Phase 6 — Validation
-
-- Run every command listed under "Validation commands" in `PROJECT_CONFIG.md`.
-- Record the true outcome in the Project's `Validation` field: `Passed`, `Failed`, `Partial`,
-  `Manual Required`, or `Not Applicable` — never `Passed` unless it actually ran and passed.
-- If something can't be validated in this environment (e.g. needs a live service, a UI you can't
-  drive), say so explicitly rather than claiming it works.
-
-## Phase 7 — Commit and PR
-
-- Push the branch, then open a **draft PR** targeting the configured base branch with
-  `scripts/project/create_agent_pr.sh --issue <issue> --base <branch> --head <branch> --title
-  <title> --body-file <path> --agent <name> --area <name> --risk <Low|Medium|High> --environment
-  <name> --agent-run <url> --handoff <note>`. Use `.github/PULL_REQUEST_TEMPLATE.md`'s structure
-  for the body file — fill in every section (summary, linked issue, Project metadata, validation
-  state, commands run, results, human review focus, known risks, follow-up items); the body text
-  is for human readers, the flags above are what actually update the Project. If `--base` is the
-  production branch itself (not the configured base branch), the human must have already said
-  `approve main`, and the PR body must carry the marker line from "Production-branch gate: approve
-  main" below — a repo with `require_production_branch_approval` enabled fails CI without it.
-- This one script call adds the PR to the Project, sets `Status` to `In Review`, and sets `PR
-  URL`, `Agent`, `Area`, `Risk`, `Environment`, `Agent Run`, and `Handoff` — there is no separate
-  manual step. See "Field-completeness checklist" in `AGENTS.md` → "Project fields" for the
-  PR-template-section-to-Project-field mapping.
-
-## Phase 8 — Review and continuation
-
-- When a human requests changes, set `Status` to `Changes Requested`, address the feedback, push
-  updates, and set `Status` back to `In Review` once done.
-- Whenever you stop mid-task — context limit, end of session, explicit handoff to another agent or
-  tool — write/update `handoffs/issue-<number>.md` with: current state, what's done, what's left,
-  open decisions/blockers, and the exact next step. Update `Last Agent Update` and `Validation`.
-  This is what lets a different agent (or a different AI tool entirely) pick the task back up.
-- If a PR already exists, also mirror that handoff onto the PR itself so it's visible without
-  opening the repo:
-  ```bash
-  scripts/project/post_handoff_comment.sh --pr <pr-url-or-number> --file docs/ai/handoffs/issue-<number>.md --agent "<name>"
-  ```
-  This finds-and-updates its own prior comment (by a hidden marker) rather than posting a new one
-  every time — re-running it after every update is expected, not noisy.
-
-## Phase 9 — Completion
-
-- A human merges the PR — no agent merges its own or anyone else's PR.
-- Once you learn the PR merged, clean up after yourself in one call:
-  ```bash
-  scripts/project/cleanup_merged_branches.sh --branch <branch>
-  ```
-  This removes the task's worktree, deletes the local branch, and closes the linked issue (Project
-  `Status` → `Done` plus `gh issue close`) — but only when the merge is real and nothing unsaved
-  would be lost. See "Worktree + branch + issue cleanup after merge" in `AGENTS.md` → "Branch and
-  worktree rules" for the exact safety criteria. If it reports `SKIPPED`, read the reason rather
-  than force-removing anything yourself. (Add `--dry-run` first to preview.)
-- If the work was abandoned rather than merged, set `Status` to `Cancelled` with
-  `scripts/project/sync_project_fields.sh cancelled <issue-url>` instead, and remove the worktree
-  by hand (`git worktree remove <path>`).
-- Optionally remove or archive the task's handoff file once the Project item is `Done`.
+1. **Intake** — read the request in full, plus `AGENTS.md` and `PROJECT_CONFIG.md`. If a related
+   issue exists, read it and any `handoffs/issue-<n>.md` before starting fresh (run
+   `scripts/project/check_resume_safety.sh --issue <n> --agent "<name>"` first — see "Resuming
+   stashed work"). Ambiguous request → ask before planning.
+2. **Plan** — state what will change, which files, what's out of scope. **Stop and wait for
+   `approve`** (skipped when invoked via `/github_kit <task>` — see appendix). *[Project]* set
+   `Status: Plan Review`. `approve` never covers the production branch — that needs `approve
+   main` (see appendix).
+3. **Issue** *(skip in solo mode for pre-approved iterations)* — create it with
+   `scripts/project/create_agent_issue.sh --title <t> --body-file <f> --agent <a> --area <ar>
+   --risk <Low|Medium|High> --environment <e>` (structure per
+   `.github/ISSUE_TEMPLATE/agent_task.yml`; `--parent <issue>` for sub-tasks). This one call also
+   adds it to the Project and sets `Status: Ready` + `Agent`/`Area`/`Risk`/`Environment`.
+4. **Branch + worktree** — `scripts/project/publish_agent_branch.sh --issue <n> --slug <short>`.
+   It forks fresh from `origin/<base branch>`, creates a real worktree, pushes the branch, and
+   prints the worktree path as its last line. **`cd` into that path**, confirm with
+   `git rev-parse --show-toplevel`, and read the `WORKTREE.md` it dropped there (dev port,
+   dev-server command, preview route, auth notes, key paths). *[Project]* this call also sets
+   `Status: In Progress` + `Branch`/`Base Branch`. Worktree caveats → appendix "Worktree notes".
+5. **Implement** — only what the approved plan describes. Stage explicit files
+   (`git add <file>`), never `git add -A` / `git add .`. Blocked → *[Project]* `Status: Blocked`
+   with the reason, write a handoff, stop.
+6. **Validate** — run every command under "Validation commands" in `PROJECT_CONFIG.md`. Report
+   the true outcome (`Passed`/`Failed`/`Partial`/`Manual Required`/`Not Applicable`) — never
+   claim `Passed` for something that didn't run. *[Project]* record it in the `Validation` field.
+7. **Draft PR** — push, then `scripts/project/create_agent_pr.sh --issue <n> --base <b> --head
+   <h> --title <t> --body-file <f> --agent <a> --area <ar> --risk <r> --environment <e>
+   [--agent-run <url>] [--handoff <note>]`, body per `.github/PULL_REQUEST_TEMPLATE.md` (omit
+   sections that don't apply — see the template's own notes). *[Project]* this call also sets
+   `Status: In Review` + `PR URL` and the metadata fields. Report the PR link and end the turn —
+   don't babysit CI or subscribe to PR activity unless the human asked for that.
+8. **Review feedback** — address it, push. *[Project]* `Status: Changes Requested` → back to
+   `In Review`. Stopping mid-task for any reason → write `handoffs/issue-<n>.md` (state, done,
+   left, blockers, exact next step) and mirror it with `scripts/project/post_handoff_comment.sh`
+   — see "Pausing" sections in the appendix.
+9. **Completion** — a human merges; never you. On learning of the merge:
+   `scripts/project/cleanup_merged_branches.sh --branch <branch>` (worktree + local branch +
+   issue close, with built-in safety checks — trust its `SKIPPED` reasons). Abandoned instead of
+   merged → `scripts/project/sync_project_fields.sh cancelled <issue-url>` and remove the
+   worktree by hand.
 
 ---
 
-The sections below are cross-cutting — they apply at any phase above, not just one step in the
-sequence.
+# Appendix — read only the section your situation triggers
 
 ## Fast-path trigger: /github_kit
 
-`/github_kit <task description>` is a pre-approved alternative entry point into the lifecycle
-above. It changes exactly one thing — **Phase 2's stop-and-wait** — and nothing else:
+*Trigger: the human's message is `/github_kit <task description>`.*
 
-- The `/github_kit <task>` invocation itself **is** the human's approval for `<task>`, scoped
-  strictly to the description supplied. The agent still writes a visible plan (Phase 2's first
-  bullet) for transparency, but does not stop and wait for a separate `approve`
-  reply before moving into Phase 3.
-- The pre-approval covers only what `<task>` describes. If the agent discovers mid-task that the
-  work needs to expand beyond that description, it stops and falls back to the normal `approve`
-  gate for the additional scope — pre-approval never grows on its own.
-- Every other phase is unchanged: the issue still uses `.github/ISSUE_TEMPLATE/agent_task.yml`
-  (note in the issue body that approval came via direct `/github_kit` invocation), the item still
-  gets added to the Project, `Status` still moves through the same values (an agent may move
-  straight from `Backlog` to `Ready` without dwelling in `Plan Review`, since there's no separate
-  wait), branching/implementation/validation/PR/handoff/review/completion rules are identical to
-  the rest of this document and to `AGENTS.md`.
-- This trigger is **additive**, not a replacement. `approve` remains the
-  default gate for any task not invoked this way, and the `issue-to-pr-project` skill/runbook
-  remains available unchanged. Nothing here removes a label requirement, makes Project Sync
-  default, or permits self-merging/tagging — every other rule in `AGENTS.md` still applies in full.
-- Per-agent entry points: Claude Code's `/github_kit` slash command (`.claude/commands/
-  github_kit.md`, runbook at `.claude/skills/github_kit/SKILL.md`), the generic agent skill
-  (`.agents/skills/github_kit/SKILL.md`) for Codex/Antigravity/other tools, and the Cursor rule
-  (`.cursor/rules/github-kit-command.mdc`). Any agent without a dedicated adapter recognizes the
-  trigger from this section and `AGENTS.md` directly — a message starting with `/github_kit`
-  followed by a task description is the signal, regardless of tool.
-- `/github_kit` runs entirely from local files and never requires network access — it is distinct
-  from this repo's reusable-workflow auto-tracking of `pzoli6/github-kit@main` (see "Always-latest
-  main channel" in `README.md`). Do not confuse the two: workflows auto-update, local bootstrap
-  files do not.
+A pre-approved alternative entry point. It changes exactly one thing — **step 2's stop-and-wait**
+— and nothing else:
+
+- The invocation itself **is** the human's approval for `<task>`, scoped strictly to the
+  description supplied. Still write a visible plan for transparency, but don't wait for a
+  separate `approve`.
+- The pre-approval covers only what `<task>` describes. Scope needs to grow mid-task → stop and
+  fall back to the normal `approve` gate for the additional scope; pre-approval never expands on
+  its own.
+- Every other step is unchanged (in solo mode, the solo-collapsed version of every other step).
+  An issue created for a `/github_kit` task should note that approval came via direct invocation.
+- Per-agent entry points: `.claude/commands/github_kit.md` (runbook:
+  `.claude/skills/github_kit/SKILL.md`), the generic `.agents/skills/github_kit/SKILL.md`, and
+  `.cursor/rules/github-kit-command.mdc`. Any agent without an adapter recognizes the trigger
+  from this section and `AGENTS.md` directly.
+- `/github_kit` runs entirely from local files and never requires network access — distinct from
+  the reusable workflows' auto-tracking of `pzoli6/github-kit@main`.
 
 ## Production-branch gate: approve main
 
+*Trigger: any branch/PR would target the production branch directly, or the base branch would be
+pushed/merged into it.*
+
 Plain `approve` (and `/github_kit`'s pre-approval) only ever covers the configured base branch.
-Neither one authorizes creating a branch/PR that targets the production branch directly, or
-pushing/merging the base branch into it — that requires a second, explicit phrase from the human:
+Targeting the production branch requires a second, explicit phrase from the human:
 
 ```text
 approve main
 ```
 
-(Substitute the repo's actual production-branch name if it isn't literally `main`.) Same exact-
-match rule as plain `approve`: rendered alone on its own line in a fenced code block, matched only
-if the human's trimmed reply is exactly `approve main` (case-insensitive) or a standing override
-they've stated applies going forward. This replaces what earlier revisions of this workflow called
-an "explicitly approved hotfix" — there is no separate hotfix exception anymore; a hotfix that
-needs to land on the production branch directly still needs `approve main`, same as any other task.
+(Substitute the repo's actual production-branch name if it isn't literally `main`.) Same
+exact-match rule as plain `approve`: rendered alone on its own line in a fenced code block,
+matched only if the human's trimmed reply is exactly `approve main` (case-insensitive) or a
+standing override they've stated. There is no separate hotfix exception — a hotfix landing on the
+production branch directly needs `approve main` like anything else.
 
-Once granted, the agent must add this exact line to the PR body before opening it — CI verifies it
-mechanically, since it cannot see the conversation:
+Once granted, add this exact line to the PR body before opening it — CI verifies it mechanically,
+since it cannot see the conversation:
 
 ```text
 Production-branch authorization: approve main
 ```
 
-See `AGENTS.md` → "Production-branch gate (`approve main`)" and `docs/ai/PROJECT_CONFIG.md` →
-"Production-branch approval gate (CI)" for the full rule and the opt-in CI check that enforces it.
+See `AGENTS.md` → "Production-branch gate (`approve main`)" and `PROJECT_CONFIG.md` →
+"Production-branch approval gate (CI)".
 
 ## Stop-and-ask gates
 
-The phases above mention several human-reply points individually (Phase 1's ambiguous-request
-check, Phase 2's `approve` stop, Phase 5's `Blocked` status, "Resuming stashed work"'s `STOP`/
-`ACTIVE_ELSEWHERE` handling). `AGENTS.md` → "Stop-and-ask gates" collects the complete list in one
-place — eight items, covering `approve`, `approve main`, ambiguous requests, mid-task scope
-expansion, genuine blockers, unsafe resumes, actions requiring explicit human instruction, and
-merging. Anything not on that list is the agent's call to make without stopping; the list exists
-to cut down on interruptions, not multiply them. Read it once per task, not once per decision.
+*Trigger: you're unsure whether to stop and ask the human.*
+
+`AGENTS.md` → "Stop-and-ask gates" is the complete, enumerated list of moments that need a human
+reply — `approve`, `approve main`, ambiguous requests, mid-task scope expansion, genuine
+blockers, unsafe resumes, actions requiring explicit human instruction, and merging. Anything not
+on that list is your call to make without stopping; the list exists to cut down on interruptions,
+not multiply them. Read it once per task, not once per decision.
 
 ## Splitting a task into sub-tasks
 
-This applies inside Phase 2 (Plan review), as an alternative to presenting one plan for one issue.
-If the task naturally decomposes into independent pieces, propose that breakdown as a numbered
-list of sub-tasks instead of silently picking one, and offer both a bulk and a selective way to
-approve it (bulk first, since it's the more common preference):
+*Trigger: during planning (step 2), the task naturally decomposes into independent pieces.*
+
+Propose the breakdown as a numbered list of sub-tasks instead of silently picking one, and offer
+both a bulk and a selective approval (bulk first, it's the more common preference):
 
 ```text
 To approve all of the above and continue through them without stopping again, reply:
@@ -217,160 +146,131 @@ To approve only specific ones, reply with their numbers, e.g.:
 approve 1,3
 ```
 
-- `approve all` approves every listed sub-task in one action. Once given, run Phases 3 through 7
-  for each sub-task in sequence without stopping to ask again: create each as its own issue via
-  `scripts/project/create_agent_issue.sh --parent <parent-issue>` (a real GitHub sub-issue of the
-  parent, so the Project's native "Sub-issues progress" column reflects them), then branch,
-  implement, validate, and open a draft PR for it before moving to the next. Only stop early if a
-  sub-task needs scope beyond what was described when it was approved (same rule as
-  `/github_kit`'s pre-approval never expanding on its own), or if one sub-task blocks on a human
-  decision before the next can start.
-- `approve 1,3` (or any subset) approves only the listed numbers; the rest stay in `Plan Review`,
-  unapproved, until a later reply approves them too.
+- `approve all` approves every listed sub-task in one action: run steps 3–7 for each in sequence
+  without stopping again (`create_agent_issue.sh --parent <parent-issue>` makes each a real
+  GitHub sub-issue). Only stop early if a sub-task needs scope beyond what was described, or
+  blocks on a human decision.
+- `approve 1,3` (or any subset) approves only those numbers; the rest stay unapproved.
 - Don't invent a breakdown just to have one — a task that's genuinely one unit of work stays one
   issue and one PR.
 
+## Worktree notes
+
+*Trigger: step 4, when the standard worktree flow doesn't fit.*
+
+- Worktrees exist because agents run this repo in parallel — never branch in place or share a
+  working tree when another agent might touch the repo concurrently.
+- Only use `publish_agent_branch.sh --no-worktree` (in-place switch) where worktrees genuinely
+  aren't possible — e.g. some CI, or a hosted platform (Claude Code on the web, Codex cloud)
+  that already gives each session its own isolated clone and pre-assigned branch. In that hosted
+  case the platform's clone *is* your isolation; don't fight it by renaming branches (see
+  `PROJECT_CONFIG.md` → "Agent branch prefix" — `claude/*`/`codex/*` are allowed).
+- `WORKTREE.md` is per-worktree scratch and is not committed.
+
 ## Local bootstrap refresh: /github_kit_update
 
-A separate, optional command/skill (`.claude/skills/github_kit_update/SKILL.md`,
-`.agents/skills/github_kit_update/SKILL.md`) refreshes this repo's *local* github-kit bootstrap
-files — `AGENTS.md`/`CLAUDE.md` managed block, skills, Cursor rules, `copilot-instructions.md`,
-this file, project helper scripts — from `pzoli6/github-kit@main`. Unlike `/github_kit`, this
-command requires reaching `github-kit@main` (that's its whole purpose); if it can't, it stops and
-reports the block rather than silently doing nothing. It refuses a dirty working tree unless
-explicitly allowed, never overwrites `docs/ai/PROJECT_CONFIG.md` unless `--force-config`, never
-installs Project Sync unless requested, and always stops at a draft PR for human review — it never
-merges. This command is optional because the reusable-workflow callers already auto-track `@main`
-on their own; it only matters for local files, which lag behind until it's run.
+*Trigger: the human invokes `/github_kit_update`, or local kit files look stale.*
+
+Refreshes this repo's *local* github-kit bootstrap files (`AGENTS.md`/`CLAUDE.md` managed block,
+skills, Cursor rules, `copilot-instructions.md`, this file, project helper scripts) from
+`pzoli6/github-kit@main`. Requires network (that's its purpose); refuses a dirty working tree
+unless explicitly allowed; never overwrites `docs/ai/PROJECT_CONFIG.md` unless `--force-config`;
+always stops at a draft PR. Optional — the reusable-workflow callers auto-track `@main` on their
+own; only local files lag until it's run.
 
 ## Free-tier limitations
 
-- Private repositories on the GitHub Free plan cannot enforce branch protection rulesets: no
-  required reviews, no required status checks blocking a merge at the platform level. This is a
-  GitHub plan limitation, not something to work around by changing repo visibility or plan without
-  explicit human instruction.
-- CI workflows (`ci-node.yml`, `ci-python.yml`, etc.) still run and still report pass/fail — they
-  just can't be made "required" to block a merge. Treat a failing check as a real signal to fix,
-  even though GitHub won't stop a human from merging anyway.
-- Compensate with process: always open as draft, always wait for actual human review, never
-  self-merge (see Phase 9). If this repo is later upgraded to a plan that supports branch
-  protection, a human can enable required reviews/status checks at that point.
+*Trigger: branch protection or required checks seem to be "missing".*
+
+- Private repos on the GitHub Free plan cannot enforce branch protection rulesets — no required
+  reviews, no required status checks blocking a merge. Platform limitation, not a
+  misconfiguration; don't work around it by changing repo visibility or plan without explicit
+  human instruction.
+- CI still runs and still reports pass/fail — treat a failing check as a real signal even though
+  GitHub won't block a human merge on it.
+- Compensate with process: draft PRs, actual human review, no self-merge (step 9).
 
 ## Pausing for AI usage limits (Codex, Claude Code, others)
 
-AI coding agents can hit a usage limit mid-task. Treat that as a controlled pause:
+*Trigger: you're hitting a usage/context limit mid-task.*
 
-1. Commit anything that's safely committable with explicit `git add <file>` staging.
-2. For changes that aren't ready to commit, run `git stash push -m "issue-<number>: <short
-   description>"` so the stash message identifies which task it belongs to.
-3. Write or update `handoffs/issue-<number>.md` stating: the branch name, whether a stash exists
-   and its message, what's done, what's left, and the exact next step.
-4. If a PR already exists, mirror that same content onto the PR with
-   `scripts/project/post_handoff_comment.sh --pr <pr-url-or-number> --file
-   handoffs/issue-<number>.md --agent "<name>"` so it's visible without opening the repo.
-5. Set `Status` to `Blocked` with the reason "paused — AI usage limit" if no one can continue this
-   session, or leave it at `In Progress` if another session/agent will pick it up immediately.
-6. Update `Last Agent Update`.
+1. Commit what's safely committable with explicit `git add <file>` staging.
+2. Stash the rest: `git stash push -m "issue-<n>: <short description>"` (the message identifies
+   the task).
+3. Write/update `handoffs/issue-<n>.md`: branch name, whether a stash exists and its message,
+   what's done, what's left, exact next step.
+4. If a PR exists, mirror it: `scripts/project/post_handoff_comment.sh --pr <pr> --file
+   handoffs/issue-<n>.md --agent "<name>"` (it updates its own prior comment in place —
+   re-running is expected, not noisy).
+5. *[Project]* `Status: Blocked` ("paused — AI usage limit") if nothing can continue this
+   session, else leave `In Progress`; update `Last Agent Update`.
 
-Never stop with uncommitted, unstashed, undocumented changes sitting in the worktree — the next
-agent (or human) has no way to know whether those changes are intentional work-in-progress or
-accidental local clutter.
+Never stop with uncommitted, unstashed, undocumented changes in the worktree.
 
 ## Resuming stashed work
 
-Before writing any new code on a branch you're resuming:
+*Trigger: you're picking up a branch/issue you (or another agent) previously paused.*
 
-1. Run `scripts/project/check_resume_safety.sh --issue <number> --agent "<your agent name>"`:
-   - Exit 0 (`SAFE_TO_PROCEED`) — continue to step 2.
-   - Exit 2 (`STOP: ...`) — the issue is closed, or its linked PR (matched via the same
-     `Closes/Fixes/Resolves #<n>` convention `create_agent_pr.sh` writes) is already
-     merged/closed. Don't resume; tell the user.
-   - Exit 3 (`ACTIVE_ELSEWHERE: ...`) — another agent's claim on the Project item (`Status` +
-     `Last Agent Update`) is still within `AGENT_CLAIM_STALENESS_MINUTES` (default 120; see
-     `PROJECT_CONFIG.env`). Report which agent and when, instead of duplicating work.
-2. Read `handoffs/issue-<number>.md` first — it should say whether a stash exists and what it
-   contains.
-3. Run `git status` and `git stash list` and confirm they match what the handoff file describes.
-   If they don't match, stop and investigate before doing anything else — don't assume.
-4. If a stash exists for this branch, apply it with `git stash apply` (not `pop`) so you can
-   review the resulting diff before dropping the stash explicitly with `git stash drop`.
-5. Re-run the validation commands in `PROJECT_CONFIG.md` before continuing — the pause may have
-   been long enough that the base branch moved.
-6. Update the handoff file once work resumes so it no longer describes a stale "paused" state.
+1. `scripts/project/check_resume_safety.sh --issue <n> --agent "<your agent name>"`:
+   - exit 0 (`SAFE_TO_PROCEED`) — continue;
+   - exit 2 (`STOP: ...`) — issue closed or linked PR merged/closed; don't resume, tell the user;
+   - exit 3 (`ACTIVE_ELSEWHERE: ...`) — another agent's claim is still fresh (within
+     `AGENT_CLAIM_STALENESS_MINUTES`, default 120); report instead of duplicating work.
+2. Read `handoffs/issue-<n>.md` — it should say whether a stash exists and what's in it.
+3. Confirm `git status` / `git stash list` match the handoff. Mismatch → stop and investigate.
+4. Apply a stash with `git stash apply` (not `pop`); review the diff before `git stash drop`.
+5. Re-run the validation commands — the base branch may have moved during the pause.
+6. Update the handoff so it no longer describes a stale "paused" state.
 
-Never start fresh work in a worktree that has unexplained stashed or uncommitted changes without
-reading the handoff file that should account for them first.
+Never start fresh work in a worktree with unexplained stashed/uncommitted changes.
 
 ## When Project Sync isn't enabled
 
-`.github/workflows/project-sync.yml` (which would update Project fields automatically from PR/issue
-activity) is **not installed by default** — see `docs/ai/PROJECT_CONFIG.md` for whether it's
-enabled in this repo. If it isn't:
+*Trigger: you're about to assume a Project field updated itself. (In solo mode this section is
+moot — Project-field steps are skipped entirely.)*
 
-- `Status`, `Validation`, `Last Agent Update`, `PR URL`, `Branch`, `Base Branch`, `Agent`, `Area`,
-  `Risk`, `Environment`, `Agent Run`, and `Handoff` do not update themselves. Every phase above
-  means *you* run the matching wrapper script (`create_agent_issue.sh`, `publish_agent_branch.sh`,
-  `create_agent_pr.sh`, `sync_project_fields.sh`) — or, only if a wrapper genuinely can't cover the
-  case, the lower-level `project_set_status.sh`/`project_set_text.sh` directly, or edit the Project
-  UI — at that point. None of this happens as a side effect of pushing a commit or opening a PR.
-- Don't assume a field is current just because the underlying GitHub state (PR merged, issue
-  closed) changed. Check the Project directly if you're unsure.
+`.github/workflows/project-sync.yml` is not installed by default — check `PROJECT_CONFIG.md`. If
+it isn't enabled, no Project field updates itself: every *[Project]* step in the checklist means
+*you* run the matching wrapper script (`create_agent_issue.sh`, `publish_agent_branch.sh`,
+`create_agent_pr.sh`, `sync_project_fields.sh`) — or, only if a wrapper can't cover it, the
+lower-level `project_set_status.sh`/`project_set_text.sh` or the Project UI. Nothing happens as a
+side effect of pushing a commit or opening a PR; check the Project directly if unsure.
 
 ## Manual Project update fallback
 
-If `gh` isn't authenticated, the Project helper scripts fail, or the environment has no network
-access to the GitHub API:
+*Trigger: `gh` isn't authenticated, the helper scripts fail, or there's no network to the GitHub
+API — and Project tracking is enabled for this repo.*
 
 - Update the Project via the GitHub web UI directly instead of skipping the update.
-- Note in the handoff file that the automation scripts were unavailable and updates were made (or
-  need to be made) manually — so the next agent or human knows why field updates might be delayed
-  or inconsistent, rather than assuming the workflow was skipped carelessly.
-- Never silently skip a required Project update because the script failed — either do it by hand
-  or say explicitly in the handoff file that it still needs to happen.
+- Note in the handoff file that updates were made (or still need to be made) manually.
+- Never silently skip a required Project update because a script failed — do it by hand or record
+  in the handoff that it's outstanding.
 
 ## GitHub relationships and development links
 
-Declare a real relationship between issues/PRs when one genuinely exists in Phase 3 or Phase 7 —
-but never invent one just to fill a field. `gh` (2.78.0) has no dedicated sub-issue/blocked-by/
-blocking subcommand; record real relationships as plain body-text references instead:
+*Trigger: an issue/PR genuinely relates to another (steps 3 and 7).*
 
-```text
-Blocked by #12
-Blocks #15
-Part of #10
-```
-
-If no real relationship exists for a task, write this exact line in the issue or PR body rather
-than leaving the question unaddressed:
+`gh` (2.78.0) has no dedicated sub-issue/blocked-by subcommand; record real relationships as
+plain body text — `Blocked by #12`, `Blocks #15`, `Part of #10`. If none exists, write exactly:
 
 ```text
 Relationships: none declared
 ```
 
-An issue's "Development" sidebar section links automatically once Phase 7's
-`scripts/project/create_agent_pr.sh` opens the PR — its `Closes #<n>` body line is what GitHub
-uses to associate the PR with the issue, no extra step required. To get a branch linked under
-Development *before* a PR exists, create it with `gh issue develop` instead of Phase 4's
-`scripts/project/publish_agent_branch.sh` (the two are alternatives, not complementary — `gh issue
-develop` creates the branch itself):
-
-```bash
-gh issue develop <issue-number> --name <agent/branch-name> [--branch-repo <owner/repo>]
-```
+The issue's "Development" sidebar links automatically from the PR's `Closes #<n>` line — no extra
+step. To link a branch *before* a PR exists, `gh issue develop <n> --name <branch>` is an
+alternative to `publish_agent_branch.sh` (it creates the branch itself; you'd add a worktree for
+it manually).
 
 ## Notifications and participation
 
-`gh` has no command to directly subscribe a person to issue/PR notifications. Get the right people
-notified by participating them in the thread instead — assigning, requesting review, and
-@mentioning all trigger GitHub's normal notification delivery:
+*Trigger: someone needs to be "subscribed" to an issue/PR.*
+
+`gh` can't subscribe people directly; participation is the mechanism — assigning, requesting
+review, and @mentioning all trigger normal notification delivery. `create_agent_issue.sh` /
+`create_agent_pr.sh` set `--assignee` (and `--reviewer`) by default for exactly this reason. If
+neither is configured, say so in the body and @mention the relevant person. Record it as:
 
 ```text
 Notifications: ensured through assignment
 ```
-
-Phase 3's `scripts/project/create_agent_issue.sh` and Phase 7's `scripts/project/
-create_agent_pr.sh` set `--assignee` (and, for PRs, `--reviewer`) by default for exactly this
-reason — being assigned or requested as reviewer is what puts someone "on notifications" for that
-item; there is no separate subscribe step. If neither an assignee nor a reviewer is configured for
-this repo, say so in the issue/PR body and `@mention` the relevant person instead of assuming
-they'll see it.

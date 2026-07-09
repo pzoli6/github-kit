@@ -210,10 +210,12 @@ Fast path: `/github_kit <task>` is a pre-approved alternative entry point — th
 
 Agents must not push to protected branches, merge PRs, modify secrets, use `git add .`, or claim validation passed unless validation actually ran.
 
-Before stopping, losing context, or handing off to another agent, agents must update:
+Solo mode: `docs/ai/PROJECT_CONFIG.md` → "Solo mode" (default `auto` — active until a real GitHub Project is configured) collapses the lifecycle to plan → approval → branch/worktree → implementation → validation → draft PR: no issue for pre-approved iterations, no Project-field updates, handoff files only when actually stopping mid-task. Approval gates and git/PR safety rules apply unchanged.
+
+Before stopping mid-task, losing context, or handing off to another agent, agents must update:
 - `docs/ai/handoffs/issue-<number>.md`
-- Project field: `Last Agent Update`
-- Project field: `Validation`
+- Project field: `Last Agent Update` (full mode only)
+- Project field: `Validation` (full mode only)
 <!-- END GITHUB-KIT UNIVERSAL WORKFLOW -->
 GKBLOCK
 }
@@ -302,6 +304,16 @@ copy_if_missing "$TEMPLATES/.claude/skills/github_kit_update/SKILL.md" ".claude/
 for rule in agent-workflow git-safety project-board github-kit-command; do
   copy_if_missing "$TEMPLATES/.cursor/rules/$rule.mdc" ".cursor/rules/$rule.mdc"
 done
+
+# Legacy hygiene: only SKILL.md-based skill directories belong under .claude/skills/. Older kit
+# versions/manual copies sometimes left workflow YAMLs or STATUS_BADGES.md there, which clutter
+# the skills listing. Warn — never delete automatically.
+stray_skills="$(find .claude/skills -maxdepth 1 -type f \( -name '*.yml' -o -name '*.yaml' -o -name 'STATUS_BADGES.md' \) 2>/dev/null || true)"
+if [ -n "$stray_skills" ]; then
+  echo "warning: non-skill files found directly under .claude/skills/ — they aren't skills;"
+  echo "move workflow YAMLs to .github/workflows/ (or delete them):"
+  printf '  %s\n' $stray_skills
+fi
 
 # --- scripts/project/ --------------------------------------------------
 

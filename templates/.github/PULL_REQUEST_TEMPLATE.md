@@ -1,3 +1,6 @@
+<!-- Sections marked (optional) should be DELETED when they don't apply — an omitted section
+reads as "none"; a section left in with "None"/"n/a" is noise. -->
+
 ## Summary
 
 <!-- What changed and why, in a few sentences. -->
@@ -5,20 +8,23 @@
 ## Linked issue
 
 Closes #
+<!-- Solo mode, no issue for this iteration? Delete this section (don't leave "Closes #" empty). -->
 
 ## Project metadata
 
 - **Agent:** <!-- Codex / Claude Code / Antigravity / Cursor / Gemini / ChatGPT / GitHub Copilot / Manual / Mixed -->
-- **Agent Run:** <!-- link to the agent session/run, if applicable -->
 - **Area:** <!-- e.g. backend, frontend, infra, docs -->
 - **Risk:** <!-- Low / Medium / High -->
 - **Base Branch:** <!-- e.g. develop -->
 - **Branch:** <!-- e.g. agent/issue-42-add-retry-logic -->
-- **Handoff:** <!-- path to docs/ai/handoffs/issue-<number>.md, if one exists -->
 
-<!-- If this PR targets the production branch directly (not the configured base branch), the human
+<!-- Add these lines only when they apply:
+- **Agent Run:** <link to the agent session/run>
+- **Handoff:** <path to docs/ai/handoffs/issue-<number>.md, if one exists>
+
+If this PR targets the production branch directly (not the configured base branch), the human
 must have explicitly said "approve main" first — see AGENTS.md → "Production-branch gate". Add
-this exact line below when that applies:
+this exact line when that applies:
 Production-branch authorization: approve main -->
 
 ## Validation
@@ -38,10 +44,7 @@ Production-branch authorization: approve main -->
 
 <!-- What should the reviewer pay closest attention to? -->
 
-## Known risks
+## Known risks and follow-ups (optional)
 
-<!-- Anything that could break, or that wasn't fully validated. -->
-
-## Follow-up items
-
-<!-- Anything explicitly deferred out of scope for this PR. -->
+<!-- Anything that could break or wasn't fully validated, plus work explicitly deferred out of
+scope. Delete this section if there's genuinely nothing — don't write "None". -->

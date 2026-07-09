@@ -13,8 +13,9 @@ usage() {
   cat >&2 <<'EOF'
 Usage: cleanup_merged_branches.sh [--branch <name>] [--dry-run]
 
-Without --branch, scans every local branch matching this repo's agent branch prefix (from
-docs/ai/PROJECT_CONFIG.md, default "agent/") and cleans up each one whose PR is merged. With
+Without --branch, scans every local branch matching this repo's agent branch prefixes (the
+comma-separated "Agent branch prefix" list in docs/ai/PROJECT_CONFIG.md, default
+"agent/,claude/,codex/") and cleans up each one whose PR is merged. With
 --branch, processes only that one branch.
 
 For each merged branch it: removes the branch's worktree (if any), deletes the local branch, and
@@ -57,20 +58,30 @@ else
 fi
 cd "$MAIN_ROOT"
 
-PREFIX="agent/"
+# "Agent branch prefix" may be a single prefix or a comma-separated allowlist
+# (e.g. `agent/,claude/,codex/`) — sweep every listed prefix.
+PREFIXES="agent/,claude/,codex/"
 if [ -f "docs/ai/PROJECT_CONFIG.md" ]; then
   configured="$(grep -F 'Agent branch prefix' docs/ai/PROJECT_CONFIG.md | head -1 | sed -E 's/.*`([^`]+)`.*/\1/')"
-  [ -n "$configured" ] && PREFIX="$configured"
+  [ -n "$configured" ] && PREFIXES="$configured"
 fi
 
 if [ -n "$TARGET_BRANCH" ]; then
   CANDIDATES="$TARGET_BRANCH"
 else
-  CANDIDATES="$(git for-each-ref --format='%(refname:short)' "refs/heads/${PREFIX}*" 2>/dev/null || true)"
+  CANDIDATES=""
+  IFS=',' read -r -a prefix_list <<< "$PREFIXES"
+  for raw_prefix in "${prefix_list[@]}"; do
+    prefix="$(echo "$raw_prefix" | sed 's/^ *//;s/ *$//')"
+    [ -n "$prefix" ] || continue
+    matches="$(git for-each-ref --format='%(refname:short)' "refs/heads/${prefix}*" 2>/dev/null || true)"
+    [ -n "$matches" ] && CANDIDATES="${CANDIDATES}${CANDIDATES:+
+}${matches}"
+  done
 fi
 
 if [ -z "$CANDIDATES" ]; then
-  echo "No candidate branches found (prefix: ${PREFIX})."
+  echo "No candidate branches found (prefixes: ${PREFIXES})."
   exit 0
 fi
 
