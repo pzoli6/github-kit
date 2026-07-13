@@ -119,13 +119,16 @@ on their very next run.
 
 What auto-tracks `@main` and what doesn't:
 
-- **Reusable workflows auto-track `@main`.** Fix or extend a reusable workflow once here, and every
-  repo that calls it gets the fix on its next workflow run — no version bump, no re-running the
-  installer.
-- **Local bootstrap files never auto-track anything.** `AGENTS.md`/`CLAUDE.md`, Cursor rules, the
-  Claude/Codex skills, and this kit's own scripts live in the target repo's working tree. They only
-  refresh when you explicitly run `update-github-kit.sh`/`.ps1`, or its `/github_kit_update` wrapper
-  (see below) — `@main` auto-tracking has no effect on them.
+- **Reusable workflows auto-track `@main` directly.** Fix or extend a reusable workflow once here,
+  and every repo that calls it gets the fix on its next workflow run — no version bump, no
+  re-running the installer, no PR.
+- **Local bootstrap files auto-propagate via the fan-out workflow (below), not via `@main`.**
+  `AGENTS.md`/`CLAUDE.md`, Cursor rules, the Claude/Codex skills, and this kit's own scripts live in
+  the target repo's working tree, so a `uses: …@main` reference can't reach them. Instead,
+  [`.github/workflows/github-kit-fanout.yml`](.github/workflows/github-kit-fanout.yml) opens a draft
+  PR in each target repo whenever those files drift from `main` — you review and merge, never the
+  automation. Running `update-github-kit.sh`/`.ps1` or `/github_kit_update` by hand still works as
+  an on-demand alternative.
 - **Pinning is still supported, just no longer the default.** Pass `--ref <tag-or-sha>` /
   `-Ref <tag-or-sha>` to either the installer or the updater to deliberately pin a repo instead of
   auto-tracking `main`. The legacy `--workflow-ref`/`-WorkflowRef` flag names still work as aliases.
@@ -135,6 +138,34 @@ What auto-tracks `@main` and what doesn't:
 
 Because a merge to this repo's `main` is live for every installed repo on their next CI run, with no
 opt-in step, changes here deserve a higher review bar than a typical app repo.
+
+## Fan-out propagation of bootstrap files
+
+`@main` auto-tracking covers reusable workflows but structurally can't cover the *local* bootstrap
+files copied into each repo (`AGENTS.md`/`CLAUDE.md`/`GEMINI.md` managed blocks, skills, Cursor
+rules, `copilot-instructions.md`, `docs/ai/*`, `scripts/project/*`). The fan-out workflow closes
+that gap so you never have to run `/github_kit_update` in each repo by hand.
+
+[`.github/workflows/github-kit-fanout.yml`](.github/workflows/github-kit-fanout.yml) runs in
+**github-kit itself** and:
+
+- triggers on every push to `main` that touches `templates/**` or the install/update scripts, plus
+  a weekly cron safety net and manual `workflow_dispatch`;
+- reads the target list from [`.github/fanout-targets.json`](.github/fanout-targets.json) (add a
+  repo by appending one `{ "repo": "...", "base": "..." }` entry — nothing is needed on the target
+  side);
+- for each target, refreshes its bootstrap files from `github-kit@main` via `update-github-kit.sh`
+  and opens a **draft PR** on the repo's base branch if anything drifted — it never merges, never
+  force-pushes, and never touches `docs/ai/PROJECT_CONFIG.md`.
+
+**Required secret (one, in github-kit only):** `GITHUB_KIT_FANOUT_TOKEN` — a fine-grained PAT with,
+for each target repo, **Contents: Read and write** and **Pull requests: Read and write**, and
+nothing else. The default `GITHUB_TOKEN` can't reach other private repos, which is why the PAT is
+needed. Add it under **github-kit → Settings → Secrets and variables → Actions**. Until the secret
+exists, the workflow fails fast with a clear message instead of silently doing nothing.
+
+The mental model is: **you improve `github-kit`, and every repo gets a draft PR** — reusable CI
+logic updates itself with no PR, and local files arrive as reviewable PRs.
 
 ## Fast-path trigger: /github_kit
 

@@ -1,0 +1,165 @@
+name: github-kit fan-out (propagate bootstrap updates)
+
+# Closes the one gap in github-kit's "always-latest" model.
+#
+# Reusable CI workflows (reusable-*.yml) already auto-track @main: any repo that calls
+# `uses: pzoli6/github-kit/.github/workflows/reusable-*.yml@main` gets fixes on its next run.
+# But the *local* bootstrap files copied into each repo — AGENTS.md/CLAUDE.md/GEMINI.md managed
+# blocks, skills, Cursor rules, copilot-instructions.md, docs/ai/*, and scripts/project/* — do
+# NOT auto-track; historically they only refreshed when a human ran /github_kit_update.
+#
+# This workflow makes that automatic. On every push to main that changes template/script content
+# (plus a weekly safety net, plus manual dispatch), it refreshes each target repo listed in
+# .github/fanout-targets.json from github-kit@main and opens a DRAFT PR whenever anything drifted.
+# It never merges, never touches docs/ai/PROJECT_CONFIG.md, and never force-pushes.
+#
+# Requires one repository secret in github-kit: GITHUB_KIT_FANOUT_TOKEN — a fine-grained PAT with,
+# for EACH target repo, "Contents: Read and write" + "Pull requests: Read and write" (and nothing
+# else). The default GITHUB_TOKEN cannot reach other private repos, which is why a PAT is needed.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'templates/**'
+      - 'scripts/install-github-kit.sh'
+      - 'scripts/update-github-kit.sh'
+      - '.github/workflows/github-kit-fanout.yml'
+      - '.github/fanout-targets.json'
+  schedule:
+    - cron: '0 6 * * 1'   # Mondays 06:00 UTC — catches anything a path-filtered push missed
+  workflow_dispatch:
+    inputs:
+      only_repo:
+        description: 'Limit fan-out to one target (owner/name). Blank = all targets.'
+        required: false
+        default: ''
+
+permissions:
+  contents: read   # only used to check out github-kit itself; targets are reached via the PAT
+
+concurrency:
+  group: github-kit-fanout
+  cancel-in-progress: false
+
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set.outputs.matrix }}
+      count: ${{ steps.set.outputs.count }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: set
+        shell: bash
+        run: |
+          set -euo pipefail
+          only='${{ github.event.inputs.only_repo }}'
+          if [ -n "$only" ]; then
+            matrix="$(jq -c --arg r "$only" '{include: [.targets[] | select(.repo==$r)]}' .github/fanout-targets.json)"
+          else
+            matrix="$(jq -c '{include: .targets}' .github/fanout-targets.json)"
+          fi
+          count="$(echo "$matrix" | jq '.include | length')"
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+          echo "count=$count" >> "$GITHUB_OUTPUT"
+          echo "Fan-out will consider $count target(s)."
+
+  fanout:
+    needs: discover
+    if: ${{ needs.discover.outputs.count != '0' }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix: ${{ fromJSON(needs.discover.outputs.matrix) }}
+    steps:
+      - name: Check fan-out token is configured
+        env:
+          FANOUT_TOKEN: ${{ secrets.GITHUB_KIT_FANOUT_TOKEN }}
+        shell: bash
+        run: |
+          if [ -z "${FANOUT_TOKEN:-}" ]; then
+            echo "::error::GITHUB_KIT_FANOUT_TOKEN secret is not set in github-kit. Create a fine-grained PAT with Contents + Pull requests write on the target repos and add it as this secret. See .github/workflows/github-kit-fanout.yml header."
+            exit 1
+          fi
+
+      - name: Checkout github-kit (source of truth)
+        uses: actions/checkout@v4
+        with:
+          path: github-kit
+
+      - name: Checkout target repo (${{ matrix.repo }})
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ matrix.repo }}
+          ref: ${{ matrix.base }}
+          token: ${{ secrets.GITHUB_KIT_FANOUT_TOKEN }}
+          path: target
+          fetch-depth: 0
+
+      - name: Refresh bootstrap files from github-kit@main
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash github-kit/scripts/update-github-kit.sh --target target --allow-dirty --ref main
+
+      - name: Open draft PR if anything drifted
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_KIT_FANOUT_TOKEN }}
+          TARGET_REPO: ${{ matrix.repo }}
+          TARGET_BASE: ${{ matrix.base }}
+          RUN_ID: ${{ github.run_id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd target
+          git config user.name "github-kit-bot"
+          git config user.email "github-kit-bot@users.noreply.github.com"
+
+          # Stage only github-kit-owned paths (the update script only ever writes these). This
+          # honours the "never git add -A" rule while still capturing everything the updater changed.
+          # Skip any path a given target doesn't have, so `git add` never aborts on a missing pathspec.
+          for p in AGENTS.md CLAUDE.md GEMINI.md docs/ai .github .agents .claude .cursor scripts/project .gitignore; do
+            [ -e "$p" ] && git add -- "$p"
+          done
+
+          if git diff --cached --quiet; then
+            echo "No drift for ${TARGET_REPO} — already in sync with github-kit@main."
+            exit 0
+          fi
+
+          branch="agent/github-kit-selfupdate-${RUN_ID}"
+          git switch -c "$branch"
+          git commit -m "chore(github-kit): propagate bootstrap updates from github-kit@main"
+          git push -u origin "$branch"
+
+          body_file="${RUNNER_TEMP}/gk-fanout-body.md"
+          cat > "$body_file" <<'BODY'
+          Automated by `github-kit-fanout.yml` in `pzoli6/github-kit`.
+
+          This PR refreshes this repo's github-kit **local bootstrap files** to match
+          `pzoli6/github-kit@main`:
+
+          - `AGENTS.md` / `CLAUDE.md` / `GEMINI.md` managed blocks
+          - `.claude` / `.agents` skills and commands, `.cursor` rules, `.github/copilot-instructions.md`
+          - `docs/ai/AGENT_WORKFLOW.md`, `docs/ai/HANDOFF_INDEX.md`, `docs/ai/PROJECT_CONFIG.env.example`
+          - `scripts/project/*` helper scripts and the reusable-workflow callers
+
+          It does **not** touch `docs/ai/PROJECT_CONFIG.md` or your issue/PR templates.
+
+          Reusable CI workflows already auto-track `@main`; this PR covers the local files that don't.
+
+          Draft on purpose — review the diff and merge when you're happy. This automation never merges.
+
+          Relationships: none declared.
+          BODY
+
+          gh pr create \
+            --repo "${TARGET_REPO}" \
+            --base "${TARGET_BASE}" \
+            --head "$branch" \
+            --draft \
+            --title "chore(github-kit): auto-propagate bootstrap updates from github-kit@main" \
+            --body-file "$body_file"
+          echo "Opened draft PR for ${TARGET_REPO} (${branch} -> ${TARGET_BASE})."
