@@ -156,7 +156,10 @@ that gap so you never have to run `/github_kit_update` in each repo by hand.
   side);
 - for each target, refreshes its bootstrap files from `github-kit@main` via `update-github-kit.sh`
   and opens a **draft PR** on the repo's base branch if anything drifted — it never merges, never
-  force-pushes, and never touches `docs/ai/PROJECT_CONFIG.md`.
+  force-pushes, and never touches repo-specific files: `docs/ai/PROJECT_CONFIG.md` or
+  `.github/workflows/pr-policy.yml` (which holds each repo's `required_base_branch` gate). The
+  reusable policy *logic* still auto-tracks `@main`; only that repo's base-branch wiring is left
+  alone.
 
 **Required secret (one, in github-kit only):** `GITHUB_KIT_FANOUT_TOKEN` — a fine-grained PAT with,
 for each target repo, **Contents: Read and write** and **Pull requests: Read and write**, and
