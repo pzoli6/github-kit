@@ -156,6 +156,25 @@ function Refresh-Workflow {
     }
 }
 
+function CreateOnly-Workflow {
+    # Like Refresh-Workflow but NEVER overwrites an existing file. pr-policy.yml carries repo-specific
+    # gate inputs (required_base_branch, require_agent_branch_prefix); overwriting it would reset a
+    # repo's base branch and break its PR checks. Preserved once created, like PROJECT_CONFIG.md. The
+    # reusable-pr-policy.yml@main logic it calls still auto-tracks @main.
+    param([string]$Src, [string]$Dst)
+    if (Test-Path -LiteralPath $Dst) {
+        Write-Host "skip (repo-specific caller, preserved): $Dst"
+        $script:SkippedCount++
+        return
+    }
+    Ensure-ParentDir $Dst
+    $pattern = '(uses: pzoli6/github-kit/[^@\s]+)@main'
+    $content = (Get-Content -LiteralPath $Src -Raw) -replace $pattern, "`$1@$WorkflowRef"
+    Set-Content -LiteralPath $Dst -Value $content -NoNewline
+    Write-Host "created:         $Dst"
+    $script:CreatedCount++
+}
+
 function Get-ManagedBlockText {
     $block = @'
 <!-- BEGIN GITHUB-KIT UNIVERSAL WORKFLOW -->
@@ -265,9 +284,11 @@ if (Test-Path -LiteralPath ".github/PULL_REQUEST_TEMPLATE.md") {
 Refresh-File (Join-Path $Templates ".github/copilot-instructions.md") ".github/copilot-instructions.md"
 Refresh-File (Join-Path $Templates ".github/CODEOWNERS") ".github/CODEOWNERS"
 
-foreach ($wf in @("agent-workflow-verify", "pr-policy", "ci-node", "ci-python")) {
+foreach ($wf in @("agent-workflow-verify", "ci-node", "ci-python")) {
     Refresh-Workflow (Join-Path $Templates ".github/workflows/$wf.yml") ".github/workflows/$wf.yml"
 }
+# pr-policy.yml holds this repo's base-branch gate — preserve it if it already exists.
+CreateOnly-Workflow (Join-Path $Templates ".github/workflows/pr-policy.yml") ".github/workflows/pr-policy.yml"
 
 if ($IncludeProjectSync -or (Test-Path -LiteralPath ".github/workflows/project-sync.yml")) {
     Refresh-Workflow (Join-Path $Templates ".github/workflows/project-sync.yml") ".github/workflows/project-sync.yml"

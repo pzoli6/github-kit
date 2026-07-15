@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
 # Update a target repository that already has github-kit installed.
 #
-# Refreshes github-kit-owned boilerplate (caller workflows, Cursor rules, skills, CODEOWNERS,
-# copilot-instructions.md, project helper scripts, docs/ai/AGENT_WORKFLOW.md,
-# docs/ai/HANDOFF_INDEX.md, docs/ai/PROJECT_CONFIG.env.example) and the managed block in
-# AGENTS.md/CLAUDE.md/GEMINI.md. Never overwrites docs/ai/PROJECT_CONFIG.md, .github/ISSUE_TEMPLATE/
-# agent_task.yml, or .github/PULL_REQUEST_TEMPLATE.md — those may contain repo-specific
-# customization and this script has no flag to force them. Use --force-config to additionally
-# overwrite docs/ai/PROJECT_CONFIG.md (rarely what you want — prefer editing it by hand).
+# Refreshes github-kit-owned boilerplate (agent-workflow-verify/ci-node/ci-python caller workflows,
+# Cursor rules, skills, CODEOWNERS, copilot-instructions.md, project helper scripts,
+# docs/ai/AGENT_WORKFLOW.md, docs/ai/HANDOFF_INDEX.md, docs/ai/PROJECT_CONFIG.env.example) and the
+# managed block in AGENTS.md/CLAUDE.md/GEMINI.md. Never overwrites docs/ai/PROJECT_CONFIG.md,
+# .github/workflows/pr-policy.yml (it holds the repo-specific required_base_branch gate),
+# .github/ISSUE_TEMPLATE/agent_task.yml, or .github/PULL_REQUEST_TEMPLATE.md — those may contain
+# repo-specific customization and this script has no flag to force them. Use --force-config to
+# additionally overwrite docs/ai/PROJECT_CONFIG.md (rarely what you want — prefer editing it by hand).
 set -euo pipefail
 
 KIT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -41,13 +42,15 @@ Usage: update-github-kit.sh [--target <path>] [--force-config] [--allow-dirty]
                              `github-kit update mode: pinned` in docs/ai/PROJECT_CONFIG.md).
   --workflow-ref <ref>      Backward-compatible alias for --ref.
 
-This always refreshes: the managed block in AGENTS.md/CLAUDE.md/GEMINI.md, caller workflows, Cursor
-rules, skills, CODEOWNERS, copilot-instructions.md, project helper scripts,
-docs/ai/AGENT_WORKFLOW.md, docs/ai/HANDOFF_INDEX.md, and docs/ai/PROJECT_CONFIG.env.example.
-This is what /github_kit_update runs under the hood.
+This always refreshes: the managed block in AGENTS.md/CLAUDE.md/GEMINI.md, the agent-workflow-verify
+/ ci-node / ci-python caller workflows, Cursor rules, skills, CODEOWNERS, copilot-instructions.md,
+project helper scripts, docs/ai/AGENT_WORKFLOW.md, docs/ai/HANDOFF_INDEX.md, and
+docs/ai/PROJECT_CONFIG.env.example. This is what /github_kit_update runs under the hood.
 
-This never touches: docs/ai/PROJECT_CONFIG.env (local, git-ignored), or existing
-.github/ISSUE_TEMPLATE/agent_task.yml / .github/PULL_REQUEST_TEMPLATE.md content.
+This never touches (created only if missing, then preserved): docs/ai/PROJECT_CONFIG.md,
+.github/workflows/pr-policy.yml (repo-specific required_base_branch gate), and existing
+.github/ISSUE_TEMPLATE/agent_task.yml / .github/PULL_REQUEST_TEMPLATE.md content. It also never
+touches docs/ai/PROJECT_CONFIG.env (local, git-ignored).
 EOF
   echo "  (current default ref: $DEFAULT_WORKFLOW_REF)"
   exit 1
@@ -152,6 +155,26 @@ refresh_workflow() {
     echo "refreshed:       $dst"
     UPDATED_COUNT=$((UPDATED_COUNT + 1))
   else
+    sed -E "s#(uses: pzoli6/github-kit/[^@[:space:]]+)@main#\1@$WORKFLOW_REF#" "$src" > "$dst"
+    echo "created:         $dst"
+    CREATED_COUNT=$((CREATED_COUNT + 1))
+  fi
+}
+
+create_only_workflow() {
+  # Like refresh_workflow, but NEVER overwrites an existing file. pr-policy.yml is a caller that
+  # carries repo-specific gate inputs — `required_base_branch` (which branch PRs must target) and
+  # the `require_agent_branch_prefix` allowlist. Overwriting it would reset a repo's base branch to
+  # the template default and break every PR's policy check. So it is preserved once created, exactly
+  # like docs/ai/PROJECT_CONFIG.md and the issue/PR templates. The reusable logic it calls
+  # (reusable-pr-policy.yml@main) still auto-tracks @main, so policy *behavior* keeps improving
+  # without this file ever being clobbered.
+  local src="$1" dst="$2"
+  if [ -e "$dst" ]; then
+    echo "skip (repo-specific caller, preserved): $dst"
+    SKIPPED_COUNT=$((SKIPPED_COUNT + 1))
+  else
+    mkdir -p "$(dirname "$dst")"
     sed -E "s#(uses: pzoli6/github-kit/[^@[:space:]]+)@main#\1@$WORKFLOW_REF#" "$src" > "$dst"
     echo "created:         $dst"
     CREATED_COUNT=$((CREATED_COUNT + 1))
@@ -271,9 +294,11 @@ fi
 refresh "$TEMPLATES/.github/copilot-instructions.md" ".github/copilot-instructions.md"
 refresh "$TEMPLATES/.github/CODEOWNERS" ".github/CODEOWNERS"
 
-for wf in agent-workflow-verify pr-policy ci-node ci-python; do
+for wf in agent-workflow-verify ci-node ci-python; do
   refresh_workflow "$TEMPLATES/.github/workflows/$wf.yml" ".github/workflows/$wf.yml"
 done
+# pr-policy.yml holds this repo's base-branch gate — preserve it if it already exists (see above).
+create_only_workflow "$TEMPLATES/.github/workflows/pr-policy.yml" ".github/workflows/pr-policy.yml"
 
 if [ "$INCLUDE_PROJECT_SYNC" -eq 1 ] || [ -e ".github/workflows/project-sync.yml" ]; then
   refresh_workflow "$TEMPLATES/.github/workflows/project-sync.yml" ".github/workflows/project-sync.yml"

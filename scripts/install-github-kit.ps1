@@ -177,6 +177,23 @@ function Copy-Workflow {
     }
 }
 
+function Copy-WorkflowCreateOnly {
+    # Like Copy-Workflow but NEVER overwrites, even in -Mode force. pr-policy.yml carries the
+    # repo-specific required_base_branch gate; clobbering it would reset a repo's base branch and
+    # break its PR checks. The reusable-pr-policy.yml@main logic it calls still auto-tracks @main.
+    param([string]$Src, [string]$Dst)
+    if (Test-Path -LiteralPath $Dst) {
+        Write-Host "skip (repo-specific caller, preserved): $Dst"
+        $script:SkippedCount++
+        return
+    }
+    Ensure-ParentDir $Dst
+    $pattern = '(uses: pzoli6/github-kit/[^@\s]+)@main'
+    (Get-Content -LiteralPath $Src -Raw) -replace $pattern, "`$1@$WorkflowRef" | Set-Content -LiteralPath $Dst -NoNewline
+    Write-Host "created:         $Dst"
+    $script:CreatedCount++
+}
+
 function Get-ManagedBlockText {
     $block = @'
 <!-- BEGIN GITHUB-KIT UNIVERSAL WORKFLOW -->
@@ -265,9 +282,11 @@ Copy-CreateOnly (Join-Path $Templates ".github/PULL_REQUEST_TEMPLATE.md") ".gith
 Copy-IfMissing  (Join-Path $Templates ".github/copilot-instructions.md") ".github/copilot-instructions.md"
 Copy-IfMissing  (Join-Path $Templates ".github/CODEOWNERS") ".github/CODEOWNERS"
 
-foreach ($wf in @("agent-workflow-verify", "pr-policy", "ci-node", "ci-python")) {
+foreach ($wf in @("agent-workflow-verify", "ci-node", "ci-python")) {
     Copy-Workflow (Join-Path $Templates ".github/workflows/$wf.yml") ".github/workflows/$wf.yml"
 }
+# pr-policy.yml holds this repo's base-branch gate — never overwrite it (even in -Mode force).
+Copy-WorkflowCreateOnly (Join-Path $Templates ".github/workflows/pr-policy.yml") ".github/workflows/pr-policy.yml"
 
 if ($IncludeProjectSync) {
     Copy-Workflow (Join-Path $Templates ".github/workflows/project-sync.yml") ".github/workflows/project-sync.yml"

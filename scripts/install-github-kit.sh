@@ -45,6 +45,7 @@ Usage: install-github-kit.sh [--target <path>] [--mode merge|force] [--allow-dir
 
   Regardless of mode, this script NEVER overwrites:
     - docs/ai/PROJECT_CONFIG.md (repo-specific, edit it yourself)
+    - .github/workflows/pr-policy.yml (repo-specific required_base_branch gate), if it already exists
     - .github/ISSUE_TEMPLATE/agent_task.yml or .github/PULL_REQUEST_TEMPLATE.md, if they already
       exist (they may already contain repo-specific customization)
     - AGENTS.md / CLAUDE.md / GEMINI.md content outside the managed block markers
@@ -186,6 +187,22 @@ copy_workflow() {
   fi
 }
 
+copy_workflow_create_only() {
+  # Like copy_workflow but NEVER overwrites, even in --mode force. pr-policy.yml carries the
+  # repo-specific required_base_branch gate; clobbering it would reset a repo's base branch and
+  # break its PR checks. The reusable-pr-policy.yml@main logic it calls still auto-tracks @main.
+  local src="$1" dst="$2"
+  if [ -e "$dst" ]; then
+    echo "skip (repo-specific caller, preserved): $dst"
+    SKIPPED_COUNT=$((SKIPPED_COUNT + 1))
+  else
+    mkdir -p "$(dirname "$dst")"
+    sed -E "s#(uses: pzoli6/github-kit/[^@[:space:]]+)@main#\1@$WORKFLOW_REF#" "$src" > "$dst"
+    echo "created:         $dst"
+    CREATED_COUNT=$((CREATED_COUNT + 1))
+  fi
+}
+
 write_managed_block() {
   cat <<'GKBLOCK'
 <!-- BEGIN GITHUB-KIT UNIVERSAL WORKFLOW -->
@@ -280,9 +297,13 @@ copy_create_only "$TEMPLATES/.github/PULL_REQUEST_TEMPLATE.md" ".github/PULL_REQ
 copy_if_missing  "$TEMPLATES/.github/copilot-instructions.md" ".github/copilot-instructions.md"
 copy_if_missing  "$TEMPLATES/.github/CODEOWNERS" ".github/CODEOWNERS"
 
-for wf in agent-workflow-verify pr-policy ci-node ci-python; do
+for wf in agent-workflow-verify ci-node ci-python; do
   copy_workflow "$TEMPLATES/.github/workflows/$wf.yml" ".github/workflows/$wf.yml"
 done
+# pr-policy.yml carries the repo-specific required_base_branch gate; never overwrite it (even in
+# --mode force), same as PROJECT_CONFIG.md. The reusable-pr-policy.yml@main logic it calls still
+# auto-tracks. New repos get the template; existing repos keep their base-branch setting.
+copy_workflow_create_only "$TEMPLATES/.github/workflows/pr-policy.yml" ".github/workflows/pr-policy.yml"
 
 if [ "$INCLUDE_PROJECT_SYNC" -eq 1 ]; then
   copy_workflow "$TEMPLATES/.github/workflows/project-sync.yml" ".github/workflows/project-sync.yml"

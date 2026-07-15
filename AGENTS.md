@@ -21,8 +21,11 @@ Because a single change here can silently propagate to every repo that calls
 `@main`/`@<tag>` of a reusable workflow or re-runs the installer, changes are held to a higher bar
 than a typical app repo:
 
-- **Changes to `templates/` and `.github/workflows/reusable-*.yml` must be carefully reviewed** —
-  treat them as a public API surface for other repos, not internal implementation detail.
+- **Changes to `templates/`, `.github/workflows/reusable-*.yml`, and
+  `.github/workflows/github-kit-fanout.yml` must be carefully reviewed** — treat them as a public
+  API surface for other repos, not internal implementation detail. The fan-out workflow (with its
+  `.github/fanout-targets.json` list) has the widest blast radius of anything here: it can open a
+  PR in every target repo, so review it as the highest-stakes file in the repo.
 - **Never break backward compatibility without documenting a migration.** If an input, required
   file, key phrase, Project field name/status, or script CLI flag changes in a breaking way, add a
   note to this file (or a `CHANGELOG.md` if one exists) explaining what changed and what target
