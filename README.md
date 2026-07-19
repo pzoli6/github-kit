@@ -28,6 +28,14 @@ etc.) lives in the target repo's `docs/ai/PROJECT_CONFIG.md`, not here.
 
 `github-kit` targets the **GitHub Free plan** as the default case, not an afterthought:
 
+- **No paid subscription is required — or invoked — by any part of the kit's CI/CD.** Every
+  workflow is plain GitHub Actions (free for public repos, free-minutes tier for private ones)
+  using standard public actions (`actions/checkout`, `setup-node`, `setup-python`,
+  `pnpm/action-setup`) plus the free `gh` CLI and GitHub Projects (v2). Nothing calls GitHub
+  Copilot, GitHub Advanced Security/CodeQL, or a paid Marketplace app; PR review is human review.
+  The Copilot *adapter file* (`.github/copilot-instructions.md`) is inert instruction text — free
+  to keep, only read by Copilot if a repo owner separately subscribes — and a repo that doesn't
+  use Copilot can delete it and set `require_copilot: false` in `agent-workflow-verify.yml`.
 - **Private repositories on GitHub Free cannot enforce branch protection rulesets** — no required
   reviews, no required status checks blocking a merge, at the platform level. This is a GitHub
   plan limitation, not a `github-kit` configuration gap.

@@ -236,6 +236,25 @@ fi
 
 echo
 
+# --- require_copilot: the Copilot adapter file must be opt-outable, keeping CI subscription-free --
+# (the adapter file is inert text; repos without a Copilot subscription may drop it) --------------
+
+if grep -q 'require_copilot' .github/workflows/reusable-agent-workflow-verify.yml 2>/dev/null; then
+  echo "OK      reusable-agent-workflow-verify.yml has the require_copilot input"
+else
+  echo "MISSING require_copilot input in .github/workflows/reusable-agent-workflow-verify.yml"
+  missing=1
+fi
+
+if grep -q 'REQUIRE_COPILOT' templates/scripts/project/verify_agent_workflow.sh 2>/dev/null; then
+  echo "OK      templates/scripts/project/verify_agent_workflow.sh honours REQUIRE_COPILOT"
+else
+  echo "MISSING REQUIRE_COPILOT gating in templates/scripts/project/verify_agent_workflow.sh"
+  missing=1
+fi
+
+echo
+
 # --- required phrases / Project statuses / handoff terms ---------------------
 
 check_phrase "approve"

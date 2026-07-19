@@ -348,6 +348,13 @@ issue; the remote branch (and whether GitHub auto-deletes it on merge) is untouc
 
 ## Free-tier limitations and branch protection
 
+- Nothing in this workflow or its CI requires a paid subscription: plain GitHub Actions, the free
+  `gh` CLI, and GitHub Projects (v2) cover all of it. No CI step invokes GitHub Copilot, GitHub
+  Advanced Security/CodeQL, or a paid Marketplace app — review is human review — and agents must
+  not add a dependency that changes that. Tool adapter files (like
+  `.github/copilot-instructions.md`) are inert instruction text: free to keep whether or not the
+  matching tool is subscribed to, and never invoked by CI. See `docs/ai/AGENT_WORKFLOW.md` →
+  "Free-tier limitations".
 - Private repositories on the GitHub Free plan cannot enforce branch protection rulesets (no
   required reviews, no required status checks enforced at the platform level) — this is a
   platform limitation, not a misconfiguration. Don't treat a missing/unenforceable ruleset as

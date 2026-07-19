@@ -20,6 +20,13 @@ on:
           installed github-kit before Gemini support shipped don't fail until they refresh."
         type: boolean
         default: false
+      require_copilot:
+        description: "Require the GitHub Copilot adapter file (.github/copilot-instructions.md).
+          The file is inert instruction text — keeping it needs no Copilot subscription — but repos
+          that don't use Copilot may delete it and set this false. Default true because every
+          existing install ships the file."
+        type: boolean
+        default: true
 
 jobs:
   verify:
@@ -37,6 +44,7 @@ jobs:
           REQUIRE_CURSOR: ${{ inputs.require_cursor }}
           REQUIRE_SKILLS: ${{ inputs.require_skills }}
           REQUIRE_GEMINI: ${{ inputs.require_gemini }}
+          REQUIRE_COPILOT: ${{ inputs.require_copilot }}
         run: |
           set -uo pipefail
           missing=0
@@ -70,7 +78,6 @@ jobs:
           check_file "docs/ai/HANDOFF_INDEX.md"
           check_file ".github/PULL_REQUEST_TEMPLATE.md"
           check_file ".github/ISSUE_TEMPLATE/agent_task.yml"
-          check_file ".github/copilot-instructions.md"
           check_file ".github/CODEOWNERS"
           check_file "scripts/project/project_add_item.sh"
           check_file "scripts/project/project_set_status.sh"
@@ -105,6 +112,10 @@ jobs:
 
           if [ "$REQUIRE_GEMINI" = "true" ]; then
             check_file "GEMINI.md"
+          fi
+
+          if [ "$REQUIRE_COPILOT" = "true" ]; then
+            check_file ".github/copilot-instructions.md"
           fi
 
           check_phrase "approve"

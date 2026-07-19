@@ -13,3 +13,6 @@ jobs:
       require_cursor: true
       require_skills: true
       require_gemini: true
+      # The Copilot adapter file is inert text and needs no subscription to keep; set false only
+      # if this repo deliberately removed .github/copilot-instructions.md.
+      require_copilot: true

@@ -98,7 +98,10 @@ table documents what's expected, it isn't read directly by scripts.
 | Default milestone | TBD |
 
 `Default reviewer` and `Default milestone` are `TBD` until this repo configures them — leave the
-matching env var blank rather than guessing a real username or milestone title.
+matching env var blank rather than guessing a real username or milestone title. `Default reviewer`
+must name a human or team — never a paid review bot (e.g. GitHub Copilot code review): the kit's
+workflow runs without any paid subscription, and a reviewer default must not quietly break that
+(see `AGENT_WORKFLOW.md` → "Free-tier limitations").
 `create_agent_issue.sh`/`create_agent_pr.sh` skip a flag entirely when its value is empty or `TBD`;
 they never fabricate one. If `Default milestone` is set but that milestone doesn't exist yet in
 this repo's GitHub Issues, the scripts stop and ask rather than silently creating or skipping it.
