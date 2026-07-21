@@ -30,6 +30,13 @@ than a typical app repo:
   file, key phrase, Project field name/status, or script CLI flag changes in a breaking way, add a
   note to this file (or a `CHANGELOG.md` if one exists) explaining what changed and what target
   repos need to do. Prefer additive changes (new optional input with a default) over breaking ones.
+- **CI/CD must stay subscription-free.** Nothing under `templates/` or `.github/workflows/` may
+  require a paid plan or subscription to run — no GitHub Copilot invocation or Copilot-review
+  dependency, no GitHub Advanced Security/CodeQL requirement, no paid Marketplace actions, apps,
+  or runners. Adapter files for subscription tools (e.g. the Copilot adapter
+  `templates/.github/copilot-instructions.md`) stay inert payload that CI never invokes, and
+  their presence must be individually opt-outable in verification (`require_copilot`-style
+  inputs), so a repo owner without that subscription loses nothing.
 - **Managed blocks must preserve target-repo custom content.** Anything `install-github-kit.sh` /
   `update-github-kit.sh` writes into an existing `AGENTS.md`/`CLAUDE.md` must be confined to the
   `<!-- BEGIN GITHUB-KIT UNIVERSAL WORKFLOW -->` / `<!-- END ... -->` markers. Never rewrite content

@@ -10,6 +10,9 @@ REQUIRE_CLAUDE="${REQUIRE_CLAUDE:-true}"
 REQUIRE_CURSOR="${REQUIRE_CURSOR:-true}"
 REQUIRE_SKILLS="${REQUIRE_SKILLS:-true}"
 REQUIRE_GEMINI="${REQUIRE_GEMINI:-false}"
+# The Copilot adapter file is inert text (no subscription needed to keep it); repos that don't
+# use Copilot may delete it and run with REQUIRE_COPILOT=false.
+REQUIRE_COPILOT="${REQUIRE_COPILOT:-true}"
 
 missing=0
 
@@ -42,7 +45,6 @@ check_file "docs/ai/AGENT_WORKFLOW.md"
 check_file "docs/ai/HANDOFF_INDEX.md"
 check_file ".github/PULL_REQUEST_TEMPLATE.md"
 check_file ".github/ISSUE_TEMPLATE/agent_task.yml"
-check_file ".github/copilot-instructions.md"
 check_file ".github/CODEOWNERS"
 check_file "scripts/project/project_add_item.sh"
 check_file "scripts/project/project_set_status.sh"
@@ -77,6 +79,10 @@ fi
 
 if [ "$REQUIRE_GEMINI" = "true" ]; then
   check_file "GEMINI.md"
+fi
+
+if [ "$REQUIRE_COPILOT" = "true" ]; then
+  check_file ".github/copilot-instructions.md"
 fi
 
 check_phrase "approve"

@@ -253,6 +253,26 @@ if ($callerAgentWorkflowVerify -match 'require_gemini:\s*true') {
 
 Write-Host ""
 
+# --- require_copilot: the Copilot adapter file must be opt-outable, keeping CI subscription-free --
+# (the adapter file is inert text; repos without a Copilot subscription may drop it) ---------------
+
+if ($reusableAgentWorkflowVerify -match 'require_copilot') {
+    Write-Host "OK      reusable-agent-workflow-verify.yml has the require_copilot input"
+} else {
+    Write-Host "MISSING require_copilot input in .github/workflows/reusable-agent-workflow-verify.yml"
+    $script:Missing = 1
+}
+
+$verifyScript = Get-Content -LiteralPath "templates/scripts/project/verify_agent_workflow.sh" -Raw -ErrorAction SilentlyContinue
+if ($verifyScript -match 'REQUIRE_COPILOT') {
+    Write-Host "OK      templates/scripts/project/verify_agent_workflow.sh honours REQUIRE_COPILOT"
+} else {
+    Write-Host "MISSING REQUIRE_COPILOT gating in templates/scripts/project/verify_agent_workflow.sh"
+    $script:Missing = 1
+}
+
+Write-Host ""
+
 # --- required phrases / Project statuses / handoff terms ---------------------
 
 Check-Phrase "approve"

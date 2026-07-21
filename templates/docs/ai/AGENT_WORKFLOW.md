@@ -180,8 +180,17 @@ own; only local files lag until it's run.
 
 ## Free-tier limitations
 
-*Trigger: branch protection or required checks seem to be "missing".*
+*Trigger: branch protection or required checks seem to be "missing", or you're wondering whether
+any part of this workflow needs a paid plan or subscription.*
 
+- **Nothing in this workflow requires a paid subscription.** CI is plain GitHub Actions (free for
+  public repos, free-minutes tier for private ones) driving the free `gh` CLI and Projects v2. No
+  step invokes GitHub Copilot, GitHub Advanced Security/CodeQL, or any paid Marketplace app, and
+  none may be added — review is human review. Adapter files like `.github/copilot-instructions.md`
+  are inert instruction text (free to keep; only read by that tool if the repo owner separately
+  subscribes to it); a repo that doesn't use Copilot may delete the file and set
+  `require_copilot: false` in `.github/workflows/agent-workflow-verify.yml` (or
+  `REQUIRE_COPILOT=false` for `scripts/project/verify_agent_workflow.sh`).
 - Private repos on the GitHub Free plan cannot enforce branch protection rulesets — no required
   reviews, no required status checks blocking a merge. Platform limitation, not a
   misconfiguration; don't work around it by changing repo visibility or plan without explicit
