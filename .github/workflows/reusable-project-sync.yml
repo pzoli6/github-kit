@@ -35,7 +35,14 @@ on:
 jobs:
   sync:
     runs-on: ubuntu-latest
-    if: github.event_name == 'issues' || github.event_name == 'pull_request' || github.event_name == 'pull_request_target'
+    # KIT_ACTIONS_PAUSED: caller-repo Actions variable that pauses all github-kit jobs so they
+    # consume no Actions minutes (e.g. to keep the Actions budget available for manual GitHub
+    # Copilot coding agent runs). While paused, Status updates are simply skipped — sync them by
+    # hand or re-trigger after unpausing. No cancel-in-progress here: each run carries a distinct
+    # status change, so superseded runs must still finish.
+    if: >-
+      vars.KIT_ACTIONS_PAUSED != 'true' &&
+      (github.event_name == 'issues' || github.event_name == 'pull_request' || github.event_name == 'pull_request_target')
     env:
       GH_TOKEN: ${{ secrets.project_token }}
     steps:

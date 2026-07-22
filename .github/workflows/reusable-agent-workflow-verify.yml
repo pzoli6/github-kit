@@ -31,6 +31,15 @@ on:
 jobs:
   verify:
     runs-on: ubuntu-latest
+    # Actions-budget pause switch: while the caller repo's Actions variable KIT_ACTIONS_PAUSED is
+    # 'true', every github-kit job skips and consumes no Actions minutes — so a human can keep the
+    # account's Actions budget available for e.g. manual GitHub Copilot coding agent runs. See
+    # templates/docs/ai/AGENT_WORKFLOW.md → "Actions budget and manual Copilot use".
+    if: vars.KIT_ACTIONS_PAUSED != 'true'
+    # Cancel a run superseded by a newer push to the same PR; never cancel base-branch push runs.
+    concurrency:
+      group: github-kit-verify-${{ github.ref }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     permissions:
       contents: read
     steps:

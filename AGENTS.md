@@ -36,7 +36,11 @@ than a typical app repo:
   or runners. Adapter files for subscription tools (e.g. the Copilot adapter
   `templates/.github/copilot-instructions.md`) stay inert payload that CI never invokes, and
   their presence must be individually opt-outable in verification (`require_copilot`-style
-  inputs), so a repo owner without that subscription loses nothing.
+  inputs), so a repo owner without that subscription loses nothing. The mirror-image rule also
+  holds: the kit must never crowd out a human's *manual* use of a subscription tool — Copilot
+  coding agent runs share the caller account's Actions budget with kit CI, so every reusable
+  workflow job must keep honoring the caller repo's `KIT_ACTIONS_PAUSED` Actions variable
+  (skip = zero minutes) and avoid wasting minutes on superseded PR runs.
 - **Managed blocks must preserve target-repo custom content.** Anything `install-github-kit.sh` /
   `update-github-kit.sh` writes into an existing `AGENTS.md`/`CLAUDE.md` must be confined to the
   `<!-- BEGIN GITHUB-KIT UNIVERSAL WORKFLOW -->` / `<!-- END ... -->` markers. Never rewrite content

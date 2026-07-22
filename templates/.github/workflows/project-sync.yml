@@ -1,5 +1,9 @@
 name: Project Sync
 
+# Paused (skipping Status updates, consuming no Actions minutes) while the repository Actions
+# variable KIT_ACTIONS_PAUSED is 'true' — e.g. to keep the Actions budget free for manual GitHub
+# Copilot coding agent runs. See docs/ai/AGENT_WORKFLOW.md → "Actions budget and manual Copilot use".
+
 on:
   issues:
     types: [opened, closed, reopened]
