@@ -3,10 +3,18 @@ name: PR Policy
 # Paused (consuming no Actions minutes) while the repository Actions variable KIT_ACTIONS_PAUSED
 # is 'true' — e.g. to keep the Actions budget free for manual GitHub Copilot coding agent runs.
 # See docs/ai/AGENT_WORKFLOW.md → "Actions budget and manual Copilot use".
+#
+# Budget-first triggers: this check runs only on production-bound PRs, where it enforces the
+# highest-stakes rule — the human-authorization marker for targeting the production branch
+# directly. Preview-bound PRs (into the base branch) are not checked automatically to save
+# Actions budget; the same branch/base rules still bind agents through AGENTS.md. To also check
+# preview-bound PRs mechanically, remove the `branches:` filter below.
 
 on:
   pull_request:
     types: [opened, edited, synchronize, reopened]
+    # TODO: confirm this matches Production branch in docs/ai/PROJECT_CONFIG.md
+    branches: [main]
 
 jobs:
   policy:

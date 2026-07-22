@@ -39,10 +39,14 @@ etc.) lives in the target repo's `docs/ai/PROJECT_CONFIG.md`, not here.
 - **The kit's CI shares the account's Actions budget with everything else that runs on Actions** —
   notably manual GitHub Copilot coding agent runs (assign a task, resolve a PR's merge conflicts,
   apply review feedback), which execute as Actions workflow runs in the repo. So the kit is
-  budget-aware: every reusable workflow job skips — consuming no minutes — while the caller repo's
-  Actions variable `KIT_ACTIONS_PAUSED` is `true`, and CI runs superseded by a newer push to the
-  same PR are auto-cancelled. Because this lives in the reusable workflows, repos on the `@main`
-  channel get it without refreshing local files. Manual Copilot use itself is always the human's
+  budget-aware: the template CI/verify workflows trigger only for production-bound changes (PR
+  targeting the production branch, or a push to it) or an explicit `workflow_dispatch` — never
+  automatically on preview-bound PRs, where agents validate locally instead; every reusable
+  workflow job additionally skips — consuming no minutes — while the caller repo's Actions
+  variable `KIT_ACTIONS_PAUSED` is `true`; and CI runs superseded by a newer push to the same PR
+  are auto-cancelled. The pause switch and auto-cancel live in the reusable workflows, so repos on
+  the `@main` channel get those without refreshing local files (the triggers live in each repo's
+  caller files, refreshed via `/github_kit_update`). Manual Copilot use itself is always the human's
   call and never blocked by the kit; the budget guidance (including a zero-Actions local
   conflict-resolution fallback) is in [`templates/docs/ai/AGENT_WORKFLOW.md`](templates/docs/ai/AGENT_WORKFLOW.md)
   → "Actions budget and manual Copilot use".

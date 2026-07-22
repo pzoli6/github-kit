@@ -195,8 +195,9 @@ any part of this workflow needs a paid plan or subscription.*
   reviews, no required status checks blocking a merge. Platform limitation, not a
   misconfiguration; don't work around it by changing repo visibility or plan without explicit
   human instruction.
-- CI still runs and still reports pass/fail — treat a failing check as a real signal even though
-  GitHub won't block a human merge on it.
+- When CI runs (production-bound changes or an explicit dispatch — see "Actions budget and manual
+  Copilot use" below), it still reports pass/fail — treat a failing check as a real signal even
+  though GitHub won't block a human merge on it.
 - On private repos, this CI runs on the account's metered Actions minutes — the same budget any
   manual GitHub Copilot coding agent run draws from. If GitHub reports the Actions budget blocks
   further use, see "Actions budget and manual Copilot use" below.
@@ -253,6 +254,24 @@ When that happens:
 4. Public repos get free standard-runner Actions minutes, so the kit's CI costs nothing there —
    but Copilot coding agent still consumes Copilot premium requests, which have their own
    budget/allowance independent of Actions minutes.
+
+**Default triggers are budget-first.** The kit's CI workflows (`ci-node.yml`, `ci-python.yml`,
+`agent-workflow-verify.yml`) do **not** run automatically on preview-bound work — a PR into the
+base branch, or a push to it, triggers nothing. They run in exactly two cases:
+
+- **the change is production-bound** — a PR targeting the production branch, or a push to it; or
+- **someone explicitly dispatches them** — Actions tab → Run workflow, or
+  `gh workflow run "CI (Node)" --ref <branch>` (same for `"CI (Python)"` /
+  `"Agent Workflow Verify"`).
+
+An agent may dispatch CI **only when the human explicitly asks for a CI run** — never as a
+routine step, never on its own initiative. The normal check for preview work is local validation
+(happy-path step 6, "Validation commands" in `PROJECT_CONFIG.md`), which costs no Actions
+minutes; `scripts/project/verify_agent_workflow.sh` is the free local equivalent of the verify
+workflow. `pr-policy.yml` likewise checks only production-bound PRs, where its
+human-authorization marker matters most. A repo that prefers CI on every PR can restore the old
+behavior by widening the `on:` triggers in its caller workflow files — that's a per-repo choice,
+not a kit requirement.
 
 ## Pausing for AI usage limits (Codex, Claude Code, others)
 

@@ -410,6 +410,11 @@ controlled pause, not an abandoned task:
   actually run it.
 - If validation partially passes (e.g. lint passes, tests can't run), use `Partial` and explain
   the gap in the PR description and handoff file.
+- Validation is **local by default** — the kit's CI workflows only run for production-bound
+  changes (a PR targeting the production branch, or a push to it) or an explicit dispatch. Never
+  dispatch a CI workflow (`gh workflow run ...` or the Actions tab) on your own initiative; do it
+  only when the human explicitly asks for a CI run. See `docs/ai/AGENT_WORKFLOW.md` → "Actions
+  budget and manual Copilot use".
 
 ## Handoff rules
 

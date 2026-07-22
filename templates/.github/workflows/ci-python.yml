@@ -3,11 +3,21 @@ name: CI (Python)
 # Paused (consuming no Actions minutes) while the repository Actions variable KIT_ACTIONS_PAUSED
 # is 'true' — e.g. to keep the Actions budget free for manual GitHub Copilot coding agent runs.
 # See docs/ai/AGENT_WORKFLOW.md → "Actions budget and manual Copilot use".
+#
+# Budget-first triggers: CI does NOT run automatically on preview-bound work (PRs into the base
+# branch, pushes to it). It runs only when explicitly dispatched — by a human, or by an AI agent
+# a human told to run CI (Actions tab → Run workflow, or:
+#   gh workflow run "CI (Python)" --ref <branch>
+# ) — or when a change is production-bound (PR targeting the production branch, push to it).
+# Agents validate locally per docs/ai/PROJECT_CONFIG.md → "Validation commands" either way.
 
 on:
+  workflow_dispatch:
   pull_request:
+    # TODO: confirm this matches Production branch in docs/ai/PROJECT_CONFIG.md
+    branches: [main]
   push:
-    branches: [main, develop]
+    branches: [main]
 
 jobs:
   ci:
