@@ -1,9 +1,21 @@
 name: Agent Workflow Verify
 
+# Paused (consuming no Actions minutes) while the repository Actions variable KIT_ACTIONS_PAUSED
+# is 'true' — e.g. to keep the Actions budget free for manual GitHub Copilot coding agent runs.
+# See docs/ai/AGENT_WORKFLOW.md → "Actions budget and manual Copilot use".
+#
+# Budget-first triggers: like the CI workflows, verification does NOT run automatically on
+# preview-bound work — only when explicitly dispatched (Actions tab → Run workflow, or
+# `gh workflow run "Agent Workflow Verify" --ref <branch>`) or when a change is production-bound.
+# scripts/project/verify_agent_workflow.sh runs the same checks locally for free.
+
 on:
+  workflow_dispatch:
   pull_request:
+    # TODO: confirm this matches Production branch in docs/ai/PROJECT_CONFIG.md
+    branches: [main]
   push:
-    branches: [main, develop]
+    branches: [main]
 
 jobs:
   verify:

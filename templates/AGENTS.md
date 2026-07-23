@@ -355,6 +355,14 @@ issue; the remote branch (and whether GitHub auto-deletes it on merge) is untouc
   `.github/copilot-instructions.md`) are inert instruction text: free to keep whether or not the
   matching tool is subscribed to, and never invoked by CI. See `docs/ai/AGENT_WORKFLOW.md` →
   "Free-tier limitations".
+- The reverse also holds: a human using a subscription tool *manually* — assigning the GitHub
+  Copilot coding agent to an issue, asking `@copilot` to resolve a PR's merge conflicts, or
+  requesting a Copilot code review — is always their call and outside this workflow's approval
+  gates. Copilot coding agent runs execute on GitHub Actions and share the account's Actions
+  budget with this repo's CI; if GitHub reports the Actions budget blocks such a run, see
+  `docs/ai/AGENT_WORKFLOW.md` → "Actions budget and manual Copilot use" (raise the budget — a
+  human/billing action; pause the kit's workflows via the `KIT_ACTIONS_PAUSED` repository
+  variable — also a human action; or resolve conflicts locally, which needs no Actions at all).
 - Private repositories on the GitHub Free plan cannot enforce branch protection rulesets (no
   required reviews, no required status checks enforced at the platform level) — this is a
   platform limitation, not a misconfiguration. Don't treat a missing/unenforceable ruleset as
@@ -402,6 +410,11 @@ controlled pause, not an abandoned task:
   actually run it.
 - If validation partially passes (e.g. lint passes, tests can't run), use `Partial` and explain
   the gap in the PR description and handoff file.
+- Validation is **local by default** — the kit's CI workflows only run for production-bound
+  changes (a PR targeting the production branch, or a push to it) or an explicit dispatch. Never
+  dispatch a CI workflow (`gh workflow run ...` or the Actions tab) on your own initiative; do it
+  only when the human explicitly asks for a CI run. See `docs/ai/AGENT_WORKFLOW.md` → "Actions
+  budget and manual Copilot use".
 
 ## Handoff rules
 

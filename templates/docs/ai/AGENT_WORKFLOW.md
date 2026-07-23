@@ -195,9 +195,83 @@ any part of this workflow needs a paid plan or subscription.*
   reviews, no required status checks blocking a merge. Platform limitation, not a
   misconfiguration; don't work around it by changing repo visibility or plan without explicit
   human instruction.
-- CI still runs and still reports pass/fail — treat a failing check as a real signal even though
-  GitHub won't block a human merge on it.
+- When CI runs (production-bound changes or an explicit dispatch — see "Actions budget and manual
+  Copilot use" below), it still reports pass/fail — treat a failing check as a real signal even
+  though GitHub won't block a human merge on it.
+- On private repos, this CI runs on the account's metered Actions minutes — the same budget any
+  manual GitHub Copilot coding agent run draws from. If GitHub reports the Actions budget blocks
+  further use, see "Actions budget and manual Copilot use" below.
 - Compensate with process: draft PRs, actual human review, no self-merge (step 9).
+
+## Actions budget and manual Copilot use
+
+*Trigger: a human wants to use GitHub Copilot manually (assign it an issue or task, ask it to
+resolve a PR's merge conflicts, request a Copilot code review), or GitHub reports that the
+Actions budget is preventing further Actions use.*
+
+Manual Copilot use is always the human's call, never the kit's. Nothing in this workflow invokes
+Copilot (see "Free-tier limitations" above), and nothing in it may block a human from using their
+own subscription however they want: assigning the Copilot coding agent to an issue, delegating a
+task to it, asking `@copilot` on a PR to resolve merge conflicts or apply review feedback, or
+requesting a Copilot code review on any PR — including PRs opened by this workflow's agents. None
+of that needs an `approve` phrase; it isn't agent-initiated work.
+
+The catch is billing, not permissions: **Copilot coding agent sessions execute as GitHub Actions
+workflow runs in this repo**, drawing on the same Actions budget as the kit's own CI (Copilot
+premium requests are billed separately on top). Heavy CI traffic can exhaust the monthly budget,
+after which a manual Copilot task — e.g. "resolve the conflicts on PR #N" — fails with an
+Actions-budget error even though Copilot itself is licensed and available.
+
+When that happens:
+
+1. **Raising the budget is a human/billing-admin action** — on github.com under Settings →
+   Billing and licensing → Budgets and alerts, for whichever account (personal or org) pays for
+   the repo. GitHub's default budget for metered products is $0, which hard-stops all Actions
+   (including Copilot coding agent runs) once the plan's included minutes are used, until the
+   budget is raised or the month rolls over. Agents must never change billing or budget settings
+   themselves — same rule as Actions permissions in `AGENTS.md` → "Security rules".
+2. **Stop the drain by pausing the kit's own workflows**: set the repository Actions variable
+   `KIT_ACTIONS_PAUSED` to `true` (Settings → Secrets and variables → Actions → Variables —
+   a human action, like all Actions settings). Every kit workflow job (CI, PR policy, verify,
+   Project Sync) skips while it is set, consuming no minutes, leaving the remaining budget for
+   manual Copilot runs. Remove the variable (or set anything but `true`) to resume. Pausing skips
+   checks rather than queueing them — push a new commit or re-run the workflows after unpausing
+   if fresh results are needed, and treat "paused" as *no signal*, never as a green check.
+3. **Merge conflicts never require Actions or Copilot** — any locally-running agent (or the
+   human) resolves them in the task's worktree with zero Actions minutes:
+
+   ```bash
+   git fetch origin
+   git merge origin/<base-branch>    # or: git rebase origin/<base-branch>
+   # fix the conflicted files, then:
+   git add <each-resolved-file>      # explicit paths — never git add .
+   git merge --continue              # or: git rebase --continue
+   git push
+   ```
+
+   The same applies to review and task work generally: human review and locally-running agents
+   don't touch the Actions budget at all.
+4. Public repos get free standard-runner Actions minutes, so the kit's CI costs nothing there —
+   but Copilot coding agent still consumes Copilot premium requests, which have their own
+   budget/allowance independent of Actions minutes.
+
+**Default triggers are budget-first.** The kit's CI workflows (`ci-node.yml`, `ci-python.yml`,
+`agent-workflow-verify.yml`) do **not** run automatically on preview-bound work — a PR into the
+base branch, or a push to it, triggers nothing. They run in exactly two cases:
+
+- **the change is production-bound** — a PR targeting the production branch, or a push to it; or
+- **someone explicitly dispatches them** — Actions tab → Run workflow, or
+  `gh workflow run "CI (Node)" --ref <branch>` (same for `"CI (Python)"` /
+  `"Agent Workflow Verify"`).
+
+An agent may dispatch CI **only when the human explicitly asks for a CI run** — never as a
+routine step, never on its own initiative. The normal check for preview work is local validation
+(happy-path step 6, "Validation commands" in `PROJECT_CONFIG.md`), which costs no Actions
+minutes; `scripts/project/verify_agent_workflow.sh` is the free local equivalent of the verify
+workflow. `pr-policy.yml` likewise checks only production-bound PRs, where its
+human-authorization marker matters most. A repo that prefers CI on every PR can restore the old
+behavior by widening the `on:` triggers in its caller workflow files — that's a per-repo choice,
+not a kit requirement.
 
 ## Pausing for AI usage limits (Codex, Claude Code, others)
 
