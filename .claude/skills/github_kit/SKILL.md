@@ -73,8 +73,11 @@ instruction files may lag behind `github-kit/main` until someone runs `/github_k
 10. **Commit and push.** Stage explicit files; never `git add -A` / `git add .`.
 11. **Open a draft PR.** Target the configured base branch, fill in
     `.github/PULL_REQUEST_TEMPLATE.md` completely. Set status to `In Review`, set `PR URL`.
-12. **Stop for human review.** Do not merge. On change requests, set status to `Changes Requested`,
-    fix, set back to `In Review`.
+12. **Stop for human review.** Do not merge. Report the PR link and end the turn — don't look at,
+    wait for, or mention CI; a PR with no checks is expected here (see `AGENTS.md` → "CI
+    expectations — don't chase checks" in an installed repo, and the same rule in
+    `templates/AGENTS.md`). On change requests, set status to `Changes Requested`, fix, set back
+    to `In Review`.
 13. **Completion is human-driven.** A human merges. After merge/close, set status to `Done`
     (or `Cancelled` if abandoned).
 

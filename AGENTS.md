@@ -76,3 +76,13 @@ are this repo's *own* instruction files, not copies installed from `templates/` 
 would have nothing meaningful to refresh against them, since this repo doesn't install itself.
 
 Agents must not push to `main`, merge PRs, modify Actions access settings, or commit secrets.
+
+## CI expectations for work on this repo
+
+This repo runs no CI on pull requests — its workflows are reusable (`workflow_call`) definitions
+consumed by other repos, plus the fan-out job. A PR here showing **no checks at all is normal and
+expected**: don't fetch check runs, wait, poll, subscribe to PR activity, dispatch a workflow, or
+report "CI didn't run"/"checks are missing"/"the PR is red". Validate locally instead (YAML parses,
+cross-references resolve, phrase lists still satisfied) and report that. This mirrors the rule the
+kit installs into target repos — `templates/AGENTS.md` → "CI expectations — don't chase checks" —
+so working here dogfoods it.

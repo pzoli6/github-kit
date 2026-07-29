@@ -134,7 +134,10 @@ scripts/project/check_resume_safety.sh --issue <issue-number> --agent "<name>"
     people — there's no separate subscribe step (`gh` has none). If neither is configured for this
     repo, `@mention` the relevant person directly in the issue/PR body instead of assuming they'll
     see it. See `AGENTS.md` → "Notifications and participation".
-17. **Stop for human review.** Do not merge.
+17. **Stop for human review.** Do not merge. Report the PR link and end the turn — don't look at,
+    wait for, or mention CI. A preview PR normally shows no checks at all (CI runs only for
+    production-bound changes or an explicit human dispatch), and that absence is by design, not a
+    failure to report. See `AGENTS.md` → "CI expectations — don't chase checks".
 18. **On change requests:**
     ```bash
     scripts/project/sync_project_fields.sh changes_requested <issue-url>
