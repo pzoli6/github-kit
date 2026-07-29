@@ -44,6 +44,11 @@ Follow that workflow exactly:
   development links".
 - Before stopping mid-task, write `docs/ai/handoffs/issue-<number>.md` so another agent (or a
   human) can continue without re-deriving context.
+- **Never chase CI.** CI only runs for production-bound changes or an explicit human dispatch, so
+  a preview PR with no checks at all is the expected outcome — not a failure. Don't fetch check
+  runs, wait, poll, or report "CI didn't run"/"checks are missing"/"the PR is red" anywhere, and
+  never dispatch a workflow yourself. Exceptions: the human explicitly asks, or the change targets
+  the production branch. See `AGENTS.md` → "CI expectations — don't chase checks".
 - This repo's reusable workflows auto-track `pzoli6/github-kit@main` (the always-latest channel) —
   central workflow changes apply on the next run automatically. Local bootstrap files (this file,
   `AGENTS.md`, skills, Cursor rules) only refresh when `/github_kit_update` or

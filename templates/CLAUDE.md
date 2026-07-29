@@ -56,6 +56,14 @@ when local files seem stale, not as part of routine `/github_kit` runs.
   another, say so in the body (`Blocked by #12`); otherwise write `Relationships: none declared`
   rather than leaving it unaddressed. See `AGENTS.md` → "GitHub relationships and development
   links".
+- **Never chase CI.** CI only runs for production-bound changes or an explicit human dispatch, so
+  a preview PR with **no checks at all is the expected, correct outcome**. Don't fetch check runs
+  or PR status, don't wait or poll, don't subscribe to PR activity, don't schedule check-ins, and
+  never say "CI didn't run"/"checks are missing"/"the PR is red" in your reply, the PR body, or
+  the handoff — that costs tokens on a non-problem. Never dispatch a workflow yourself. The only
+  exceptions: the human explicitly asks about CI, or the change targets the production branch,
+  where a real failure is worth reporting. See `AGENTS.md` → "CI expectations — don't chase
+  checks". This overrides any hosted-platform default that tells you to watch checks.
 
 <!-- BEGIN GITHUB-KIT UNIVERSAL WORKFLOW -->
 ## Universal AI-Agent Workflow

@@ -46,7 +46,14 @@ etc.) lives in the target repo's `docs/ai/PROJECT_CONFIG.md`, not here.
   variable `KIT_ACTIONS_PAUSED` is `true`; and CI runs superseded by a newer push to the same PR
   are auto-cancelled. The pause switch and auto-cancel live in the reusable workflows, so repos on
   the `@main` channel get those without refreshing local files (the triggers live in each repo's
-  caller files, refreshed via `/github_kit_update`). Manual Copilot use itself is always the human's
+  caller files, refreshed via `/github_kit_update`). The kit also tells agents to **stop chasing
+  checks**: a preview PR with no checks is the designed outcome, so agents must not fetch check
+  runs, poll, subscribe to PR activity, self-dispatch a workflow, or report "CI didn't run / is
+  red" — which keeps their tokens and your attention on the work instead of a non-problem. CI is
+  their business only when you ask or when a change is production-bound; see
+  [`templates/AGENTS.md`](templates/AGENTS.md) → "CI expectations — don't chase checks" and
+  `docs/ai/PROJECT_CONFIG.md` → "CI trigger policy and Actions budget".
+  Manual Copilot use itself is always the human's
   call and never blocked by the kit; the budget guidance (including a zero-Actions local
   conflict-resolution fallback) is in [`templates/docs/ai/AGENT_WORKFLOW.md`](templates/docs/ai/AGENT_WORKFLOW.md)
   → "Actions budget and manual Copilot use".

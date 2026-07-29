@@ -195,6 +195,36 @@ Production-branch authorization: approve main
 The check reads the PR body only as data (never as a script), via GitHub Actions' `env:`
 indirection — untrusted PR text is never interpolated directly into a shell command.
 
+## CI trigger policy and Actions budget
+
+How much CI this repo is willing to pay for, and what agents may do about it. The kit's caller
+workflows ship budget-first defaults; if this repo wants something different, change the values
+here **and** the `on:` triggers in `.github/workflows/*.yml` together.
+
+| Key | Value |
+|---|---|
+| Actions budget posture | `metered` |
+| CI on preview PRs (into the base branch) | `dispatch only` |
+| CI on production-bound changes | `automatic` |
+| Agents may dispatch CI | `only on explicit human request` |
+| Agents may report CI status | `only for production-bound changes, or on request` |
+
+- **`metered`** means Actions minutes cost real money on this account, so an unnecessary run is a
+  real cost. Set it to `free` only for a public repo, where standard-runner minutes are free.
+- **`dispatch only`** is why a preview PR normally shows **no checks at all**. That is the
+  designed outcome, not a broken setup: agents must not investigate it, retry it, or mention it —
+  see `AGENTS.md` → "CI expectations — don't chase checks".
+- To run CI on a preview branch anyway, a human dispatches it explicitly:
+
+  ```bash
+  gh workflow run "CI (Node)" --ref <branch>     # or "CI (Python)" / "Agent Workflow Verify"
+  ```
+
+- To pause **every** kit workflow at once — e.g. to reserve the remaining budget for GitHub
+  Copilot coding agent sessions, which also consume Actions minutes — set the repository Actions
+  variable `KIT_ACTIONS_PAUSED` to `true` (Settings → Secrets and variables → Actions →
+  Variables). See `docs/ai/AGENT_WORKFLOW.md` → "Actions budget and manual Copilot use".
+
 ## Validation commands
 
 List the exact commands an agent must run before opening a PR. Keep this list accurate — agents

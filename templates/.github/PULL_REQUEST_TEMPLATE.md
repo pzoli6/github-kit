@@ -29,6 +29,10 @@ Production-branch authorization: approve main -->
 
 ## Validation
 
+<!-- Local validation only — this is the record. CI normally does not run on a PR into the base
+branch (see docs/ai/PROJECT_CONFIG.md → "CI trigger policy and Actions budget"), and a PR showing
+no checks is expected: don't note its absence here. -->
+
 - **State:** <!-- Not Run / Passed / Failed / Partial / Manual Required / Not Applicable -->
 - **Commands run:**
 
