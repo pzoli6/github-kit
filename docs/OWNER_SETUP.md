@@ -58,7 +58,18 @@ A **classic PAT reaches every repo its creating account can push to.** `pzoli6` 
    - **Note:** `github-kit fan-out`
    - **Expiration:** your call. If you set one, put a reminder somewhere — fan-out starts failing
      silently-ish on expiry (it fails loudly in Actions, but only if you look).
-   - **Scopes:** tick **`repo`** only. Nothing else. Not `workflow`, not `admin:*`.
+   - **Scopes:** tick **`repo`** *and* **`workflow`**. Nothing else — not `admin:*`.
+
+     > `workflow` is not optional. Fan-out refreshes `.github/workflows/*.yml` in the target
+     > repos, and git refuses a PAT push that touches a workflow file without it:
+     > *"refusing to allow a Personal Access Token to create or update workflow … without
+     > `workflow` scope"*. Everything before the push succeeds — token check, both
+     > checkouts, the refresh, the commit — so the run fails late and looks like a permissions
+     > problem on the target repo rather than a missing scope on the token.
+     >
+     > Already created the token without it? You do **not** need a new one: open the token,
+     > tick `workflow`, press *Update token*. The value is unchanged, so the stored secret
+     > stays valid.
 3. **Generate token**, then copy it.
 4. Store it as a secret on `github-kit`:
 
