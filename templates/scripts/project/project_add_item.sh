@@ -25,14 +25,17 @@ if [ -z "$AGENT_PROJECT_OWNER" ] || [ -z "$AGENT_PROJECT_NUMBER" ] || [ "$AGENT_
   exit 1
 fi
 
-for bin in gh jq; do
+# jq is deliberately NOT required: every JSON read here goes through gh --jq, which uses
+# gh's built-in engine. Git Bash on Windows ships no jq, and demanding one made these scripts
+# unusable there.
+for bin in gh; do
   command -v "$bin" >/dev/null 2>&1 || { echo "error: '$bin' is required but not found on PATH." >&2; exit 1; }
 done
 
 item_id="$(gh project item-add "$AGENT_PROJECT_NUMBER" \
   --owner "$AGENT_PROJECT_OWNER" \
   --url "$ITEM_URL" \
-  --format json | jq -r '.id')"
+  --format json --jq '.id')"
 
 if [ -z "$item_id" ] || [ "$item_id" = "null" ]; then
   echo "error: gh project item-add did not return an item ID for $ITEM_URL" >&2
