@@ -1,37 +1,13 @@
 {
   "_comment": "Repos that receive automatic github-kit bootstrap-file updates via .github/workflows/github-kit-fanout.yml. 'base' is the branch the auto-update draft PR targets (a repo's integration branch). Add a new repo by appending an entry here — nothing else is needed on the target side.",
   "targets": [
-    {
-      "repo": "pzoli6/Modelling_and_Simulations",
-      "base": "develop"
-    },
-    {
-      "repo": "pzoli6/DancePass",
-      "base": "develop"
-    },
-    {
-      "repo": "pzoli6/Space",
-      "base": "master"
-    },
-    {
-      "repo": "pzoli6/Travel",
-      "base": "main"
-    },
-    {
-      "repo": "pzoli6/AI_Settings",
-      "base": "main"
-    },
-    {
-      "repo": "pzoli6/Invoice_Sync",
-      "base": "main"
-    },
-    {
-      "repo": "pzoli6/agent_os",
-      "base": "main"
-    },
-    {
-      "repo": "pszichocloud/Platform",
-      "base": "develop"
-    }
+    { "repo": "pzoli6/Modelling_and_Simulations", "base": "develop" },
+    { "repo": "pzoli6/DancePass", "base": "develop" },
+    { "repo": "pzoli6/Space", "base": "master" },
+    { "repo": "pzoli6/Travel", "base": "main" },
+    { "repo": "pzoli6/AI_Settings", "base": "main" },
+    { "repo": "pzoli6/Invoice_Sync", "base": "main" },
+    { "repo": "pzoli6/agent_os", "base": "main" },
+    { "repo": "pszichocloud/Platform", "base": "develop" }
   ]
 }
