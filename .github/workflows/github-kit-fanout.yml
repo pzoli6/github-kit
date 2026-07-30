@@ -13,7 +13,11 @@ name: github-kit fan-out (propagate bootstrap updates)
 # .github/fanout-targets.json from github-kit@main and opens a DRAFT PR whenever anything drifted.
 # It never merges, never touches docs/ai/PROJECT_CONFIG.md, and never force-pushes.
 #
-# Requires one repository secret in github-kit: GITHUB_KIT_FANOUT_TOKEN — a fine-grained PAT with,
+# Requires one repository secret in github-kit: FANOUT_TOKEN
+#
+# NOTE ON THE NAME: it must NOT start with "GITHUB_". GitHub reserves that prefix and rejects any
+# secret named with it, so the previously-documented "GITHUB_KIT_FANOUT_TOKEN" was impossible to
+# create -- which is why fan-out failed on every run before 2026-07-30. Do not rename it back. — a fine-grained PAT with,
 # for EACH target repo, "Contents: Read and write" + "Pull requests: Read and write" (and nothing
 # else). The default GITHUB_TOKEN cannot reach other private repos, which is why a PAT is needed.
 
@@ -76,11 +80,11 @@ jobs:
     steps:
       - name: Check fan-out token is configured
         env:
-          FANOUT_TOKEN: ${{ secrets.GITHUB_KIT_FANOUT_TOKEN }}
+          FANOUT_TOKEN: ${{ secrets.FANOUT_TOKEN }}
         shell: bash
         run: |
           if [ -z "${FANOUT_TOKEN:-}" ]; then
-            echo "::error::GITHUB_KIT_FANOUT_TOKEN secret is not set in github-kit. Create a fine-grained PAT with Contents + Pull requests write on the target repos and add it as this secret. See .github/workflows/github-kit-fanout.yml header."
+            echo "::error::FANOUT_TOKEN secret is not set in github-kit. Create a fine-grained PAT with Contents + Pull requests write on the target repos and add it as this secret. See .github/workflows/github-kit-fanout.yml header."
             exit 1
           fi
 
@@ -94,7 +98,7 @@ jobs:
         with:
           repository: ${{ matrix.repo }}
           ref: ${{ matrix.base }}
-          token: ${{ secrets.GITHUB_KIT_FANOUT_TOKEN }}
+          token: ${{ secrets.FANOUT_TOKEN }}
           path: target
           fetch-depth: 0
 
@@ -106,7 +110,7 @@ jobs:
 
       - name: Open draft PR if anything drifted
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_KIT_FANOUT_TOKEN }}
+          GH_TOKEN: ${{ secrets.FANOUT_TOKEN }}
           TARGET_REPO: ${{ matrix.repo }}
           TARGET_BASE: ${{ matrix.base }}
           RUN_ID: ${{ github.run_id }}
