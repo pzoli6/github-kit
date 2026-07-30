@@ -115,6 +115,14 @@ proceeds straight into issue creation/branching/implementation instead of stoppi
 covers, the agent falls back to the normal approval gate for the additional scope — the
 pre-approval never expands on its own.
 
+**A path is not a description.** When the supplied task is a path to a spec file
+(`/github_kit implement path/to/spec.md`), the pre-approval holds only if that file's front matter
+carries a human-set `status: approved` plus `approved-by` / `approved-on`. Otherwise the scope
+boundary would be text an agent wrote and the approving human may never have read. Without the
+marker, report the file as awaiting review and implement nothing; with it, the approved scope is
+the file's **Acceptance criteria** section and nothing beyond. Agents never write that marker —
+it is the human's signature.
+
 This is additive, not a replacement: `approve` remains the default gate for any
 task not invoked via `/github_kit`, and nothing else about the lifecycle below changes — same issue
 template, same Project tracking, same draft-PR-only rule, same human-merges-only rule. See
