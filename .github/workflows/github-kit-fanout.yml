@@ -21,7 +21,10 @@ name: github-kit fan-out (propagate bootstrap updates)
 #
 # The token must reach EVERY target with "Contents: Read and write" + "Pull requests: Read and
 # write", and nothing else. The default GITHUB_TOKEN cannot reach other repos at all, which is why
-# a PAT is needed. Use a CLASSIC PAT with the "repo" scope when targets span more than one account:
+# a PAT is needed. It needs BOTH the "repo" AND "workflow" scopes -- without "workflow", git
+# rejects the push the moment a target's .github/workflows/*.yml changes, which happens after
+# checkout/refresh/commit all succeed, so it reads like a target-repo permissions problem.
+# Use a CLASSIC PAT when targets span more than one account:
 # a fine-grained PAT is scoped to a single resource owner and cannot select repos you are only an
 # outside collaborator on. See docs/OWNER_SETUP.md.
 
@@ -88,7 +91,7 @@ jobs:
         shell: bash
         run: |
           if [ -z "${FANOUT_TOKEN:-}" ]; then
-            echo "::error::FANOUT_TOKEN secret is not set in github-kit. Create a fine-grained PAT with Contents + Pull requests write on the target repos and add it as this secret. See .github/workflows/github-kit-fanout.yml header."
+            echo "::error::FANOUT_TOKEN secret is not set in github-kit. Create a CLASSIC PAT with BOTH the repo and workflow scopes (workflow is required because fan-out updates .github/workflows/*.yml in targets) and add it as this secret. See docs/OWNER_SETUP.md."
             exit 1
           fi
 
