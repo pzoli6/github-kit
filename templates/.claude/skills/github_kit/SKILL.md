@@ -70,7 +70,9 @@ instruction files may lag behind `github-kit/main` until someone runs `/github_k
    human-set `status: approved` together with `approved-by` and `approved-on`. Any other value
    — `draft`, `ready`, or absent — means report the file as awaiting human review and implement
    nothing. Where the marker is present, the approved scope is that file's **Acceptance criteria**
-   section and nothing beyond it.
+   section and nothing beyond it. If the repo ships a verification command for these markers, run
+   it first and treat a failure as "not approved" — a marker that cannot be re-checked against a
+   recorded human action is just text, and text is exactly what you can write yourself.
 
 4. **Create the issue with full metadata.**
    ```bash
@@ -180,8 +182,10 @@ instruction files may lag behind `github-kit/main` until someone runs `/github_k
 - Never implement beyond the scope `<task>` described without falling back to the normal approval
   gate for the extra scope.
 - Never write a human-approval marker (`status: approved`, `approved-by`, `approved-on`) into a
-  spec file — not one you authored, not one you were handed. That marker is the human's signature;
-  an agent that writes it is forging its own approval.
+  spec file on your own initiative — not one you authored, not one you were handed. That marker is
+  the human's signature; an agent that writes it is forging its own approval. Recording one on
+  explicit instruction is fine only where the repo can still verify it against a recorded human
+  action; otherwise say so rather than writing an unverifiable marker.
 - Never proceed past a dirty, unrelated working tree without asking first.
 - Never leave an agent branch local-only — push it (step 6) before writing implementation code.
 - Never leave issue/PR sidebar metadata (assignee, labels, milestone) blank when

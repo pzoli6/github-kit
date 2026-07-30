@@ -120,8 +120,13 @@ pre-approval never expands on its own.
 carries a human-set `status: approved` plus `approved-by` / `approved-on`. Otherwise the scope
 boundary would be text an agent wrote and the approving human may never have read. Without the
 marker, report the file as awaiting review and implement nothing; with it, the approved scope is
-the file's **Acceptance criteria** section and nothing beyond. Agents never write that marker —
-it is the human's signature.
+the file's **Acceptance criteria** section and nothing beyond. Agents never write that marker on
+their own initiative — it is the human's signature.
+
+Prefer a marker that is **verifiable** rather than merely typed: derive it from a recorded
+`pull_request_review` (approve the spec PR, let automation transcribe reviewer, timestamp and
+review id) so a later agent can re-fetch and confirm it. A hand-typed field is one an agent could
+have typed too, and it makes approving a chore for no security gain.
 
 This is additive, not a replacement: `approve` remains the default gate for any
 task not invoked via `/github_kit`, and nothing else about the lifecycle below changes — same issue

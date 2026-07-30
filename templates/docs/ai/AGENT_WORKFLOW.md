@@ -91,15 +91,27 @@ A pre-approved alternative entry point. It changes exactly one thing — **step 
   matter carries a human-set marker:
 
   ```yaml
-  status: approved      # not draft, not ready — and never written by an agent
-  approved-by: <human>
-  approved-on: <YYYY-MM-DD>
+  status: approved
+  approved-by: <login of the human who approved>
+  approved-on: <ISO 8601 timestamp>
   ```
 
   Any other value — `draft`, `ready`, or absent — means the file is reported back as awaiting
   human review and nothing is implemented. Where the marker is present, the approved scope is that
   file's **Acceptance criteria** section; anything beyond it falls back to the normal `approve`
-  gate like any other mid-task scope growth. An agent never writes the marker itself — it is the
+  gate like any other mid-task scope growth.
+
+- **Prefer a marker that is verifiable over one that is merely typed.** A field a human types by
+  hand is a field an agent can type too, so on its own it proves nothing to whoever reads the file
+  next — and it makes approving a chore, which is its own failure mode. The stronger form derives
+  the marker from an event the host already records. A `pull_request_review` with state
+  `approved` is the obvious one: put the spec in a PR, let the human read the rendered Acceptance
+  criteria and click **Approve**, and have automation transcribe the reviewer login, the timestamp,
+  and enough identity to re-check it (PR number, review id) into the front matter. Then "is this
+  really approved?" has an answer an agent can be *required* to fetch before implementing, and no
+  human ever hand-edits front matter or commits to approve a scope.
+
+  Whichever form a repo uses, an agent never writes the marker on its own initiative — it is the
   human's signature, and an agent writing it forges its own approval. The marker is a convention,
   not a folder: it works for any spec a repo keeps under version control, wherever it lives.
 - Every other step is unchanged (in solo mode, the solo-collapsed version of every other step).
