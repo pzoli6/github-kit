@@ -176,3 +176,63 @@ If you'd rather not use a classic PAT, the shape is:
 
 That last part is a code change, so it isn't the default — ask an agent to open a PR for it if you
 want this instead.
+
+---
+
+## Making `github-kit` public
+
+**Why you'd do this:** a private repo can only share its reusable workflows with repos owned by the
+**same** account. There is no cross-account option. So the moment a target repo lives under a
+different account, its `uses: pzoli6/github-kit/...@main` callers fail with `jobs=0` and
+"workflow file issue" — they never run at all. Making the kit public is the only fix that keeps one
+SSOT.
+
+### Pre-flight audit — already done, 2026-07-30
+
+Going public exposes **all history and all branches**, not just current files. Scanned: 60 unique
+commits across every branch, ~32k lines of patch.
+
+| Check | Result |
+| --- | --- |
+| Credentials in current files (tokens, keys, JWTs, cloud keys) | **0 hits** |
+| Credentials anywhere in history | **0 hits** |
+| Credential-shaped filenames ever committed | only `PROJECT_CONFIG.env.example` — placeholders |
+| Real email addresses | none (only `github-kit-bot@users.noreply.github.com`) |
+| Fork-triggerable workflows that could reach a secret | **none** — all six `reusable-*.yml` are `workflow_call` only, and fan-out triggers on push/schedule/dispatch, none of which a stranger's PR can fire |
+
+**Nothing needs purging, and no history rewrite is required.**
+
+### The one judgement call: target repo names
+
+`.github/fanout-targets.json` lists your private repos by name. Going public makes those names
+visible. They are not credentials — but they do reveal which projects exist.
+
+Two honest options:
+
+1. **Accept it.** Simplest, and repo names are low-sensitivity. Nothing to change.
+2. **Split the orchestration out.** Keep `github-kit` public for what *must* be public — templates
+   and `reusable-*.yml` — and move fan-out (workflow + target list + PAT) into a small **private**
+   repo that checks out `github-kit@main` and runs `update-github-kit.sh` against your targets.
+   You still only ever edit `github-kit`; the private repo is set-and-forget.
+
+Avoid the middle path of hiding the list in a secret inside the public repo: the names still leak
+through matrix job titles and `workflow_dispatch` inputs unless you switch to index-based matrices
+and masking, which makes the one mechanism you depend on materially harder to operate and debug.
+
+### After flipping to public
+
+1. **No Access setting to change** — public reusable workflows are callable from anywhere. The
+   "Enabling private reusable workflow access" step in `README.md` stops applying.
+2. **Re-run the previously-broken callers** in each target repo. `pr-policy` and
+   `agent-workflow-verify` have been failing with `jobs=0` for as long as the target lived under a
+   different account; they should go green on the next PR with no change to the target repo.
+3. **Actions minutes become free** for the public repo.
+4. **Anyone can now call your reusable workflows.** That is harmless — they run in the caller's
+   repo, with the caller's tokens, on the caller's dime.
+5. **Delete merged `claude/*` branches** so the public history is tidy:
+   ```bash
+   gh api repos/pzoli6/github-kit/branches --jq '.[].name' \
+     | grep '^claude/' \
+     | xargs -I{} gh api -X DELETE repos/pzoli6/github-kit/git/refs/heads/{}
+   ```
+   Check each is merged first — `gh pr list --state merged --json headRefName`.
