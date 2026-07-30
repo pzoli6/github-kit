@@ -2,26 +2,22 @@
 # Set the Status field on a Project item identified by its issue/PR URL.
 set -euo pipefail
 
-VALID_STATUSES=(Backlog "Plan Review" Ready "In Progress" Blocked "In Review" "Changes Requested" Done Cancelled)
+# No hardcoded status vocabulary on purpose. The Project board is the only authority on which
+# Status options exist, and a second list here can only drift out of sync with it. It did: this
+# script used to ship "In Progress"/"In Review" while a default GitHub board spells them
+# "In progress"/"In review", so every one of those calls failed with a misleading
+# "not a recognized Status value" before the board was ever consulted. Validation now happens
+# against the board itself, below, and the error lists what the board actually offers.
 
 usage() {
   echo "Usage: $(basename "$0") <issue-or-pr-url> <Status>" >&2
-  printf 'Valid statuses: %s\n' "${VALID_STATUSES[*]}" >&2
+  echo "Status must match an option on the Project's Status field exactly, including case." >&2
   exit 1
 }
 
 [ "$#" -eq 2 ] || usage
 ITEM_URL="$1"
 STATUS="$2"
-
-valid=0
-for s in "${VALID_STATUSES[@]}"; do
-  [ "$s" = "$STATUS" ] && valid=1
-done
-if [ "$valid" -ne 1 ]; then
-  echo "error: '$STATUS' is not a recognized Status value." >&2
-  usage
-fi
 
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 ENV_FILE="$REPO_ROOT/docs/ai/PROJECT_CONFIG.env"
@@ -62,7 +58,13 @@ $status_tsv
 EOF
 
 [ -n "$field_id" ] || { echo "error: Project has no 'Status' field." >&2; exit 1; }
-[ -n "$option_id" ] || { echo "error: Project 'Status' field has no option named '$STATUS'." >&2; exit 1; }
+if [ -z "$option_id" ]; then
+  echo "error: the Project's 'Status' field has no option named '$STATUS'." >&2
+  echo "       Options are matched exactly, including case. This board offers:" >&2
+  gh project field-list "$AGENT_PROJECT_NUMBER" --owner "$AGENT_PROJECT_OWNER" --format json \
+    --jq '.fields[] | select(.name=="Status") | .options[].name' 2>/dev/null | sed 's/^/         /' >&2
+  exit 1
+fi
 
 gh project item-edit \
   --id "$item_id" \
