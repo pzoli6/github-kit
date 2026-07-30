@@ -128,6 +128,14 @@ Prefer a marker that is **verifiable** rather than merely typed: derive it from 
 review id) so a later agent can re-fetch and confirm it. A hand-typed field is one an agent could
 have typed too, and it makes approving a chore for no security gain.
 
+The kit ships this ready-made in `docs/ai/design-handoffs/` — see that folder's `README.md`.
+`.github/workflows/design-handoff-approval.yml` (a thin caller for a reusable workflow that
+auto-tracks `github-kit@main`) stamps the marker from an APPROVED review, and
+`scripts/design-handoffs/verify.mjs` re-checks it and fails closed. **Never write the marker
+yourself and never submit the approving review on a human's behalf** — `gh pr review --approve`
+run by an agent holding the human's token produces a marker that looks valid and guarantees
+nothing. If asked to approve a spec, say approval is a click the human makes, and link the PR.
+
 This is additive, not a replacement: `approve` remains the default gate for any
 task not invoked via `/github_kit`, and nothing else about the lifecycle below changes — same issue
 template, same Project tracking, same draft-PR-only rule, same human-merges-only rule. See
