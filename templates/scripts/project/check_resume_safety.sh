@@ -34,7 +34,10 @@ done
 
 [ -n "$ISSUE" ] || usage
 
-for bin in gh jq; do
+# jq is deliberately NOT required: every JSON read here goes through gh --jq, which uses
+# gh's built-in engine. Git Bash on Windows ships no jq, and demanding one made these scripts
+# unusable there.
+for bin in gh; do
   command -v "$bin" >/dev/null 2>&1 || { echo "error: '$bin' is required but not found on PATH." >&2; exit 1; }
 done
 
@@ -55,24 +58,27 @@ case "$ISSUE" in
 esac
 [ -n "$ISSUE_URL" ] && [ "$ISSUE_URL" != "null" ] || { echo "error: could not resolve issue for '$ISSUE'." >&2; exit 1; }
 
-issue_json="$(gh issue view "$ISSUE_NUM" --json state,stateReason)"
-issue_state="$(echo "$issue_json" | jq -r '.state')"
+# gh's --jq uses gh's built-in jq engine, so no external `jq` binary is needed (Git Bash on
+# Windows ships none). It has no --arg, so shell values reach the expression through env.
+issue_tsv="$(gh issue view "$ISSUE_NUM" --json state,stateReason --jq '[ .state, (.stateReason // "unknown") ] | @tsv')"
+IFS=$'\t' read -r issue_state issue_reason <<EOF
+$issue_tsv
+EOF
 if [ "$issue_state" = "CLOSED" ]; then
-  reason="$(echo "$issue_json" | jq -r '.stateReason // "unknown"')"
+  reason="${issue_reason:-unknown}"
   echo "STOP: issue #$ISSUE_NUM is closed (reason: $reason). Do not resume — confirm with the user before doing anything else." >&2
   exit 2
 fi
 
 # List recent PRs and filter locally (rather than gh's --search) so this doesn't depend on
 # GitHub's free-text search tokenization of bare issue numbers.
-pr_json="$(gh pr list --state all --limit 100 --json number,url,state,body 2>/dev/null || echo '[]')"
-linked_pr="$(echo "$pr_json" | jq -c --arg n "$ISSUE_NUM" \
-  '[.[] | select(.body // "" | test("(?i)(closes|fixes|resolves) #" + $n + "\\b"))] | .[0] // empty')"
+# Emits "<number>\t<url>\t<state>" for the first linked PR, or nothing when there is none.
+linked_pr="$(ISSUE_NUM="$ISSUE_NUM" gh pr list --state all --limit 100 --json number,url,state,body --jq '[.[] | select(.body // "" | test("(?i)(closes|fixes|resolves) #" + env.ISSUE_NUM + "\\b"))] | .[0] // empty | [ .number, .url, .state ] | @tsv' 2>/dev/null || true)"
 
-if [ -n "$linked_pr" ] && [ "$linked_pr" != "null" ]; then
-  pr_number="$(echo "$linked_pr" | jq -r '.number')"
-  pr_url="$(echo "$linked_pr" | jq -r '.url')"
-  pr_state="$(echo "$linked_pr" | jq -r '.state')"
+if [ -n "$linked_pr" ]; then
+  IFS=$'\t' read -r pr_number pr_url pr_state <<EOF
+$linked_pr
+EOF
   case "$pr_state" in
     MERGED)
       echo "STOP: linked PR #$pr_number ($pr_url) is already merged. Do not resume work on issue #$ISSUE_NUM." >&2
@@ -90,13 +96,13 @@ if [ -z "$AGENT_PROJECT_OWNER" ] || [ -z "$AGENT_PROJECT_NUMBER" ] || [ "$AGENT_
   exit 0
 fi
 
-item_id="$(gh project item-add "$AGENT_PROJECT_NUMBER" --owner "$AGENT_PROJECT_OWNER" --url "$ISSUE_URL" --format json | jq -r '.id')"
+item_id="$(gh project item-add "$AGENT_PROJECT_NUMBER" --owner "$AGENT_PROJECT_OWNER" --url "$ISSUE_URL" --format json --jq '.id')"
 if [ -z "$item_id" ] || [ "$item_id" = "null" ]; then
   echo "SAFE_TO_PROCEED (could not resolve a Project item for $ISSUE_URL)"
   exit 0
 fi
 
-fields_json="$(gh api graphql -f query='
+fields_tsv="$(gh api graphql -f query='
   query($id: ID!) {
     node(id: $id) {
       ... on ProjectV2Item {
@@ -108,14 +114,16 @@ fields_json="$(gh api graphql -f query='
         }
       }
     }
-  }' -f id="$item_id")"
-
-field_value() {
-  echo "$fields_json" | jq -r --arg n "$1" '
+  }' -f id="$item_id" --jq '
     .data.node.fieldValues.nodes[]
-    | select(.field.name == $n)
-    | if has("text") then .text elif has("name") then .name else "" end
-  ' | head -n1
+    | select(.field.name != null)
+    | [ .field.name, (if has("text") then .text elif has("name") then .name else "" end) ]
+    | @tsv')"
+
+# fields_tsv holds "<field name>\t<value>" per line, so lookups are plain awk — no external jq,
+# and still exactly one API call however many fields get read.
+field_value() {
+  printf '%s\n' "$fields_tsv" | awk -F'\t' -v n="$1" '$1 == n { print $2; exit }'
 }
 
 status="$(field_value "Status")"
