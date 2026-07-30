@@ -45,8 +45,8 @@ summarize the release in one line — detail belongs in the merged PR's descript
       `update-github-kit.sh --target . --ref vX.Y.Z` / `update-github-kit.ps1 -Target . -Ref
       vX.Y.Z`, then update the `github-kit ref` row in that repo's `docs/ai/PROJECT_CONFIG.md` to
       match.
-- [ ] If this release fixes a regression that affected already-installed repos (e.g. the DancePass
-      CRLF/Node-version/`@main` issues this kit was hardened against), consider proactively
-      flagging those repos rather than waiting for them to notice on their own.
+- [ ] If this release fixes a regression that affected already-installed repos (e.g. the
+      CRLF / Node-version / `@main`-pinning issues this kit was hardened against), consider
+      proactively flagging those repos rather than waiting for them to notice on their own.
 - [ ] Optionally create a GitHub Release from the tag (`gh release create vX.Y.Z --generate-notes`)
       if you want release notes visible in the repo UI — not required for the kit to function.

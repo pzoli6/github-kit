@@ -20,6 +20,10 @@ and future agents). It provides:
    for adding items to a Project and updating its Status/text fields from a branch, a script, or a
    workflow run, plus an idempotent standard-labels creator.
 
+> **Setting this up, or something not propagating?** → **[docs/OWNER_SETUP.md](docs/OWNER_SETUP.md)**
+> — the steps only the repo owner can do (tokens, secrets), each with a way to check whether it is
+> already done, plus a troubleshooting table. Fan-out does nothing until Step 1 there is complete.
+
 This repo intentionally contains very little repo-specific content. Everything that varies
 per-repo (Project number, base branch, validation commands, forbidden files, github-kit version,
 etc.) lives in the target repo's `docs/ai/PROJECT_CONFIG.md`, not here.
@@ -190,11 +194,16 @@ that gap so you never have to run `/github_kit_update` in each repo by hand.
   reusable policy *logic* still auto-tracks `@main`; only that repo's base-branch wiring is left
   alone.
 
-**Required secret (one, in github-kit only):** `GITHUB_KIT_FANOUT_TOKEN` — a fine-grained PAT with,
-for each target repo, **Contents: Read and write** and **Pull requests: Read and write**, and
-nothing else. The default `GITHUB_TOKEN` can't reach other private repos, which is why the PAT is
-needed. Add it under **github-kit → Settings → Secrets and variables → Actions**. Until the secret
-exists, the workflow fails fast with a clear message instead of silently doing nothing.
+**Required secret (one, in github-kit only):** `GITHUB_KIT_FANOUT_TOKEN`. The default
+`GITHUB_TOKEN` can't reach other repos, which is why a PAT is needed. Until the secret exists, the
+workflow fails fast with a clear message instead of silently doing nothing.
+
+A **fine-grained** PAT (Contents: RW + Pull requests: RW on each target) is enough **only while
+every target belongs to one account** — fine-grained PATs are scoped to a single resource owner and
+cannot select repos you are merely an outside collaborator on. The target list now spans `pzoli6`
+and `pszichocloud`, so it needs a **classic** PAT with the `repo` scope, created by an account
+with push access to every target. Full instructions, including the least-privilege alternative:
+**[docs/OWNER_SETUP.md](docs/OWNER_SETUP.md)**.
 
 The mental model is: **you improve `github-kit`, and every repo gets a draft PR** — reusable CI
 logic updates itself with no PR, and local files arrive as reviewable PRs.
@@ -236,8 +245,15 @@ because the reusable-workflow callers already auto-track `@main` on their own.
 
 ## Enabling private reusable workflow access
 
-If `github-kit` and your target repos are private, the target repo's `GITHUB_TOKEN` needs
-permission to call workflows in this repo:
+> **Cross-account does not work, at all.** A private repo can only share its reusable
+> workflows with repos owned by the **same** user or organisation — the Access setting offers no
+> way to allow a repo owned by a different account. A caller in such a repo fails with `jobs = 0`
+> and "This run likely failed because of a workflow file issue", which looks like a broken YAML
+> file and isn't. If any target lives under a different account, **make `github-kit` public** —
+> see [docs/OWNER_SETUP.md](docs/OWNER_SETUP.md) → "Making `github-kit` public".
+
+If `github-kit` and your target repos are private **and owned by the same account**, the target
+repo's `GITHUB_TOKEN` needs permission to call workflows in this repo:
 
 1. In `pzoli6/github-kit` → **Settings → Actions → General → Access**, choose **"Accessible from
    repositories in the `pzoli6` organization/account"** (or explicitly allow the target repo).
