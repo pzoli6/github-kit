@@ -120,7 +120,7 @@ jobs:
           # Stage only github-kit-owned paths (the update script only ever writes these). This
           # honours the "never git add -A" rule while still capturing everything the updater changed.
           # Skip any path a given target doesn't have, so `git add` never aborts on a missing pathspec.
-          for p in AGENTS.md CLAUDE.md GEMINI.md docs/ai .github .agents .claude .cursor scripts/project .gitignore; do
+          for p in AGENTS.md CLAUDE.md GEMINI.md docs/ai .github .agents .claude .cursor scripts/project scripts/design-handoffs .gitignore; do
             [ -e "$p" ] && git add -- "$p"
           done
 
