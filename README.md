@@ -245,8 +245,15 @@ because the reusable-workflow callers already auto-track `@main` on their own.
 
 ## Enabling private reusable workflow access
 
-If `github-kit` and your target repos are private, the target repo's `GITHUB_TOKEN` needs
-permission to call workflows in this repo:
+> **Cross-account does not work, at all.** A private repo can only share its reusable
+> workflows with repos owned by the **same** user or organisation — the Access setting offers no
+> way to allow a repo owned by a different account. A caller in such a repo fails with `jobs = 0`
+> and "This run likely failed because of a workflow file issue", which looks like a broken YAML
+> file and isn't. If any target lives under a different account, **make `github-kit` public** —
+> see [docs/OWNER_SETUP.md](docs/OWNER_SETUP.md) → "Making `github-kit` public".
+
+If `github-kit` and your target repos are private **and owned by the same account**, the target
+repo's `GITHUB_TOKEN` needs permission to call workflows in this repo:
 
 1. In `pzoli6/github-kit` → **Settings → Actions → General → Access**, choose **"Accessible from
    repositories in the `pzoli6` organization/account"** (or explicitly allow the target repo).
