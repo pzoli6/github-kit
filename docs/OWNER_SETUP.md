@@ -62,8 +62,21 @@ A **classic PAT reaches every repo its creating account can push to.** `pzoli6` 
 3. **Generate token**, then copy it.
 4. Store it as a secret on `github-kit`:
 
+Name it exactly **`FANOUT_TOKEN`**.
+
+> **The name must not start with `GITHUB_`.** GitHub reserves that prefix and rejects such secret
+> names outright. The kit previously documented `GITHUB_KIT_FANOUT_TOKEN`, which therefore could
+> never be created — that, not a missing step, is why fan-out failed on every run before
+> 2026-07-30. Do not rename it back.
+
+Use the browser if your local `gh` is signed in as an account that is not an **admin** of
+`github-kit` (setting secrets needs admin, not just write):
+**github-kit → Settings → Secrets and variables → Actions → New repository secret**.
+
+Otherwise, from a terminal signed in as an admin:
+
 ```bash
-gh secret set GITHUB_KIT_FANOUT_TOKEN --repo pzoli6/github-kit
+gh secret set FANOUT_TOKEN --repo pzoli6/github-kit
 ```
 
 The command prompts for the value — paste it at the prompt.
@@ -71,7 +84,7 @@ The command prompts for the value — paste it at the prompt.
 > **Never paste a token into a chat with an AI agent, a commit, or an issue.** `gh secret set`
 > reads it from the prompt and encrypts it client-side; nothing else ever sees it. The browser
 > equivalent is **github-kit → Settings → Secrets and variables → Actions → New repository
-> secret**, name `GITHUB_KIT_FANOUT_TOKEN`.
+> secret**, name `FANOUT_TOKEN`.
 
 5. Confirm it landed:
 
@@ -171,7 +184,7 @@ If you'd rather not use a classic PAT, the shape is:
 
 - one fine-grained PAT per resource owner (`pzoli6`, `pszichocloud`), each granting **Contents: RW**
   and **Pull requests: RW** on just that owner's targets;
-- stored as two secrets, e.g. `GITHUB_KIT_FANOUT_TOKEN` and `GITHUB_KIT_FANOUT_TOKEN_PSZICHOCLOUD`;
+- stored as two secrets, e.g. `FANOUT_TOKEN` and `FANOUT_TOKEN_PSZICHOCLOUD`;
 - a change in `github-kit-fanout.yml` to select the token by the target's owner prefix.
 
 That last part is a code change, so it isn't the default — ask an agent to open a PR for it if you
