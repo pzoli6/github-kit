@@ -41,7 +41,10 @@ if [ -z "$FILE" ] && [ -z "$BODY_TEXT" ]; then
   usage
 fi
 
-for bin in gh jq; do
+# jq is deliberately NOT required: every JSON read here goes through gh --jq, which uses
+# gh's built-in engine. Git Bash on Windows ships no jq, and demanding one made these scripts
+# unusable there.
+for bin in gh; do
   command -v "$bin" >/dev/null 2>&1 || { echo "error: '$bin' is required but not found on PATH." >&2; exit 1; }
 done
 
@@ -60,12 +63,12 @@ COMMENT_BODY="$MARKER
 
 $CONTENT"
 
-pr_json="$(gh pr view "$PR" --json id,comments)"
-pr_node_id="$(echo "$pr_json" | jq -r '.id')"
+pr_node_id="$(gh pr view "$PR" --json id --jq '.id')"
 [ -n "$pr_node_id" ] && [ "$pr_node_id" != "null" ] || { echo "error: could not resolve PR '$PR'." >&2; exit 1; }
 
-existing_id="$(echo "$pr_json" | jq -r --arg m "$MARKER" \
-  '[.comments[] | select(.body | startswith($m))] | .[-1].id // empty')"
+# gh's --jq uses gh's built-in jq engine, so no external `jq` binary is needed (Git Bash on
+# Windows ships none). It has no --arg, so shell values reach the expression through env.
+existing_id="$(MARKER="$MARKER" gh pr view "$PR" --json comments --jq '[.comments[] | select(.body | startswith(env.MARKER))] | .[-1].id // empty')"
 
 if [ -n "$existing_id" ]; then
   gh api graphql -f query='
