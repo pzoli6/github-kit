@@ -28,19 +28,26 @@ if [ -z "$AGENT_PROJECT_OWNER" ] || [ -z "$AGENT_PROJECT_NUMBER" ] || [ "$AGENT_
   exit 1
 fi
 
-for bin in gh jq; do
+# jq is deliberately NOT required: every JSON read here goes through gh --jq, which uses
+# gh's built-in engine. Git Bash on Windows ships no jq, and demanding one made these scripts
+# unusable there.
+for bin in gh; do
   command -v "$bin" >/dev/null 2>&1 || { echo "error: '$bin' is required but not found on PATH." >&2; exit 1; }
 done
 
-project_id="$(gh project view "$AGENT_PROJECT_NUMBER" --owner "$AGENT_PROJECT_OWNER" --format json | jq -r '.id')"
+project_id="$(gh project view "$AGENT_PROJECT_NUMBER" --owner "$AGENT_PROJECT_OWNER" --format json --jq '.id')"
 [ -n "$project_id" ] && [ "$project_id" != "null" ] || { echo "error: could not resolve Project #$AGENT_PROJECT_NUMBER for owner $AGENT_PROJECT_OWNER." >&2; exit 1; }
 
-item_id="$(gh project item-add "$AGENT_PROJECT_NUMBER" --owner "$AGENT_PROJECT_OWNER" --url "$ITEM_URL" --format json | jq -r '.id')"
+item_id="$(gh project item-add "$AGENT_PROJECT_NUMBER" --owner "$AGENT_PROJECT_OWNER" --url "$ITEM_URL" --format json --jq '.id')"
 [ -n "$item_id" ] && [ "$item_id" != "null" ] || { echo "error: could not resolve a Project item for $ITEM_URL." >&2; exit 1; }
 
-fields_json="$(gh project field-list "$AGENT_PROJECT_NUMBER" --owner "$AGENT_PROJECT_OWNER" --format json)"
-field_id="$(echo "$fields_json" | jq -r --arg n "$FIELD_NAME" '.fields[] | select(.name==$n) | .id')"
-field_type="$(echo "$fields_json" | jq -r --arg n "$FIELD_NAME" '.fields[] | select(.name==$n) | .type // empty')"
+# gh's --jq uses gh's built-in jq engine, so no external `jq` binary is needed (Git Bash on
+# Windows ships none). It has no --arg, so shell values reach the expression through env.
+# A field name with spaces ("Last Agent Update") is exactly why env is used here.
+field_tsv="$(FIELD_NAME="$FIELD_NAME" gh project field-list "$AGENT_PROJECT_NUMBER" --owner "$AGENT_PROJECT_OWNER" --format json --jq '.fields[] | select(.name==env.FIELD_NAME) | [ .id, (.type // "") ] | @tsv')"
+IFS=$'\t' read -r field_id field_type <<EOF
+$field_tsv
+EOF
 
 [ -n "$field_id" ] || { echo "error: Project has no field named '$FIELD_NAME'." >&2; exit 1; }
 

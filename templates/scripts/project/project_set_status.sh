@@ -2,26 +2,22 @@
 # Set the Status field on a Project item identified by its issue/PR URL.
 set -euo pipefail
 
-VALID_STATUSES=(Backlog "Plan Review" Ready "In Progress" Blocked "In Review" "Changes Requested" Done Cancelled)
+# No hardcoded status vocabulary on purpose. The Project board is the only authority on which
+# Status options exist, and a second list here can only drift out of sync with it. It did: this
+# script used to ship "In Progress"/"In Review" while a default GitHub board spells them
+# "In progress"/"In review", so every one of those calls failed with a misleading
+# "not a recognized Status value" before the board was ever consulted. Validation now happens
+# against the board itself, below, and the error lists what the board actually offers.
 
 usage() {
   echo "Usage: $(basename "$0") <issue-or-pr-url> <Status>" >&2
-  printf 'Valid statuses: %s\n' "${VALID_STATUSES[*]}" >&2
+  echo "Status must match an option on the Project's Status field exactly, including case." >&2
   exit 1
 }
 
 [ "$#" -eq 2 ] || usage
 ITEM_URL="$1"
 STATUS="$2"
-
-valid=0
-for s in "${VALID_STATUSES[@]}"; do
-  [ "$s" = "$STATUS" ] && valid=1
-done
-if [ "$valid" -ne 1 ]; then
-  echo "error: '$STATUS' is not a recognized Status value." >&2
-  usage
-fi
 
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 ENV_FILE="$REPO_ROOT/docs/ai/PROJECT_CONFIG.env"
@@ -38,24 +34,37 @@ if [ -z "$AGENT_PROJECT_OWNER" ] || [ -z "$AGENT_PROJECT_NUMBER" ] || [ "$AGENT_
   exit 1
 fi
 
-for bin in gh jq; do
+# jq is deliberately NOT required: every JSON read here goes through gh --jq, which uses
+# gh's built-in engine. Git Bash on Windows ships no jq, and demanding one made these scripts
+# unusable there.
+for bin in gh; do
   command -v "$bin" >/dev/null 2>&1 || { echo "error: '$bin' is required but not found on PATH." >&2; exit 1; }
 done
 
-project_id="$(gh project view "$AGENT_PROJECT_NUMBER" --owner "$AGENT_PROJECT_OWNER" --format json | jq -r '.id')"
+project_id="$(gh project view "$AGENT_PROJECT_NUMBER" --owner "$AGENT_PROJECT_OWNER" --format json --jq '.id')"
 [ -n "$project_id" ] && [ "$project_id" != "null" ] || { echo "error: could not resolve Project #$AGENT_PROJECT_NUMBER for owner $AGENT_PROJECT_OWNER." >&2; exit 1; }
 
 # gh project item-add is idempotent — re-adding an existing URL returns the existing item's ID,
 # which is how this script resolves an item ID from a URL without a separate lookup call.
-item_id="$(gh project item-add "$AGENT_PROJECT_NUMBER" --owner "$AGENT_PROJECT_OWNER" --url "$ITEM_URL" --format json | jq -r '.id')"
+item_id="$(gh project item-add "$AGENT_PROJECT_NUMBER" --owner "$AGENT_PROJECT_OWNER" --url "$ITEM_URL" --format json --jq '.id')"
 [ -n "$item_id" ] && [ "$item_id" != "null" ] || { echo "error: could not resolve a Project item for $ITEM_URL." >&2; exit 1; }
 
-fields_json="$(gh project field-list "$AGENT_PROJECT_NUMBER" --owner "$AGENT_PROJECT_OWNER" --format json)"
-field_id="$(echo "$fields_json" | jq -r '.fields[] | select(.name=="Status") | .id')"
-option_id="$(echo "$fields_json" | jq -r --arg s "$STATUS" '.fields[] | select(.name=="Status") | .options[]? | select(.name==$s) | .id')"
+# gh's --jq uses gh's built-in jq engine, so no external `jq` binary is needed (Git Bash on
+# Windows ships none). It has no --arg, so shell values reach the expression through env.
+# One call returns both IDs, tab-separated so a status name with spaces survives.
+status_tsv="$(STATUS="$STATUS" gh project field-list "$AGENT_PROJECT_NUMBER" --owner "$AGENT_PROJECT_OWNER" --format json --jq '.fields[] | select(.name=="Status") | [ .id, ([.options[]? | select(.name==env.STATUS) | .id][0] // "") ] | @tsv')"
+IFS=$'\t' read -r field_id option_id <<EOF
+$status_tsv
+EOF
 
 [ -n "$field_id" ] || { echo "error: Project has no 'Status' field." >&2; exit 1; }
-[ -n "$option_id" ] || { echo "error: Project 'Status' field has no option named '$STATUS'." >&2; exit 1; }
+if [ -z "$option_id" ]; then
+  echo "error: the Project's 'Status' field has no option named '$STATUS'." >&2
+  echo "       Options are matched exactly, including case. This board offers:" >&2
+  gh project field-list "$AGENT_PROJECT_NUMBER" --owner "$AGENT_PROJECT_OWNER" --format json \
+    --jq '.fields[] | select(.name=="Status") | .options[].name' 2>/dev/null | sed 's/^/         /' >&2
+  exit 1
+fi
 
 gh project item-edit \
   --id "$item_id" \
