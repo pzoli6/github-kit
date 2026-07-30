@@ -284,7 +284,7 @@ if (Test-Path -LiteralPath ".github/PULL_REQUEST_TEMPLATE.md") {
 Refresh-File (Join-Path $Templates ".github/copilot-instructions.md") ".github/copilot-instructions.md"
 Refresh-File (Join-Path $Templates ".github/CODEOWNERS") ".github/CODEOWNERS"
 
-foreach ($wf in @("agent-workflow-verify", "ci-node", "ci-python")) {
+foreach ($wf in @("agent-workflow-verify", "ci-node", "ci-python", "design-handoff-approval")) {
     Refresh-Workflow (Join-Path $Templates ".github/workflows/$wf.yml") ".github/workflows/$wf.yml"
 }
 # pr-policy.yml holds this repo's base-branch gate — preserve it if it already exists.
@@ -323,6 +323,18 @@ if (Test-Path -LiteralPath ".claude/skills") {
         Write-Host "move workflow YAMLs to .github/workflows/ (or delete them):"
         foreach ($f in $straySkills) { Write-Host "  .claude/skills/$($f.Name)" }
     }
+}
+
+# --- docs/ai/design-handoffs/ ------------------------------------------
+
+New-Item -ItemType Directory -Force "docs/ai/design-handoffs" | Out-Null
+Refresh-File (Join-Path $Templates "docs/ai/design-handoffs/README.md") "docs/ai/design-handoffs/README.md"
+Refresh-File (Join-Path $Templates "docs/ai/design-handoffs/_TEMPLATE.md") "docs/ai/design-handoffs/_TEMPLATE.md"
+
+# --- scripts/design-handoffs/ ------------------------------------------
+
+foreach ($script in @("stamp", "verify")) {
+    Refresh-File (Join-Path $Templates "scripts/design-handoffs/$script.mjs") "scripts/design-handoffs/$script.mjs"
 }
 
 # --- scripts/project/ -------------------------------------------------

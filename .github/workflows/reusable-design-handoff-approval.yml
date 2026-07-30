@@ -1,0 +1,119 @@
+name: Reusable - Design handoff approval
+
+# Turns a human's GitHub review into the approval marker on a spec file, so nobody
+# ever hand-edits front matter or makes a commit just to approve a scope.
+#
+# Why this exists: `/github_kit implement <path>` pre-approves "strictly the
+# description supplied". When the description is a path, the scope boundary becomes
+# whatever is written in that file — and that file is normally written by an agent,
+# not by the human doing the approving. A `status: approved` field a human types by
+# hand does not close that hole, because a field a human can type is one an agent
+# can type too. Nothing downstream can tell the two apart.
+#
+# So the marker is derived from an event the host already records: a
+# pull_request_review with state `approved`. The reviewer login, timestamp, PR
+# number and review id all come from the event payload. That makes the marker
+# re-checkable — see scripts/design-handoffs/verify.mjs, which agents run before
+# implementing and which fails closed.
+#
+# The caller must grant `contents: write` (to push the marker back to the PR branch)
+# and `pull-requests: read`. See templates/.github/workflows/design-handoff-approval.yml.
+
+on:
+  workflow_call:
+    inputs:
+      spec_dir:
+        description: "Directory holding the spec files this gate governs. Only files under it are ever stamped."
+        type: string
+        default: "docs/ai/design-handoffs"
+      stamp_script:
+        description: "Path (in the calling repo) to the stamping script installed by github-kit."
+        type: string
+        default: "scripts/design-handoffs/stamp.mjs"
+      node_version:
+        description: "Node version used to run the stamping script."
+        type: string
+        default: "20"
+
+jobs:
+  stamp:
+    runs-on: ubuntu-latest
+    # KIT_ACTIONS_PAUSED: caller-repo Actions variable that pauses all github-kit jobs
+    # so they consume no Actions minutes. See templates/docs/ai/AGENT_WORKFLOW.md →
+    # "Actions budget and manual Copilot use".
+    #
+    # Bot reviews are rejected outright: the entire value of the marker is that a
+    # human looked at the scope. An automated approval would be exactly the forgery
+    # this gate exists to prevent.
+    if: >-
+      vars.KIT_ACTIONS_PAUSED != 'true' &&
+      github.event_name == 'pull_request_review' &&
+      github.event.review.state == 'approved' &&
+      github.event.review.user.type != 'Bot'
+    steps:
+      - name: Confirm the reviewer can authorize work in this repo
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          PERM=$(gh api "repos/${{ github.repository }}/collaborators/${{ github.event.review.user.login }}/permission" --jq .permission)
+          echo "reviewer=${{ github.event.review.user.login }} permission=$PERM"
+          case "$PERM" in
+            admin|write|maintain)
+              echo "Reviewer can authorize work here." ;;
+            *)
+              echo "::notice::Reviewer '${{ github.event.review.user.login }}' has '$PERM' access — approval not recorded."
+              exit 1 ;;
+          esac
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          fetch-depth: 0
+          persist-credentials: true
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node_version }}
+
+      - name: Stamp the approval marker
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SPEC_DIR: ${{ inputs.spec_dir }}
+          STAMP_SCRIPT: ${{ inputs.stamp_script }}
+        run: |
+          set -euo pipefail
+          if [ ! -f "$STAMP_SCRIPT" ]; then
+            echo "::warning::$STAMP_SCRIPT is missing — run /github_kit_update to install it."
+            exit 0
+          fi
+          mapfile -t FILES < <(gh pr diff ${{ github.event.pull_request.number }} --name-only \
+            | grep -E "^${SPEC_DIR}/.*\.md$" || true)
+          if [ ${#FILES[@]} -eq 0 ]; then
+            echo "No spec files under $SPEC_DIR in this PR — nothing to stamp."
+            exit 0
+          fi
+          printf 'candidate: %s\n' "${FILES[@]}"
+          node "$STAMP_SCRIPT" \
+            --dir "$SPEC_DIR" \
+            --by "${{ github.event.review.user.login }}" \
+            --on "${{ github.event.review.submitted_at }}" \
+            --pr "${{ github.event.pull_request.number }}" \
+            --review-id "${{ github.event.review.id }}" \
+            "${FILES[@]}"
+
+      - name: Commit the marker back to the PR branch
+        run: |
+          set -euo pipefail
+          if git diff --quiet; then
+            echo "Nothing changed — no spec was in an approvable state (only 'ready' is)."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "${{ inputs.spec_dir }}"
+          git commit \
+            -m "chore(design): record ${{ github.event.review.user.login }}'s approval" \
+            -m "Transcribed from review ${{ github.event.review.id }} on PR #${{ github.event.pull_request.number }}. Re-check it with the verify script in scripts/design-handoffs/."
+          git push origin HEAD:${{ github.event.pull_request.head.ref }}

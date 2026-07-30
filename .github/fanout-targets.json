@@ -7,6 +7,7 @@
     { "repo": "pzoli6/Travel", "base": "main" },
     { "repo": "pzoli6/AI_Settings", "base": "main" },
     { "repo": "pzoli6/Invoice_Sync", "base": "main" },
-    { "repo": "pzoli6/agent_os", "base": "main" }
+    { "repo": "pzoli6/agent_os", "base": "main" },
+    { "repo": "pszichocloud/Platform", "base": "develop" }
   ]
 }

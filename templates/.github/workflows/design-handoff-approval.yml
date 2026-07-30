@@ -1,0 +1,37 @@
+name: Design handoff approval
+
+# Thin caller. The logic lives in github-kit and auto-tracks @main, so fixes to the
+# gate reach this repo on the next run without anyone re-installing anything.
+#
+# What it does: when a human submits an APPROVED review on a PR that touches a spec
+# file under spec_dir, it records who approved and when, in that file's front matter.
+# Nobody hand-edits YAML and nobody commits just to approve a scope — the click is
+# the approval.
+#
+# Paused (consuming no Actions minutes) while the repository Actions variable
+# KIT_ACTIONS_PAUSED is 'true'. See docs/ai/AGENT_WORKFLOW.md → "Actions budget and
+# manual Copilot use".
+
+on:
+  pull_request_review:
+    types: [submitted]
+
+# Required by the reusable workflow: contents:write to push the marker back to the
+# PR branch, pull-requests:read to list the PR's changed files. A reusable workflow
+# can only narrow what the caller grants, never widen it.
+permissions:
+  contents: write
+  pull-requests: read
+
+concurrency:
+  group: design-approval-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  stamp:
+    uses: pzoli6/github-kit/.github/workflows/reusable-design-handoff-approval.yml@main
+    with:
+      # Only files under this directory are ever stamped. Everything else in the PR
+      # is ignored, so approving a normal code PR does nothing here.
+      spec_dir: docs/ai/design-handoffs
+      stamp_script: scripts/design-handoffs/stamp.mjs

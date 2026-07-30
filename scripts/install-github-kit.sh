@@ -297,7 +297,7 @@ copy_create_only "$TEMPLATES/.github/PULL_REQUEST_TEMPLATE.md" ".github/PULL_REQ
 copy_if_missing  "$TEMPLATES/.github/copilot-instructions.md" ".github/copilot-instructions.md"
 copy_if_missing  "$TEMPLATES/.github/CODEOWNERS" ".github/CODEOWNERS"
 
-for wf in agent-workflow-verify ci-node ci-python; do
+for wf in agent-workflow-verify ci-node ci-python design-handoff-approval; do
   copy_workflow "$TEMPLATES/.github/workflows/$wf.yml" ".github/workflows/$wf.yml"
 done
 # pr-policy.yml carries the repo-specific required_base_branch gate; never overwrite it (even in
@@ -335,6 +335,18 @@ if [ -n "$stray_skills" ]; then
   echo "move workflow YAMLs to .github/workflows/ (or delete them):"
   printf '  %s\n' $stray_skills
 fi
+
+# --- docs/ai/design-handoffs/ ------------------------------------------
+
+mkdir -p "docs/ai/design-handoffs"
+copy_if_missing "$TEMPLATES/docs/ai/design-handoffs/README.md" "docs/ai/design-handoffs/README.md"
+copy_if_missing "$TEMPLATES/docs/ai/design-handoffs/_TEMPLATE.md" "docs/ai/design-handoffs/_TEMPLATE.md"
+
+# --- scripts/design-handoffs/ ------------------------------------------
+
+for script in stamp verify; do
+  copy_if_missing "$TEMPLATES/scripts/design-handoffs/$script.mjs" "scripts/design-handoffs/$script.mjs"
+done
 
 # --- scripts/project/ --------------------------------------------------
 
