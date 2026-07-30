@@ -17,9 +17,13 @@ name: github-kit fan-out (propagate bootstrap updates)
 #
 # NOTE ON THE NAME: it must NOT start with "GITHUB_". GitHub reserves that prefix and rejects any
 # secret named with it, so the previously-documented "GITHUB_KIT_FANOUT_TOKEN" was impossible to
-# create -- which is why fan-out failed on every run before 2026-07-30. Do not rename it back. — a fine-grained PAT with,
-# for EACH target repo, "Contents: Read and write" + "Pull requests: Read and write" (and nothing
-# else). The default GITHUB_TOKEN cannot reach other private repos, which is why a PAT is needed.
+# create -- which is why fan-out failed on every run before 2026-07-30. Do not rename it back.
+#
+# The token must reach EVERY target with "Contents: Read and write" + "Pull requests: Read and
+# write", and nothing else. The default GITHUB_TOKEN cannot reach other repos at all, which is why
+# a PAT is needed. Use a CLASSIC PAT with the "repo" scope when targets span more than one account:
+# a fine-grained PAT is scoped to a single resource owner and cannot select repos you are only an
+# outside collaborator on. See docs/OWNER_SETUP.md.
 
 on:
   push:
