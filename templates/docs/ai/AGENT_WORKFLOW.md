@@ -84,6 +84,24 @@ A pre-approved alternative entry point. It changes exactly one thing — **step 
 - The pre-approval covers only what `<task>` describes. Scope needs to grow mid-task → stop and
   fall back to the normal `approve` gate for the additional scope; pre-approval never expands on
   its own.
+- **When `<task>` is a path to a spec file, the pre-approval is conditional.** A path is not a
+  description. It delegates the scope boundary to a document — and that document is normally
+  written by an agent, not by the human doing the approving, so `/github_kit implement <path>`
+  can otherwise approve text nobody has read. It counts as approval only when the file's front
+  matter carries a human-set marker:
+
+  ```yaml
+  status: approved      # not draft, not ready — and never written by an agent
+  approved-by: <human>
+  approved-on: <YYYY-MM-DD>
+  ```
+
+  Any other value — `draft`, `ready`, or absent — means the file is reported back as awaiting
+  human review and nothing is implemented. Where the marker is present, the approved scope is that
+  file's **Acceptance criteria** section; anything beyond it falls back to the normal `approve`
+  gate like any other mid-task scope growth. An agent never writes the marker itself — it is the
+  human's signature, and an agent writing it forges its own approval. The marker is a convention,
+  not a folder: it works for any spec a repo keeps under version control, wherever it lives.
 - Every other step is unchanged (in solo mode, the solo-collapsed version of every other step).
   An issue created for a `/github_kit` task should note that approval came via direct invocation.
 - Per-agent entry points: `.claude/commands/github_kit.md` (runbook:
