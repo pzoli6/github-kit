@@ -38,21 +38,28 @@ if [ -z "$AGENT_PROJECT_OWNER" ] || [ -z "$AGENT_PROJECT_NUMBER" ] || [ "$AGENT_
   exit 1
 fi
 
-for bin in gh jq; do
+# jq is deliberately NOT required: every JSON read here goes through gh --jq, which uses
+# gh's built-in engine. Git Bash on Windows ships no jq, and demanding one made these scripts
+# unusable there.
+for bin in gh; do
   command -v "$bin" >/dev/null 2>&1 || { echo "error: '$bin' is required but not found on PATH." >&2; exit 1; }
 done
 
-project_id="$(gh project view "$AGENT_PROJECT_NUMBER" --owner "$AGENT_PROJECT_OWNER" --format json | jq -r '.id')"
+project_id="$(gh project view "$AGENT_PROJECT_NUMBER" --owner "$AGENT_PROJECT_OWNER" --format json --jq '.id')"
 [ -n "$project_id" ] && [ "$project_id" != "null" ] || { echo "error: could not resolve Project #$AGENT_PROJECT_NUMBER for owner $AGENT_PROJECT_OWNER." >&2; exit 1; }
 
 # gh project item-add is idempotent — re-adding an existing URL returns the existing item's ID,
 # which is how this script resolves an item ID from a URL without a separate lookup call.
-item_id="$(gh project item-add "$AGENT_PROJECT_NUMBER" --owner "$AGENT_PROJECT_OWNER" --url "$ITEM_URL" --format json | jq -r '.id')"
+item_id="$(gh project item-add "$AGENT_PROJECT_NUMBER" --owner "$AGENT_PROJECT_OWNER" --url "$ITEM_URL" --format json --jq '.id')"
 [ -n "$item_id" ] && [ "$item_id" != "null" ] || { echo "error: could not resolve a Project item for $ITEM_URL." >&2; exit 1; }
 
-fields_json="$(gh project field-list "$AGENT_PROJECT_NUMBER" --owner "$AGENT_PROJECT_OWNER" --format json)"
-field_id="$(echo "$fields_json" | jq -r '.fields[] | select(.name=="Status") | .id')"
-option_id="$(echo "$fields_json" | jq -r --arg s "$STATUS" '.fields[] | select(.name=="Status") | .options[]? | select(.name==$s) | .id')"
+# gh's --jq uses gh's built-in jq engine, so no external `jq` binary is needed (Git Bash on
+# Windows ships none). It has no --arg, so shell values reach the expression through env.
+# One call returns both IDs, tab-separated so a status name with spaces survives.
+status_tsv="$(STATUS="$STATUS" gh project field-list "$AGENT_PROJECT_NUMBER" --owner "$AGENT_PROJECT_OWNER" --format json --jq '.fields[] | select(.name=="Status") | [ .id, ([.options[]? | select(.name==env.STATUS) | .id][0] // "") ] | @tsv')"
+IFS=$'\t' read -r field_id option_id <<EOF
+$status_tsv
+EOF
 
 [ -n "$field_id" ] || { echo "error: Project has no 'Status' field." >&2; exit 1; }
 [ -n "$option_id" ] || { echo "error: Project 'Status' field has no option named '$STATUS'." >&2; exit 1; }
