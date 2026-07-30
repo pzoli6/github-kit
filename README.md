@@ -194,7 +194,7 @@ that gap so you never have to run `/github_kit_update` in each repo by hand.
   reusable policy *logic* still auto-tracks `@main`; only that repo's base-branch wiring is left
   alone.
 
-**Required secret (one, in github-kit only):** `GITHUB_KIT_FANOUT_TOKEN`. The default
+**Required secret (one, in github-kit only):** `FANOUT_TOKEN`. The default
 `GITHUB_TOKEN` can't reach other repos, which is why a PAT is needed. Until the secret exists, the
 workflow fails fast with a clear message instead of silently doing nothing.
 
