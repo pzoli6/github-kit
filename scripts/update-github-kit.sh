@@ -275,6 +275,13 @@ refresh "$TEMPLATES/docs/ai/HANDOFF_INDEX.md" "docs/ai/HANDOFF_INDEX.md"
 mkdir -p "docs/ai/handoffs"
 [ -e "docs/ai/handoffs/.gitkeep" ] || refresh "$TEMPLATES/docs/ai/handoffs/.gitkeep" "docs/ai/handoffs/.gitkeep"
 
+# design-handoffs/ holds Design -> Code specs plus the protocol that governs them. README and
+# _TEMPLATE are kit-owned and always refreshed; the spec files themselves are the repo's own
+# content and are never touched.
+mkdir -p "docs/ai/design-handoffs"
+refresh "$TEMPLATES/docs/ai/design-handoffs/README.md" "docs/ai/design-handoffs/README.md"
+refresh "$TEMPLATES/docs/ai/design-handoffs/_TEMPLATE.md" "docs/ai/design-handoffs/_TEMPLATE.md"
+
 # --- .github/ (issue/PR templates are never auto-overwritten) -------------
 
 if [ -e ".github/ISSUE_TEMPLATE/agent_task.yml" ]; then
@@ -294,7 +301,7 @@ fi
 refresh "$TEMPLATES/.github/copilot-instructions.md" ".github/copilot-instructions.md"
 refresh "$TEMPLATES/.github/CODEOWNERS" ".github/CODEOWNERS"
 
-for wf in agent-workflow-verify ci-node ci-python; do
+for wf in agent-workflow-verify ci-node ci-python design-handoff-approval; do
   refresh_workflow "$TEMPLATES/.github/workflows/$wf.yml" ".github/workflows/$wf.yml"
 done
 # pr-policy.yml holds this repo's base-branch gate — preserve it if it already exists (see above).
@@ -338,6 +345,14 @@ for script in project_add_item project_set_status project_set_text verify_agent_
               check_resume_safety post_handoff_comment cleanup_merged_branches; do
   refresh "$TEMPLATES/scripts/project/$script.sh" "scripts/project/$script.sh"
   chmod +x "scripts/project/$script.sh" 2>/dev/null || true
+done
+
+# --- scripts/design-handoffs/ -----------------------------------------
+
+# stamp.mjs is run by .github/workflows/design-handoff-approval.yml; verify.mjs is run by agents
+# before implementing a spec. Node, not bash, so they work identically on Windows without jq.
+for script in stamp verify; do
+  refresh "$TEMPLATES/scripts/design-handoffs/$script.mjs" "scripts/design-handoffs/$script.mjs"
 done
 
 # --- .gitignore -------------------------------------------------------
