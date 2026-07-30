@@ -47,6 +47,23 @@ it before implementing, and a forged or hand-typed marker does not survive conta
 
 An agent that finds `ready` reports the file as awaiting review and does nothing else.
 
+### The spec PR must not be opened by the person who approves it
+
+**GitHub does not allow anyone to approve their own pull request** — the Approve option simply is
+not offered, and the Files changed tab only permits a plain comment. A coding agent normally opens
+the spec PR using *your* token, which makes you the author, which locks you out of approving it.
+The gate then cannot fire at all, and the symptom is a missing button rather than an error message.
+
+So the spec PR author and the approver have to be different accounts. However a repo arranges
+that, write access is what the workflow checks, so the approver needs at least write:
+
+- a second human reviewer, on a team; or
+- on a solo setup, a second account of your own holding write access — have agents open spec PRs
+  as one identity and approve as the other; or
+- a bot/app identity that opens every spec PR, leaving all humans free to approve.
+
+Decide this **before** the first real spec, not while hunting for a button that is not there.
+
 **No human hand-edits front matter, and no human commits in order to approve a scope.** The click
 is the approval; everything downstream is bookkeeping. A human act that cannot be forged is the
 requirement — a human act that is *tedious* was never the point.
