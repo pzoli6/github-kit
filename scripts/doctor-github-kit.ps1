@@ -73,6 +73,7 @@ Check-File "templates/.claude/skills/issue-to-pr-project/SKILL.md"
 Check-File "templates/.agents/skills/github_kit/SKILL.md"
 Check-File "templates/.claude/skills/github_kit/SKILL.md"
 Check-File "templates/.claude/commands/github_kit.md"
+Check-File "templates/.claude/settings.json"
 Check-File "templates/.cursor/rules/agent-workflow.mdc"
 Check-File "templates/.cursor/rules/git-safety.mdc"
 Check-File "templates/.cursor/rules/project-board.mdc"
@@ -230,6 +231,32 @@ if ($projectConfigDoc -match [regex]::Escape('Production-branch approval gate'))
     Write-Host "OK      templates/docs/ai/PROJECT_CONFIG.md documents the Production-branch approval gate"
 } else {
     Write-Host "MISSING `"Production-branch approval gate`" section in templates/docs/ai/PROJECT_CONFIG.md"
+    $script:Missing = 1
+}
+
+Write-Host ""
+
+# --- checked-in Claude Code permissions: kills routine permission prompts in remote sessions -----
+# while hard-denying MCP-based PR merging (humans merge -- see templates/.claude/settings.json) ----
+
+$claudeSettingsOk = $false
+try {
+    $cs = Get-Content -LiteralPath "templates/.claude/settings.json" -Raw | ConvertFrom-Json
+    if ($cs.permissions.deny -contains "mcp__github__merge_pull_request") { $claudeSettingsOk = $true }
+} catch {}
+if ($claudeSettingsOk) {
+    Write-Host "OK      templates/.claude/settings.json is valid JSON and denies MCP PR merging"
+} else {
+    Write-Host "MISSING templates/.claude/settings.json invalid or no longer denies mcp__github__merge_pull_request"
+    $script:Missing = 1
+}
+
+$installSh = Get-Content -LiteralPath "scripts/install-github-kit.sh" -Raw -ErrorAction SilentlyContinue
+$updateSh = Get-Content -LiteralPath "scripts/update-github-kit.sh" -Raw -ErrorAction SilentlyContinue
+if ($installSh -match '\.claude/settings\.json' -and $updateSh -match '\.claude/settings\.json') {
+    Write-Host "OK      installers wire up .claude/settings.json (create-only)"
+} else {
+    Write-Host "MISSING .claude/settings.json wiring in scripts/install-github-kit.sh / update-github-kit.sh"
     $script:Missing = 1
 }
 

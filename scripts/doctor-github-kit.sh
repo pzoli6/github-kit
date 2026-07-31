@@ -64,6 +64,7 @@ check_file "templates/.claude/skills/issue-to-pr-project/SKILL.md"
 check_file "templates/.agents/skills/github_kit/SKILL.md"
 check_file "templates/.claude/skills/github_kit/SKILL.md"
 check_file "templates/.claude/commands/github_kit.md"
+check_file "templates/.claude/settings.json"
 check_file "templates/.cursor/rules/agent-workflow.mdc"
 check_file "templates/.cursor/rules/git-safety.mdc"
 check_file "templates/.cursor/rules/project-board.mdc"
@@ -215,6 +216,26 @@ if grep -Fq 'Production-branch approval gate' templates/docs/ai/PROJECT_CONFIG.m
   echo "OK      templates/docs/ai/PROJECT_CONFIG.md documents the Production-branch approval gate"
 else
   echo "MISSING \"Production-branch approval gate\" section in templates/docs/ai/PROJECT_CONFIG.md"
+  missing=1
+fi
+
+echo
+
+# --- checked-in Claude Code permissions: kills routine permission prompts in remote sessions -----
+# while hard-denying MCP-based PR merging (humans merge — see templates/.claude/settings.json) ----
+
+if python3 -c "import json,sys; d=json.load(open('templates/.claude/settings.json')); sys.exit(0 if 'mcp__github__merge_pull_request' in d.get('permissions',{}).get('deny',[]) else 1)" 2>/dev/null; then
+  echo "OK      templates/.claude/settings.json is valid JSON and denies MCP PR merging"
+else
+  echo "MISSING templates/.claude/settings.json invalid or no longer denies mcp__github__merge_pull_request"
+  missing=1
+fi
+
+if grep -q '.claude/settings.json' scripts/install-github-kit.sh 2>/dev/null \
+    && grep -q '.claude/settings.json' scripts/update-github-kit.sh 2>/dev/null; then
+  echo "OK      installers wire up .claude/settings.json (create-only)"
+else
+  echo "MISSING .claude/settings.json wiring in scripts/install-github-kit.sh / update-github-kit.sh"
   missing=1
 fi
 

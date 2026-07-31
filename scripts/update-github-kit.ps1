@@ -313,6 +313,17 @@ Refresh-File (Join-Path $Templates ".claude/skills/issue-to-pr-project/SKILL.md"
 Refresh-File (Join-Path $Templates ".agents/skills/github_kit/SKILL.md") ".agents/skills/github_kit/SKILL.md"
 Refresh-File (Join-Path $Templates ".claude/skills/github_kit/SKILL.md") ".claude/skills/github_kit/SKILL.md"
 Refresh-File (Join-Path $Templates ".claude/commands/github_kit.md") ".claude/commands/github_kit.md"
+# .claude/settings.json carries repo-specific permission customizations once present -- created
+# if missing, never refreshed (same rationale as PROJECT_CONFIG.md and pr-policy.yml).
+if (Test-Path -LiteralPath ".claude/settings.json") {
+    Write-Host "skip (repo-specific, preserved): .claude/settings.json"
+    $SkippedCount++
+} else {
+    New-Item -ItemType Directory -Force ".claude" | Out-Null
+    Copy-Item (Join-Path $Templates ".claude/settings.json") ".claude/settings.json"
+    Write-Host "created:         .claude/settings.json"
+    $CreatedCount++
+}
 Refresh-File (Join-Path $Templates ".agents/skills/github_kit_update/SKILL.md") ".agents/skills/github_kit_update/SKILL.md"
 Refresh-File (Join-Path $Templates ".claude/skills/github_kit_update/SKILL.md") ".claude/skills/github_kit_update/SKILL.md"
 

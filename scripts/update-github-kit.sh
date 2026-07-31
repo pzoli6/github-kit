@@ -331,6 +331,17 @@ refresh "$TEMPLATES/.claude/skills/issue-to-pr-project/SKILL.md" ".claude/skills
 refresh "$TEMPLATES/.agents/skills/github_kit/SKILL.md" ".agents/skills/github_kit/SKILL.md"
 refresh "$TEMPLATES/.claude/skills/github_kit/SKILL.md" ".claude/skills/github_kit/SKILL.md"
 refresh "$TEMPLATES/.claude/commands/github_kit.md" ".claude/commands/github_kit.md"
+# .claude/settings.json carries repo-specific permission customizations once present — created
+# if missing, never refreshed (same rationale as PROJECT_CONFIG.md and pr-policy.yml).
+if [ -e ".claude/settings.json" ]; then
+  echo "skip (repo-specific, preserved): .claude/settings.json"
+  SKIPPED_COUNT=$((SKIPPED_COUNT + 1))
+else
+  mkdir -p ".claude"
+  cp "$TEMPLATES/.claude/settings.json" ".claude/settings.json"
+  echo "created:         .claude/settings.json"
+  CREATED_COUNT=$((CREATED_COUNT + 1))
+fi
 refresh "$TEMPLATES/.agents/skills/github_kit_update/SKILL.md" ".agents/skills/github_kit_update/SKILL.md"
 refresh "$TEMPLATES/.claude/skills/github_kit_update/SKILL.md" ".claude/skills/github_kit_update/SKILL.md"
 

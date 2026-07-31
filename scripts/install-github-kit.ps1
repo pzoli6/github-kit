@@ -310,6 +310,8 @@ Copy-IfMissing (Join-Path $Templates ".claude/skills/issue-to-pr-project/SKILL.m
 Copy-IfMissing (Join-Path $Templates ".agents/skills/github_kit/SKILL.md") ".agents/skills/github_kit/SKILL.md"
 Copy-IfMissing (Join-Path $Templates ".claude/skills/github_kit/SKILL.md") ".claude/skills/github_kit/SKILL.md"
 Copy-IfMissing (Join-Path $Templates ".claude/commands/github_kit.md") ".claude/commands/github_kit.md"
+# Checked-in Claude Code permissions -- create-only, a repo's customizations are never overwritten.
+Copy-IfMissing (Join-Path $Templates ".claude/settings.json") ".claude/settings.json"
 Copy-IfMissing (Join-Path $Templates ".agents/skills/github_kit_update/SKILL.md") ".agents/skills/github_kit_update/SKILL.md"
 Copy-IfMissing (Join-Path $Templates ".claude/skills/github_kit_update/SKILL.md") ".claude/skills/github_kit_update/SKILL.md"
 

@@ -144,3 +144,15 @@ notice. `templates/docs/ai/PROJECT_SETUP.md` is the guide.
 - The resume procedure gained an explicit claim step: a resuming agent rewrites `Agent` on the
   card (nothing else ever does), so `check_resume_safety.sh` stops comparing against a stale
   name; the script now prints that reminder when it detects a takeover.
+
+### Checked-in Claude Code permissions (`.claude/settings.json`)
+
+Remote/web Claude Code sessions run in ephemeral containers, so personal `~/.claude` settings
+never persist — every session re-prompted for the same platform plumbing (Claude Code Remote MCP
+tools like `register_repo_root`), read-only GitHub MCP calls, and the kit's own scripts. The kit
+now ships `templates/.claude/settings.json`: a checked-in `permissions.allow` list covering
+exactly those, plus a `permissions.deny` that hard-blocks `mcp__github__merge_pull_request` and
+`mcp__github__enable_pr_auto_merge` — the kit's humans-merge rule enforced by the harness, not
+just by instruction. Create-only everywhere (installer, updater, and therefore fan-out): once a
+repo has the file, its customizations are never overwritten. Settings load at session start, so
+sessions opened before a repo's fan-out PR merged keep prompting until restarted.

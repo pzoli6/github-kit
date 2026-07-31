@@ -327,6 +327,10 @@ copy_if_missing "$TEMPLATES/.claude/skills/issue-to-pr-project/SKILL.md" ".claud
 copy_if_missing "$TEMPLATES/.agents/skills/github_kit/SKILL.md" ".agents/skills/github_kit/SKILL.md"
 copy_if_missing "$TEMPLATES/.claude/skills/github_kit/SKILL.md" ".claude/skills/github_kit/SKILL.md"
 copy_if_missing "$TEMPLATES/.claude/commands/github_kit.md" ".claude/commands/github_kit.md"
+# Checked-in Claude Code permissions: pre-approves the platform plumbing (Claude Code Remote
+# MCP), read-only GitHub MCP calls, and the kit's own scripts, and hard-denies PR merging via
+# MCP (humans merge). Create-only — a repo's own customizations are never overwritten.
+copy_if_missing "$TEMPLATES/.claude/settings.json" ".claude/settings.json"
 copy_if_missing "$TEMPLATES/.agents/skills/github_kit_update/SKILL.md" ".agents/skills/github_kit_update/SKILL.md"
 copy_if_missing "$TEMPLATES/.claude/skills/github_kit_update/SKILL.md" ".claude/skills/github_kit_update/SKILL.md"
 
