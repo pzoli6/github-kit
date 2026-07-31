@@ -200,13 +200,20 @@ jobs:
             exit 0
           fi
           printf 'candidate: %s\n' "${FILES[@]}"
+          # The id travels as --review-id, not --event-id, on purpose: this workflow auto-tracks
+          # @main but the stamp script lives in the *caller's* repo, and the pre-comment-approval
+          # version of it hard-requires --review-id. The current script accepts --review-id as a
+          # synonym for --event-id, so this one spelling works against both generations. The old
+          # script also ignores --via and never sees a comment event (its caller has no
+          # issue_comment trigger), so review approvals in un-refreshed repos behave exactly as
+          # they always have.
           node "$STAMP_SCRIPT" \
             --dir "$SPEC_DIR" \
             --via "${{ steps.ev.outputs.via }}" \
             --by "${{ steps.ev.outputs.login }}" \
             --on "${{ steps.ev.outputs.at }}" \
             --pr "${{ steps.ev.outputs.pr }}" \
-            --event-id "${{ steps.ev.outputs.id }}" \
+            --review-id "${{ steps.ev.outputs.id }}" \
             "${FILES[@]}"
 
       - name: Commit the marker back to the PR branch
