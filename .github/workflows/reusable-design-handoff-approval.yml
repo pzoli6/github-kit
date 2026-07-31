@@ -1,6 +1,6 @@
 name: Reusable - Design handoff approval
 
-# Turns a human's GitHub review into the approval marker on a spec file, so nobody
+# Turns a human's deliberate GitHub act into the approval marker on a spec file, so nobody
 # ever hand-edits front matter or makes a commit just to approve a scope.
 #
 # Why this exists: `/github_kit implement <path>` pre-approves "strictly the
@@ -10,11 +10,22 @@ name: Reusable - Design handoff approval
 # hand does not close that hole, because a field a human can type is one an agent
 # can type too. Nothing downstream can tell the two apart.
 #
-# So the marker is derived from an event the host already records: a
-# pull_request_review with state `approved`. The reviewer login, timestamp, PR
-# number and review id all come from the event payload. That makes the marker
-# re-checkable — see scripts/design-handoffs/verify.mjs, which agents run before
-# implementing and which fails closed.
+# So the marker is derived from an event the host already records. There are two such
+# events, and the repo's shape decides which one it can use:
+#
+#   review  — a `pull_request_review` with state `approved`. The stronger form: GitHub
+#             itself refuses to let anyone approve their own PR, so author and approver
+#             are structurally different accounts. Requires two accounts.
+#   comment — a PR comment whose first line is exactly the marker phrase (default
+#             `/approve-spec`), enabled by `allow_comment_approval`. On a solo repo the
+#             same person opens the spec PR and approves it, GitHub never offers the
+#             Approve button, and the review form cannot fire at all. See
+#             templates/docs/ai/design-handoffs/README.md → "Approving your own spec PR"
+#             for exactly what this form does and does not prove.
+#
+# Either way the login, timestamp, PR number and event id come from the payload, which
+# is what makes the marker re-checkable — see scripts/design-handoffs/verify.mjs, which
+# agents run before implementing and which fails closed.
 #
 # The caller must grant `contents: write` (to push the marker back to the PR branch)
 # and `pull-requests: read`. See templates/.github/workflows/design-handoff-approval.yml.
@@ -34,6 +45,18 @@ on:
         description: "Node version used to run the stamping script."
         type: string
         default: "20"
+      allow_comment_approval:
+        description: >-
+          Accept a PR comment whose first line is comment_marker as an approval, alongside the
+          review form. Defaults false so a repo relying on GitHub's own no-self-approval rule keeps
+          that guarantee until it opts out deliberately. Turn it on for a solo repo, where the spec
+          PR author is also the approver and the review form can never fire.
+        type: boolean
+        default: false
+      comment_marker:
+        description: "Exact text the approving comment's first line must equal, when allow_comment_approval is true."
+        type: string
+        default: "/approve-spec"
 
 jobs:
   stamp:
@@ -42,42 +65,124 @@ jobs:
     # so they consume no Actions minutes. See templates/docs/ai/AGENT_WORKFLOW.md →
     # "Actions budget and manual Copilot use".
     #
-    # Bot reviews are rejected outright: the entire value of the marker is that a
-    # human looked at the scope. An automated approval would be exactly the forgery
+    # Bot events are rejected outright in both forms: the entire value of the marker is
+    # that a human looked at the scope. An automated approval would be exactly the forgery
     # this gate exists to prevent.
     if: >-
       vars.KIT_ACTIONS_PAUSED != 'true' &&
-      github.event_name == 'pull_request_review' &&
-      github.event.review.state == 'approved' &&
-      github.event.review.user.type != 'Bot'
+      (
+        (github.event_name == 'pull_request_review' &&
+         github.event.review.state == 'approved' &&
+         github.event.review.user.type != 'Bot') ||
+        (inputs.allow_comment_approval &&
+         github.event_name == 'issue_comment' &&
+         github.event.action == 'created' &&
+         github.event.issue.pull_request != null &&
+         github.event.comment.user.type != 'Bot')
+      )
     steps:
-      - name: Confirm the reviewer can authorize work in this repo
+      - name: Resolve the approving event
+        id: ev
+        env:
+          # On a public repo anyone can comment, so the body is untrusted input. It is read
+          # through the environment and compared in-shell, never interpolated into the script,
+          # so a body full of shell metacharacters cannot run anything here.
+          COMMENT_BODY: ${{ github.event.comment.body }}
+          MARKER: ${{ inputs.comment_marker }}
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "pull_request_review" ]; then
+            {
+              echo "via=review"
+              echo "login=${{ github.event.review.user.login }}"
+              echo "at=${{ github.event.review.submitted_at }}"
+              echo "pr=${{ github.event.pull_request.number }}"
+              echo "id=${{ github.event.review.id }}"
+              echo "proceed=true"
+            } >> "$GITHUB_OUTPUT"
+            echo "Approving event: review ${{ github.event.review.id }} by ${{ github.event.review.user.login }}."
+            exit 0
+          fi
+
+          # The marker has to be the comment's entire first line. Demanding a line of its own
+          # means quoting someone else's approval, or naming the phrase mid-sentence, does nothing.
+          first="$(printf '%s' "$COMMENT_BODY" | head -n1 | tr -d '\r' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+          if [ "$first" != "$MARKER" ]; then
+            echo "Comment's first line is not the approval marker ('$MARKER') — nothing to do."
+            echo "proceed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          {
+            echo "via=comment"
+            echo "login=${{ github.event.comment.user.login }}"
+            echo "at=${{ github.event.comment.created_at }}"
+            echo "pr=${{ github.event.issue.number }}"
+            echo "id=${{ github.event.comment.id }}"
+            echo "proceed=true"
+          } >> "$GITHUB_OUTPUT"
+          echo "Approving event: comment ${{ github.event.comment.id }} by ${{ github.event.comment.user.login }}."
+
+      - name: Confirm the approver can authorize work in this repo
+        if: steps.ev.outputs.proceed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          LOGIN: ${{ steps.ev.outputs.login }}
+        run: |
+          set -euo pipefail
+          PERM=$(gh api "repos/${{ github.repository }}/collaborators/$LOGIN/permission" --jq .permission)
+          echo "approver=$LOGIN permission=$PERM via=${{ steps.ev.outputs.via }}"
+          case "$PERM" in
+            admin|write|maintain)
+              echo "Approver can authorize work here." ;;
+            *)
+              echo "::notice::Approver '$LOGIN' has '$PERM' access — approval not recorded."
+              exit 1 ;;
+          esac
+
+      # A pull_request_review payload carries the head ref; an issue_comment one does not, so it
+      # gets fetched. Both forms leave the same two outputs behind.
+      - name: Resolve the PR head
+        id: head
+        if: steps.ev.outputs.proceed == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          PERM=$(gh api "repos/${{ github.repository }}/collaborators/${{ github.event.review.user.login }}/permission" --jq .permission)
-          echo "reviewer=${{ github.event.review.user.login }} permission=$PERM"
-          case "$PERM" in
-            admin|write|maintain)
-              echo "Reviewer can authorize work here." ;;
-            *)
-              echo "::notice::Reviewer '${{ github.event.review.user.login }}' has '$PERM' access — approval not recorded."
-              exit 1 ;;
-          esac
+          if [ "${{ github.event_name }}" = "pull_request_review" ]; then
+            {
+              echo "ref=${{ github.event.pull_request.head.ref }}"
+              echo "repo=${{ github.event.pull_request.head.repo.full_name }}"
+            } >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          PR='${{ steps.ev.outputs.pr }}'
+          cross="$(gh pr view "$PR" --repo '${{ github.repository }}' --json isCrossRepository --jq .isCrossRepository)"
+          if [ "$cross" = "true" ]; then
+            # GITHUB_TOKEN on an issue_comment event is scoped to the base repo, so the marker
+            # commit could never be pushed to a fork's branch. Say so instead of failing at push.
+            echo "::notice::PR #$PR comes from a fork — comment approval cannot write the marker to a fork branch. Approve it with a review instead."
+            exit 1
+          fi
+          {
+            echo "ref=$(gh pr view "$PR" --repo '${{ github.repository }}' --json headRefName --jq .headRefName)"
+            echo "repo=${{ github.repository }}"
+          } >> "$GITHUB_OUTPUT"
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
+        if: steps.ev.outputs.proceed == 'true'
         with:
-          ref: ${{ github.event.pull_request.head.ref }}
-          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          ref: ${{ steps.head.outputs.ref }}
+          repository: ${{ steps.head.outputs.repo }}
           fetch-depth: 0
           persist-credentials: true
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
+        if: steps.ev.outputs.proceed == 'true'
         with:
           node-version: ${{ inputs.node_version }}
 
       - name: Stamp the approval marker
+        if: steps.ev.outputs.proceed == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           SPEC_DIR: ${{ inputs.spec_dir }}
@@ -88,7 +193,7 @@ jobs:
             echo "::warning::$STAMP_SCRIPT is missing — run /github_kit_update to install it."
             exit 0
           fi
-          mapfile -t FILES < <(gh pr diff ${{ github.event.pull_request.number }} --name-only \
+          mapfile -t FILES < <(gh pr diff ${{ steps.ev.outputs.pr }} --name-only \
             | grep -E "^${SPEC_DIR}/.*\.md$" || true)
           if [ ${#FILES[@]} -eq 0 ]; then
             echo "No spec files under $SPEC_DIR in this PR — nothing to stamp."
@@ -97,13 +202,15 @@ jobs:
           printf 'candidate: %s\n' "${FILES[@]}"
           node "$STAMP_SCRIPT" \
             --dir "$SPEC_DIR" \
-            --by "${{ github.event.review.user.login }}" \
-            --on "${{ github.event.review.submitted_at }}" \
-            --pr "${{ github.event.pull_request.number }}" \
-            --review-id "${{ github.event.review.id }}" \
+            --via "${{ steps.ev.outputs.via }}" \
+            --by "${{ steps.ev.outputs.login }}" \
+            --on "${{ steps.ev.outputs.at }}" \
+            --pr "${{ steps.ev.outputs.pr }}" \
+            --event-id "${{ steps.ev.outputs.id }}" \
             "${FILES[@]}"
 
       - name: Commit the marker back to the PR branch
+        if: steps.ev.outputs.proceed == 'true'
         run: |
           set -euo pipefail
           if git diff --quiet; then
@@ -114,6 +221,6 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add "${{ inputs.spec_dir }}"
           git commit \
-            -m "chore(design): record ${{ github.event.review.user.login }}'s approval" \
-            -m "Transcribed from review ${{ github.event.review.id }} on PR #${{ github.event.pull_request.number }}. Re-check it with the verify script in scripts/design-handoffs/."
-          git push origin HEAD:${{ github.event.pull_request.head.ref }}
+            -m "chore(design): record ${{ steps.ev.outputs.login }}'s approval" \
+            -m "Transcribed from ${{ steps.ev.outputs.via }} ${{ steps.ev.outputs.id }} on PR #${{ steps.ev.outputs.pr }}. Re-check it with the verify script in scripts/design-handoffs/."
+          git push origin HEAD:${{ steps.head.outputs.ref }}

@@ -186,6 +186,11 @@ instruction files may lag behind `github-kit/main` until someone runs `/github_k
   the human's signature; an agent that writes it is forging its own approval. Recording one on
   explicit instruction is fine only where the repo can still verify it against a recorded human
   action; otherwise say so rather than writing an unverifiable marker.
+- Never *perform* the approving act either — don't submit the approving review, and don't post the
+  spec-approval comment (`/approve-spec`) on the human's behalf. Not even on a solo repo, where
+  GitHub permits it and the human is the only account: there, that rule is the only thing standing
+  between a spec and an agent approving its own scope. Ask the human to approve on the PR, and
+  link them to it.
 - Never proceed past a dirty, unrelated working tree without asking first.
 - Never leave an agent branch local-only — push it (step 6) before writing implementation code.
 - Never leave issue/PR sidebar metadata (assignee, labels, milestone) blank when

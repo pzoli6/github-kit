@@ -29,11 +29,13 @@ that file is normally written by an agent, not by the human doing the approving.
 can type is not**. A `status: approved` line a human types by hand is one an agent can type too;
 nothing downstream can tell them apart. So nobody types it.
 
-**The transition `ready → approved` is a GitHub review.** Open the spec PR, read the rendered
-Acceptance criteria, click **Approve**. `.github/workflows/design-handoff-approval.yml` (a thin
-caller for a reusable workflow in `github-kit`, so it auto-updates) transcribes that event into the
-front matter. `approved-by`, `approved-on`, `approval-pr` and `approval-review-id` all come from
-the event payload.
+**The transition `ready → approved` is a recorded act on the spec PR.** Open the spec PR, read the
+rendered Acceptance criteria, then either click **Approve** or — when that button isn't there,
+because the PR is your own — comment `/approve-spec`.
+`.github/workflows/design-handoff-approval.yml` (a thin caller for a reusable workflow in
+`github-kit`, so it auto-updates) transcribes that event into the front matter. `approved-by`,
+`approved-on`, `approval-pr`, `approval-via` and the matching `approval-review-id` /
+`approval-comment-id` all come from the event payload.
 
 That makes the marker **re-checkable**, which is the only thing that makes it worth anything:
 
@@ -41,40 +43,69 @@ That makes the marker **re-checkable**, which is the only thing that makes it wo
 node scripts/design-handoffs/verify.mjs docs/ai/design-handoffs/design-001-foo.md
 ```
 
-It re-fetches the named review and confirms it is an `APPROVED` review, submitted by the login
-recorded, by a non-bot account, on a PR that actually touches this file. It **fails closed**. Run
-it before implementing, and a forged or hand-typed marker does not survive contact.
+It re-fetches the named event and confirms it really happened — an `APPROVED` review, or a comment
+whose first line is exactly `/approve-spec` — by the login recorded, from a non-bot account that
+holds write access here, on a PR that actually touches this file. It **fails closed**. Run it
+before implementing, and a forged or hand-typed marker does not survive contact.
 
 An agent that finds `ready` reports the file as awaiting review and does nothing else.
 
-### The spec PR must not be opened by the person who approves it
+### Approving your own spec PR
 
-**GitHub does not allow anyone to approve their own pull request** — the Approve option simply is
-not offered, and the Files changed tab only permits a plain comment. A coding agent normally opens
-the spec PR using *your* token, which makes you the author, which locks you out of approving it.
-The gate then cannot fire at all, and the symptom is a missing button rather than an error message.
+**GitHub never lets anyone approve their own pull request** — the Approve option simply is not
+offered, and the Files changed tab only permits a plain comment. A coding agent normally opens the
+spec PR using *your* token, which makes you the author, which locks you out of the review form. The
+symptom is a missing button rather than an error message.
 
-So the spec PR author and the approver have to be different accounts. However a repo arranges
-that, write access is what the workflow checks, so the approver needs at least write:
+That is GitHub's constraint, not a rule this kit chose, so the gate accepts a second act — one you
+*can* perform on your own PR:
 
-- a second human reviewer, on a team; or
-- on a solo setup, a second account of your own holding write access — have agents open spec PRs
-  as one identity and approve as the other; or
-- a bot/app identity that opens every spec PR, leaving all humans free to approve.
+> **Comment `/approve-spec`**, as the first line of a comment on the spec PR.
 
-Decide this **before** the first real spec, not while hunting for a button that is not there.
+The workflow treats it exactly like a review: it confirms the commenter is a non-bot account with
+write access, stamps `approval-via: comment` and the comment id, and `verify.mjs` re-fetches that
+comment and re-checks all of it before any agent implements anything. **You do not need a second
+account, and you never approve "as" someone else.**
+
+**Be clear about what each form buys.** A review is enforced by GitHub: author and approver are
+*structurally* different accounts, so the marker is evidence a second person read the scope. A
+comment is not — you can post it on your own PR, and so, holding your token, could an agent. What
+the comment form still gives you is everything this gate is actually for on a one-person repo:
+
+- the scope boundary is pinned to a file that existed, and was readable, **before** implementation;
+- approving is a **separate, deliberate act** at a separate moment — not a side effect of an agent
+  opening a PR;
+- it is **recorded and re-checkable** — login, timestamp and comment id, verifiable long after; and
+- every agent in this kit is told, here and in `AGENTS.md`, never to post it.
+
+So it stops scope drift and leaves an audit trail. It does not stop an agent that holds your token
+and has decided to ignore its instructions — but on a solo repo nothing else does either, since
+that agent could equally push code you never read. Choose the form that matches who is really in
+the room:
+
+| You have | Use | In `.github/workflows/design-handoff-approval.yml` |
+| --- | --- | --- |
+| A second reviewer | Review — click **Approve** | `allow_comment_approval: false` |
+| Only yourself | Comment — `/approve-spec` | `allow_comment_approval: true` *(shipped default)* |
+
+The default leaves **both** forms working, so a repo that later gains a reviewer loses nothing.
+Setting `allow_comment_approval: false` is how a team repo takes back GitHub's structural guarantee
+that nobody signs off on their own scope.
 
 **No human hand-edits front matter, and no human commits in order to approve a scope.** The click
-is the approval; everything downstream is bookkeeping. A human act that cannot be forged is the
-requirement — a human act that is *tedious* was never the point.
+(or the comment) is the approval; everything downstream is bookkeeping. A human act that cannot be
+forged *by accident* is the requirement — a human act that is *tedious* was never the point.
 
 ### What an agent must never do
 
-Never write `status: approved`, `approved-by`, `approved-on`, `approval-pr` or
-`approval-review-id` yourself, and never submit the approving review on a human's behalf — not
-even when asked to. `gh pr review --approve` run by an agent holding the human's token produces a
-marker that *looks* valid and guarantees nothing. If someone asks you to approve a spec, say that
-approval is a click they make, and point them at the PR.
+Never write `status: approved`, `approved-by`, `approved-on`, `approval-pr`, `approval-via`,
+`approval-review-id` or `approval-comment-id` yourself. Never submit the approving review, **and
+never post the `/approve-spec` comment** — not even when asked to, not even on a repo where the
+human is the only account and could have posted it themselves. `gh pr review --approve` or
+`gh pr comment --body '/approve-spec'` run by an agent holding the human's token produces a marker
+that *looks* valid and guarantees nothing; on the comment form GitHub will not stop you, which is
+exactly why the rule has to hold here instead. If someone asks you to approve a spec, say approval
+is an act they perform, and point them at the PR.
 
 ---
 
@@ -84,14 +115,14 @@ approval is a click they make, and point them at the PR.
 | --- | --- | --- |
 | `draft` | the spec's author | Still being written. Ignore. |
 | `ready` | the spec's author | Finished and queued for a human read. **Not actionable.** |
-| `approved` | the approval workflow, from a human's review | Scope read and accepted. The only actionable status. |
+| `approved` | the approval workflow, from a human's review or `/approve-spec` comment | Scope read and accepted. The only actionable status. |
 | `in-progress` | the coding agent | Picked up. No second agent starts it. |
 | `landed` | the coding agent | Merged. |
 | `superseded` | either | Replaced by a newer entry; the front matter says which. |
 
 Only `ready` is approvable. A `draft` is a moving target, and anything at `approved` or past it is
 already claimed — the stamping script skips both rather than overwriting them, so a second review
-cannot rewrite an existing marker.
+or a repeated `/approve-spec` cannot rewrite an existing marker.
 
 ## Lifecycle
 
@@ -100,16 +131,18 @@ cannot rewrite an existing marker.
 1. **The spec is written** as `draft`, then `ready`, using `_TEMPLATE.md`.
 2. **It reaches the repo without you committing.** A coding agent commits it as `ready` on a branch
    and opens a **spec PR**. That PR exists to be read, not to ship code.
-3. **You approve by reviewing.** Read the Acceptance criteria as rendered markdown (a phone works),
-   click **Approve**. The workflow stamps the marker onto the PR branch. Merging stays a human
+3. **You approve on that PR.** Read the Acceptance criteria as rendered markdown (a phone works),
+   then click **Approve** — or, if the PR is your own and the button isn't offered, comment
+   `/approve-spec`. The workflow stamps the marker onto the PR branch. Merging stays a human
    action, as it does for every PR.
 4. **A coding agent implements it** — `verify.mjs` first, then
    `/github_kit implement docs/ai/design-handoffs/<file>.md`, setting `in-progress` and following
    the normal lifecycle in `docs/ai/AGENT_WORKFLOW.md`.
 5. **On merge**, the agent sets `landed` and records the PR number.
 
-If a spec is wrong, **Request changes** instead of approving. The workflow only ever acts on
-`approved`, so a change request stamps nothing and the file stays `ready`.
+If a spec is wrong, **Request changes** — or just say so in an ordinary comment — instead of
+approving. The workflow only ever acts on an `approved` review or a comment whose first line is
+exactly the marker, so anything else stamps nothing and the file stays `ready`.
 
 Steps 4 and 5 edit **front matter only**. The body is the author's text and the record of what was
 approved; a coding agent does not rewrite it. If the spec turns out to be wrong, that is a PR

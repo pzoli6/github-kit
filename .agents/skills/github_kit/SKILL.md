@@ -105,6 +105,11 @@ explicit, opt-in operation, not something this skill does as a side effect.
   the human's signature; an agent that writes it is forging its own approval. Recording one on
   explicit instruction is fine only where the repo can still verify it against a recorded human
   action; otherwise say so rather than writing an unverifiable marker.
+- Never *perform* the approving act either — don't submit the approving review, and don't post the
+  spec-approval comment (`/approve-spec`) on the human's behalf. Not even on a solo repo, where
+  GitHub permits it and the human is the only account: there, that rule is the only thing standing
+  between a spec and an agent approving its own scope. Ask the human to approve on the PR, and
+  link them to it.
 - Never proceed past a dirty, unrelated working tree without asking first.
 - Never merge a PR.
 - Never push directly to the production branch.

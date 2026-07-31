@@ -111,9 +111,20 @@ A pre-approved alternative entry point. It changes exactly one thing — **step 
   really approved?" has an answer an agent can be *required* to fetch before implementing, and no
   human ever hand-edits front matter or commits to approve a scope.
 
-  Whichever form a repo uses, an agent never writes the marker on its own initiative — it is the
-  human's signature, and an agent writing it forges its own approval. The marker is a convention,
-  not a folder: it works for any spec a repo keeps under version control, wherever it lives.
+  **On a solo repo the review form cannot fire at all** — GitHub never lets anyone approve their own
+  pull request, and an agent opening the spec PR with the human's token makes that human the author.
+  Requiring a review there would mean requiring a second GitHub account for one person reviewing
+  their own work, so the gate accepts a second recorded event instead: a PR comment whose first line
+  is exactly `/approve-spec`. It is transcribed and re-checked the same way (`approval-via: comment`
+  plus the comment id). It is weaker in one specific respect — GitHub does not prevent the PR author
+  from posting it, so it is not evidence of a second reader — and it is enabled by
+  `allow_comment_approval`, which a repo with a real reviewer should turn off.
+
+  Whichever form a repo uses, an agent never writes the marker on its own initiative and never
+  performs the approving act — not the review, and **not the `/approve-spec` comment**, even where
+  GitHub would technically permit it. It is the human's signature, and an agent producing it forges
+  its own approval. The marker is a convention, not a folder: it works for any spec a repo keeps
+  under version control, wherever it lives.
 - Every other step is unchanged (in solo mode, the solo-collapsed version of every other step).
   An issue created for a `/github_kit` task should note that approval came via direct invocation.
 - Per-agent entry points: `.claude/commands/github_kit.md` (runbook:
