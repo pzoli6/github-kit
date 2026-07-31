@@ -44,7 +44,15 @@ done
 gh auth status >/dev/null 2>&1 || { echo "error: gh is not authenticated. Run 'gh auth login'." >&2; exit 1; }
 
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+# PROJECT_CONFIG.env is gitignored, so a linked worktree doesn't have it — fall back to the
+# main checkout's copy (the same anchor publish_agent_branch.sh uses). Without this, an agent
+# working in a worktree would silently treat the Project as unconfigured and stop updating the
+# board, while the same command from the main checkout works.
 ENV_FILE="$REPO_ROOT/docs/ai/PROJECT_CONFIG.env"
+if [ ! -f "$ENV_FILE" ]; then
+  GIT_COMMON_DIR="$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)"
+  [ -n "$GIT_COMMON_DIR" ] && ENV_FILE="$(dirname "$GIT_COMMON_DIR")/docs/ai/PROJECT_CONFIG.env"
+fi
 # shellcheck disable=SC1090
 [ -f "$ENV_FILE" ] && source "$ENV_FILE"
 
@@ -159,4 +167,11 @@ if [ "$age_minutes" -lt "$AGENT_CLAIM_STALENESS_MINUTES" ] && [ -n "$other_agent
 fi
 
 echo "SAFE_TO_PROCEED (last update: ${other_agent:-unknown}, $age_minutes minute(s) ago, Status=$status)"
+# A stale claim this check just waved through stays on the board until someone overwrites it —
+# and nothing else ever rewrites Agent after creation time. Without re-claiming, the NEXT agent's
+# run of this very check compares against the wrong name.
+if [ -n "$other_agent" ] && [ "$other_agent" != "$AGENT_NAME" ]; then
+  echo "note: the board still says Agent=$other_agent. Claim the card before continuing:" >&2
+  echo "      scripts/project/sync_project_fields.sh metadata $ISSUE_URL \"Agent=$AGENT_NAME\"" >&2
+fi
 exit 0

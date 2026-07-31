@@ -272,6 +272,7 @@ Copy-CreateOnly (Join-Path $Templates "docs/ai/PROJECT_CONFIG.md") "docs/ai/PROJ
 Copy-IfMissing  (Join-Path $Templates "docs/ai/PROJECT_CONFIG.env.example") "docs/ai/PROJECT_CONFIG.env.example"
 Copy-IfMissing  (Join-Path $Templates "docs/ai/AGENT_WORKFLOW.md") "docs/ai/AGENT_WORKFLOW.md"
 Copy-IfMissing  (Join-Path $Templates "docs/ai/HANDOFF_INDEX.md") "docs/ai/HANDOFF_INDEX.md"
+Copy-IfMissing  (Join-Path $Templates "docs/ai/PROJECT_SETUP.md") "docs/ai/PROJECT_SETUP.md"
 New-Item -ItemType Directory -Force -Path "docs/ai/handoffs" | Out-Null
 Copy-IfMissing  (Join-Path $Templates "docs/ai/handoffs/.gitkeep") "docs/ai/handoffs/.gitkeep"
 
@@ -289,11 +290,18 @@ foreach ($wf in @("agent-workflow-verify", "ci-node", "ci-python", "design-hando
 Copy-WorkflowCreateOnly (Join-Path $Templates ".github/workflows/pr-policy.yml") ".github/workflows/pr-policy.yml"
 
 if ($IncludeProjectSync) {
-    Copy-Workflow (Join-Path $Templates ".github/workflows/project-sync.yml") ".github/workflows/project-sync.yml"
+    # Carries repo-specific inputs once configured -- never overwrite an existing one, same
+    # rationale as pr-policy.yml above.
+    Copy-WorkflowCreateOnly (Join-Path $Templates ".github/workflows/project-sync.yml") ".github/workflows/project-sync.yml"
 } else {
     Write-Host "skip (default):  .github/workflows/project-sync.yml (pass -IncludeProjectSync to install it)"
     $SkippedCount++
 }
+
+# project-setup.yml installs unconditionally: without an AGENT_PROJECT_TOKEN secret it skips
+# green with a notice, and with one it bootstraps the Project board automatically -- see
+# docs/ai/PROJECT_SETUP.md. Preserved once created (its config PR pins a project_number into it).
+Copy-WorkflowCreateOnly (Join-Path $Templates ".github/workflows/project-setup.yml") ".github/workflows/project-setup.yml"
 
 # --- .agents / .claude / .cursor ------------------------------------------
 
@@ -337,7 +345,7 @@ foreach ($script in @("stamp", "verify")) {
 
 # --- scripts/project/ --------------------------------------------------
 
-foreach ($script in @("project_add_item", "project_set_status", "project_set_text", "verify_agent_workflow", "create_standard_labels", "create_agent_issue", "publish_agent_branch", "sync_project_fields", "create_agent_pr", "check_resume_safety", "post_handoff_comment", "cleanup_merged_branches")) {
+foreach ($script in @("project_add_item", "project_set_status", "project_set_text", "verify_agent_workflow", "create_standard_labels", "create_agent_issue", "publish_agent_branch", "sync_project_fields", "create_agent_pr", "check_resume_safety", "post_handoff_comment", "cleanup_merged_branches", "setup_github_project")) {
     Copy-IfMissing (Join-Path $Templates "scripts/project/$script.sh") "scripts/project/$script.sh"
 }
 

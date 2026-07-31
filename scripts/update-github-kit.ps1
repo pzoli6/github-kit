@@ -260,6 +260,7 @@ if ($ForceConfig) {
 Refresh-File (Join-Path $Templates "docs/ai/PROJECT_CONFIG.env.example") "docs/ai/PROJECT_CONFIG.env.example"
 Refresh-File (Join-Path $Templates "docs/ai/AGENT_WORKFLOW.md") "docs/ai/AGENT_WORKFLOW.md"
 Refresh-File (Join-Path $Templates "docs/ai/HANDOFF_INDEX.md") "docs/ai/HANDOFF_INDEX.md"
+Refresh-File (Join-Path $Templates "docs/ai/PROJECT_SETUP.md") "docs/ai/PROJECT_SETUP.md"
 New-Item -ItemType Directory -Force -Path "docs/ai/handoffs" | Out-Null
 if (-not (Test-Path -LiteralPath "docs/ai/handoffs/.gitkeep")) {
     Refresh-File (Join-Path $Templates "docs/ai/handoffs/.gitkeep") "docs/ai/handoffs/.gitkeep"
@@ -290,12 +291,20 @@ foreach ($wf in @("agent-workflow-verify", "ci-node", "ci-python", "design-hando
 # pr-policy.yml holds this repo's base-branch gate — preserve it if it already exists.
 CreateOnly-Workflow (Join-Path $Templates ".github/workflows/pr-policy.yml") ".github/workflows/pr-policy.yml"
 
+# project-sync.yml carries repo-specific inputs (project_owner, project_number) exactly like
+# pr-policy.yml carries the base-branch gate -- refreshing it from the template used to reset a
+# configured repo's project_number back to "TBD" on every update. Preserve it once created.
 if ($IncludeProjectSync -or (Test-Path -LiteralPath ".github/workflows/project-sync.yml")) {
-    Refresh-Workflow (Join-Path $Templates ".github/workflows/project-sync.yml") ".github/workflows/project-sync.yml"
+    CreateOnly-Workflow (Join-Path $Templates ".github/workflows/project-sync.yml") ".github/workflows/project-sync.yml"
 } else {
     Write-Host "skip (default):  .github/workflows/project-sync.yml (pass -IncludeProjectSync to install it)"
     $SkippedCount++
 }
+
+# project-setup.yml installs unconditionally: without an AGENT_PROJECT_TOKEN secret it skips
+# green with a notice. Once its config PR pins a project_number into it, it is repo-specific --
+# preserved like pr-policy.yml. See docs/ai/PROJECT_SETUP.md.
+CreateOnly-Workflow (Join-Path $Templates ".github/workflows/project-setup.yml") ".github/workflows/project-setup.yml"
 
 # --- .agents / .claude / .cursor ------------------------------------------
 
@@ -339,7 +348,7 @@ foreach ($script in @("stamp", "verify")) {
 
 # --- scripts/project/ -------------------------------------------------
 
-foreach ($script in @("project_add_item", "project_set_status", "project_set_text", "verify_agent_workflow", "create_standard_labels", "create_agent_issue", "publish_agent_branch", "sync_project_fields", "create_agent_pr", "check_resume_safety", "post_handoff_comment", "cleanup_merged_branches")) {
+foreach ($script in @("project_add_item", "project_set_status", "project_set_text", "verify_agent_workflow", "create_standard_labels", "create_agent_issue", "publish_agent_branch", "sync_project_fields", "create_agent_pr", "check_resume_safety", "post_handoff_comment", "cleanup_merged_branches", "setup_github_project")) {
     Refresh-File (Join-Path $Templates "scripts/project/$script.sh") "scripts/project/$script.sh"
 }
 

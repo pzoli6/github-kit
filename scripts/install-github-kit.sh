@@ -287,6 +287,7 @@ copy_create_only "$TEMPLATES/docs/ai/PROJECT_CONFIG.md" "docs/ai/PROJECT_CONFIG.
 copy_if_missing  "$TEMPLATES/docs/ai/PROJECT_CONFIG.env.example" "docs/ai/PROJECT_CONFIG.env.example"
 copy_if_missing  "$TEMPLATES/docs/ai/AGENT_WORKFLOW.md" "docs/ai/AGENT_WORKFLOW.md"
 copy_if_missing  "$TEMPLATES/docs/ai/HANDOFF_INDEX.md" "docs/ai/HANDOFF_INDEX.md"
+copy_if_missing  "$TEMPLATES/docs/ai/PROJECT_SETUP.md" "docs/ai/PROJECT_SETUP.md"
 mkdir -p "docs/ai/handoffs"
 copy_if_missing  "$TEMPLATES/docs/ai/handoffs/.gitkeep" "docs/ai/handoffs/.gitkeep"
 
@@ -306,11 +307,18 @@ done
 copy_workflow_create_only "$TEMPLATES/.github/workflows/pr-policy.yml" ".github/workflows/pr-policy.yml"
 
 if [ "$INCLUDE_PROJECT_SYNC" -eq 1 ]; then
-  copy_workflow "$TEMPLATES/.github/workflows/project-sync.yml" ".github/workflows/project-sync.yml"
+  # Carries repo-specific inputs (project_owner, project_number) once configured — never
+  # overwrite an existing one, same rationale as pr-policy.yml above.
+  copy_workflow_create_only "$TEMPLATES/.github/workflows/project-sync.yml" ".github/workflows/project-sync.yml"
 else
   echo "skip (default):  .github/workflows/project-sync.yml (pass --include-project-sync to install it)"
   SKIPPED_COUNT=$((SKIPPED_COUNT + 1))
 fi
+# project-setup.yml installs unconditionally: without an AGENT_PROJECT_TOKEN secret it skips
+# green with a notice, and with one it bootstraps the Project board automatically — see
+# docs/ai/PROJECT_SETUP.md. Once its config PR pins a project_number into it, it is
+# repo-specific, so it is never overwritten.
+copy_workflow_create_only "$TEMPLATES/.github/workflows/project-setup.yml" ".github/workflows/project-setup.yml"
 
 # --- .agents / .claude / .cursor ------------------------------------------
 
@@ -352,7 +360,7 @@ done
 
 for script in project_add_item project_set_status project_set_text verify_agent_workflow create_standard_labels \
               create_agent_issue publish_agent_branch sync_project_fields create_agent_pr \
-              check_resume_safety post_handoff_comment cleanup_merged_branches; do
+              check_resume_safety post_handoff_comment cleanup_merged_branches setup_github_project; do
   copy_if_missing "$TEMPLATES/scripts/project/$script.sh" "scripts/project/$script.sh"
   chmod +x "scripts/project/$script.sh" 2>/dev/null || true
 done

@@ -29,9 +29,12 @@ apply: `approve` / `approve main` gates, draft-first PRs, explicit staging, hone
    `scripts/project/check_resume_safety.sh --issue <n> --agent "<name>"` first — see "Resuming
    stashed work"). Ambiguous request → ask before planning.
 2. **Plan** — state what will change, which files, what's out of scope. **Stop and wait for
-   `approve`** (skipped when invoked via `/github_kit <task>` — see appendix). *[Project]* set
-   `Status: Plan Review`. `approve` never covers the production branch — that needs `approve
-   main` (see appendix).
+   `approve`** (skipped when invoked via `/github_kit <task>` — see appendix). *[Project]* only
+   if the task **already has a card** (an issue pre-filed via the issue template, or resumed
+   work): set `Status: Plan Review` with `sync_project_fields.sh plan_ready <issue-url>`. A
+   brand-new task has no card yet — it reaches the board at step 3, after approval, entering
+   directly at `Ready`; don't invent an item just to park it at Plan Review. `approve` never
+   covers the production branch — that needs `approve main` (see appendix).
 3. **Issue** *(skip in solo mode for pre-approved iterations)* — create it with
    `scripts/project/create_agent_issue.sh --title <t> --body-file <f> --agent <a> --area <ar>
    --risk <Low|Medium|High> --environment <e>` (structure per
@@ -375,11 +378,16 @@ Never stop with uncommitted, unstashed, undocumented changes in the worktree.
    - exit 2 (`STOP: ...`) — issue closed or linked PR merged/closed; don't resume, tell the user;
    - exit 3 (`ACTIVE_ELSEWHERE: ...`) — another agent's claim is still fresh (within
      `AGENT_CLAIM_STALENESS_MINUTES`, default 120); report instead of duplicating work.
-2. Read `handoffs/issue-<n>.md` — it should say whether a stash exists and what's in it.
-3. Confirm `git status` / `git stash list` match the handoff. Mismatch → stop and investigate.
-4. Apply a stash with `git stash apply` (not `pop`); review the diff before `git stash drop`.
-5. Re-run the validation commands — the base branch may have moved during the pause.
-6. Update the handoff so it no longer describes a stale "paused" state.
+2. *[Project]* **Claim the card if the board names a different agent** — nothing rewrites
+   `Agent` after creation time, so a taken-over card otherwise keeps blaming the previous agent
+   (and the next collision check compares against the wrong name):
+   `scripts/project/sync_project_fields.sh metadata <issue-url> "Agent=<your agent name>"`,
+   then `scripts/project/sync_project_fields.sh implementation_started <issue-url> "Resumed"`.
+3. Read `handoffs/issue-<n>.md` — it should say whether a stash exists and what's in it.
+4. Confirm `git status` / `git stash list` match the handoff. Mismatch → stop and investigate.
+5. Apply a stash with `git stash apply` (not `pop`); review the diff before `git stash drop`.
+6. Re-run the validation commands — the base branch may have moved during the pause.
+7. Update the handoff so it no longer describes a stale "paused" state.
 
 Never start fresh work in a worktree with unexplained stashed/uncommitted changes.
 
@@ -394,6 +402,12 @@ it isn't enabled, no Project field updates itself: every *[Project]* step in the
 `create_agent_pr.sh`, `sync_project_fields.sh`) — or, only if a wrapper can't cover it, the
 lower-level `project_set_status.sh`/`project_set_text.sh` or the Project UI. Nothing happens as a
 side effect of pushing a commit or opening a PR; check the Project directly if unsure.
+
+If there is no Project at all yet, that's not yours to hand-build either:
+`docs/ai/PROJECT_SETUP.md` covers the automated bootstrap — a one-time `AGENT_PROJECT_TOKEN`
+secret plus `.github/workflows/project-setup.yml` (or a local
+`scripts/project/setup_github_project.sh --apply` run) creates the board, every field, every
+Status option, and the repo link, idempotently.
 
 ## Manual Project update fallback
 

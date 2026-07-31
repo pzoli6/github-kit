@@ -1,0 +1,163 @@
+name: Reusable - Project Setup
+
+# One-time (idempotent) GitHub Project bootstrap, run as automation instead of a hand-built
+# board. When the caller repo has an AGENT_PROJECT_TOKEN secret, this ensures the Project
+# exists, has every field and Status option the kit's checkpoints write, and is linked to the
+# repository — by running the repo's own scripts/project/setup_github_project.sh. When the
+# Project had to be created (the caller still says project_number: "TBD"), it opens a DRAFT PR
+# pinning the real number into the caller workflows and docs/ai/PROJECT_CONFIG.md — automation
+# never pushes to the base branch directly; a human merges, same as every PR in this kit.
+#
+# "Done only once" is literal: every step is ensure-only, so after the config PR merges,
+# re-runs find nothing to do and exit green in seconds.
+#
+# Without the secret this SKIPS GREEN with a notice, not red — a repo that doesn't use
+# Projects loses nothing and sees no failing check. The default GITHUB_TOKEN cannot touch
+# Projects (v2), which is why the PAT is the one thing that stays a human's one-time action.
+#
+# The caller must grant `contents: write` and `pull-requests: write` (for the config PR).
+# See templates/.github/workflows/project-setup.yml.
+
+on:
+  workflow_call:
+    inputs:
+      project_owner:
+        description: "GitHub org/user that owns the Project. Empty = the repository owner."
+        type: string
+        default: ""
+      project_number:
+        description: "Existing Project (v2) number to adopt. \"TBD\"/empty = find by title or create."
+        type: string
+        default: "TBD"
+      project_title:
+        description: "Title used to find/create the Project when no number is set. Empty = \"<repo> Agent Board\"."
+        type: string
+        default: ""
+      base_branch:
+        description: "Branch the config PR targets. Empty = the repository's default branch."
+        type: string
+        default: ""
+      setup_script:
+        description: "Path (in the calling repo) to the setup script installed by github-kit."
+        type: string
+        default: "scripts/project/setup_github_project.sh"
+      open_config_pr:
+        description: "Open a draft PR pinning the resolved Project number into the caller files when it isn't pinned yet."
+        type: boolean
+        default: true
+    secrets:
+      project_token:
+        description: "PAT with the 'project' scope (AGENT_PROJECT_TOKEN). Optional — without it the job skips green with a notice."
+        required: false
+
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    # KIT_ACTIONS_PAUSED: caller-repo Actions variable that pauses all github-kit jobs so they
+    # consume no Actions minutes. See templates/docs/ai/AGENT_WORKFLOW.md.
+    if: vars.KIT_ACTIONS_PAUSED != 'true'
+    env:
+      PROJECT_TOKEN: ${{ secrets.project_token }}
+    steps:
+      - name: Check the one-time prerequisite
+        id: token
+        run: |
+          set -euo pipefail
+          if [ -z "$PROJECT_TOKEN" ]; then
+            echo "::notice::Project setup skipped: no AGENT_PROJECT_TOKEN secret. This is the single one-time human step automation cannot do — create a PAT with the 'project' scope, add it as the AGENT_PROJECT_TOKEN repository secret, then re-run this workflow (Actions → Project Setup → Run workflow). Everything after that is automatic."
+            echo "have_token=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "have_token=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v5
+        if: steps.token.outputs.have_token == 'true'
+
+      - name: Ensure the Project, its fields, and the repo link
+        id: ensure
+        if: steps.token.outputs.have_token == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.project_token }}
+        run: |
+          set -euo pipefail
+          if [ ! -f "${{ inputs.setup_script }}" ]; then
+            echo "::warning::${{ inputs.setup_script }} is missing — run /github_kit_update to install it."
+            exit 0
+          fi
+          args=( --apply --repo "$GITHUB_REPOSITORY" )
+          [ -n "${{ inputs.project_owner }}" ] && args+=( --owner "${{ inputs.project_owner }}" )
+          if [ -n "${{ inputs.project_number }}" ] && [ "${{ inputs.project_number }}" != "TBD" ]; then
+            args+=( --number "${{ inputs.project_number }}" )
+          fi
+          [ -n "${{ inputs.project_title }}" ] && args+=( --title "${{ inputs.project_title }}" )
+          bash "${{ inputs.setup_script }}" "${args[@]}"
+
+      # Only when the caller doesn't know its Project number yet: pin what the ensure step
+      # resolved into the files that carry it, via a draft PR. project-sync.yml and
+      # project-setup.yml are preserved by the updater once created (create-only, like
+      # pr-policy.yml), so the pinned values survive later /github_kit_update runs.
+      - name: Open the config PR pinning the Project number
+        if: >-
+          steps.token.outputs.have_token == 'true' &&
+          inputs.open_config_pr &&
+          (inputs.project_number == 'TBD' || inputs.project_number == '') &&
+          steps.ensure.outputs.project_number != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          P_OWNER: ${{ steps.ensure.outputs.project_owner }}
+          P_NUMBER: ${{ steps.ensure.outputs.project_number }}
+          P_TITLE: ${{ steps.ensure.outputs.project_title }}
+        run: |
+          set -euo pipefail
+          base='${{ inputs.base_branch }}'
+          [ -n "$base" ] || base='${{ github.event.repository.default_branch }}'
+          branch="agent/project-setup-config"
+
+          pin_yaml() { # $1 = caller workflow file: pin owner + number in place
+            [ -f "$1" ] || return 0
+            tmp="$(mktemp)"
+            sed -E \
+              -e "s|^([[:space:]]*project_owner:).*|\1 $P_OWNER|" \
+              -e "s|^([[:space:]]*project_number:).*|\1 \"$P_NUMBER\"|" \
+              "$1" > "$tmp" && mv "$tmp" "$1"
+          }
+          pin_yaml .github/workflows/project-sync.yml
+          pin_yaml .github/workflows/project-setup.yml
+
+          if [ -f docs/ai/PROJECT_CONFIG.md ]; then
+            tmp="$(mktemp)"
+            sed -E \
+              -e "s|^(\| GitHub Project name \|).*|\1 $P_TITLE \||" \
+              -e "s|^(\| GitHub Project owner \|).*|\1 $P_OWNER \||" \
+              -e "s|^(\| GitHub Project number \|).*|\1 $P_NUMBER \||" \
+              -e "s|^(\| Project Sync enabled \|).*|\1 \`true\` \||" \
+              docs/ai/PROJECT_CONFIG.md > "$tmp" && mv "$tmp" docs/ai/PROJECT_CONFIG.md
+          fi
+
+          if git diff --quiet; then
+            echo "Caller files already carry Project #$P_NUMBER — nothing to pin."
+            exit 0
+          fi
+
+          # Commit as github-actions[bot]: deployment providers refuse commits whose author
+          # resolves to no GitHub account, and an invented bot name is exactly that.
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -B "$branch"
+          git add .github/workflows/project-sync.yml .github/workflows/project-setup.yml docs/ai/PROJECT_CONFIG.md 2>/dev/null || true
+          git commit \
+            -m "chore(project): pin GitHub Project #$P_NUMBER into kit config" \
+            -m "Project '$P_TITLE' (#$P_NUMBER, owner $P_OWNER) was ensured by the project-setup workflow. This PR records its coordinates so Project Sync and the field-completeness gate know where to write. One-time: after this merges, setup re-runs are no-ops."
+          git push --force-with-lease origin "$branch"
+
+          existing_pr="$(gh pr list --head "$branch" --state open --json number --jq '.[0].number' || true)"
+          if [ -n "$existing_pr" ]; then
+            echo "Config PR #$existing_pr already open — branch updated in place."
+            exit 0
+          fi
+          gh pr create --draft --base "$base" --head "$branch" \
+            --title "chore(project): pin GitHub Project #$P_NUMBER into kit config" \
+            --body "$(printf '%s\n\n%s\n\n%s\n' \
+              "The project-setup workflow ensured GitHub Project **#$P_NUMBER** ('$P_TITLE', owner \`$P_OWNER\`) exists with every field and Status option the kit's checkpoints write, and linked it to this repository." \
+              "This PR pins those coordinates into \`.github/workflows/project-sync.yml\`, \`.github/workflows/project-setup.yml\`, and \`docs/ai/PROJECT_CONFIG.md\` so every agent and workflow writes to the same board. Merging it is the last setup step — after this, Project bookkeeping is automatic and setup re-runs are no-ops." \
+              "Automation opened this as a draft; a human merges it, like every PR in this kit.")"

@@ -75,7 +75,15 @@ done
 gh auth status >/dev/null 2>&1 || { echo "error: gh is not authenticated. Run 'gh auth login'." >&2; exit 1; }
 
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+# PROJECT_CONFIG.env is gitignored, so a linked worktree doesn't have it — fall back to the
+# main checkout's copy (the same anchor publish_agent_branch.sh uses). Without this, an agent
+# working in a worktree would silently treat the Project as unconfigured and stop updating the
+# board, while the same command from the main checkout works.
 ENV_FILE="$REPO_ROOT/docs/ai/PROJECT_CONFIG.env"
+if [ ! -f "$ENV_FILE" ]; then
+  GIT_COMMON_DIR="$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)"
+  [ -n "$GIT_COMMON_DIR" ] && ENV_FILE="$(dirname "$GIT_COMMON_DIR")/docs/ai/PROJECT_CONFIG.env"
+fi
 # shellcheck disable=SC1090
 [ -f "$ENV_FILE" ] && source "$ENV_FILE"
 
@@ -157,6 +165,16 @@ if [ "$SKIP_PROJECT" -ne 1 ] && [ -n "$AGENT_PROJECT_OWNER" ] && [ -n "$AGENT_PR
     "Agent=$AGENT_NAME,Area=$AREA,Risk=$RISK,Environment=$ENVIRONMENT,Agent Run=$AGENT_RUN" >&2
   if [ -n "$HANDOFF" ]; then
     "$REPO_ROOT/scripts/project/sync_project_fields.sh" handoff_updated "$ISSUE_URL" "$HANDOFF" >&2
+  fi
+  # In Projects (v2) the PR and its linked issue are DISTINCT items with independent field
+  # values, and the opt-in field-completeness gate (reusable-pr-policy.yml project-fields job)
+  # inspects the PR's own item — so the PR card gets the same fields, or the gate fails on a
+  # card whose issue twin is fully filled in.
+  "$REPO_ROOT/scripts/project/sync_project_fields.sh" pr_opened "$pr_url" "$pr_url" >&2
+  "$REPO_ROOT/scripts/project/sync_project_fields.sh" metadata "$pr_url" \
+    "Agent=$AGENT_NAME,Area=$AREA,Risk=$RISK,Environment=$ENVIRONMENT,Agent Run=$AGENT_RUN,Base Branch=$BASE,Branch=$HEAD" >&2
+  if [ -n "$HANDOFF" ]; then
+    "$REPO_ROOT/scripts/project/sync_project_fields.sh" handoff_updated "$pr_url" "$HANDOFF" >&2
   fi
 else
   echo "warning: Project not configured or --no-project passed — PR was not added to a Project." >&2
