@@ -6,10 +6,12 @@ surface: /<route the user lands on>
 receiving-code: <path to the file this replaces or extends, or "new">
 answers-prompt: <docs/ai/design-prompts/<file>.md, or "none">
 i18n-namespace: <messages namespace, if this repo is localized>
-approved-by:             # leave blank — written by the approval workflow from a GitHub review
-approved-on:             # leave blank — review timestamp, from the event payload
-approval-pr:             # leave blank — the spec PR the review was submitted on
-approval-review-id:      # leave blank — re-checked by scripts/design-handoffs/verify.mjs
+approved-by:             # leave blank — written by the approval workflow from the approving event
+approved-on:             # leave blank — event timestamp, from the payload
+approval-pr:             # leave blank — the spec PR the approval happened on
+approval-via:            # leave blank — "review" (Approve click) or "comment" (/approve-spec)
+approval-review-id:      # leave blank — set when approval-via is "review"
+approval-comment-id:     # leave blank — set when approval-via is "comment"
 issue:                   # filled by the coding agent
 pr:                      # filled by the coding agent on merge
 supersedes:              # id of an earlier entry, if any

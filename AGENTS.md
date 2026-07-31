@@ -86,3 +86,28 @@ report "CI didn't run"/"checks are missing"/"the PR is red". Validate locally in
 cross-references resolve, phrase lists still satisfied) and report that. This mirrors the rule the
 kit installs into target repos — `templates/AGENTS.md` → "CI expectations — don't chase checks" —
 so working here dogfoods it.
+
+## Migration notes
+
+### Spec approval by comment (`/approve-spec`)
+
+The design-handoff gate used to accept only an `APPROVED` review. GitHub never lets anyone approve
+their own PR, so on a **solo repo** — where an agent opens the spec PR with the owner's token — the
+Approve button is never offered and the gate could not fire at all. The gate now also accepts a PR
+comment whose first line is exactly `/approve-spec`, which the owner *can* post on their own PR.
+
+Additive on every surface: `reusable-design-handoff-approval.yml` gained `allow_comment_approval`
+(**default `false`** — an existing caller keeps review-only behaviour) and `comment_marker`;
+`stamp.mjs` still accepts `--review-id` and defaults `--via` to `review`; `verify.mjs` reads a spec
+with no `approval-via` key as `review`, so specs stamped before this change keep verifying. New
+front-matter keys are `approval-via` and `approval-comment-id`.
+
+**What a target repo must do to get it:** the reusable workflow auto-tracks `@main`, but the caller
+`.github/workflows/design-handoff-approval.yml` lives in the target repo and needs the
+`issue_comment` trigger plus `allow_comment_approval: true`. Until that file is refreshed — via
+`/github_kit_update` or the fan-out — comment approval will not fire there, with no error to
+explain why. Repos with a real second reviewer should instead keep `allow_comment_approval: false`,
+which preserves GitHub's structural guarantee that the PR author cannot be the approver.
+
+`verify.mjs` additionally re-checks that the approver holds write access, which it did not do
+before. A marker naming a login that has since lost write access now fails closed.

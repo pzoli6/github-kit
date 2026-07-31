@@ -3,10 +3,16 @@ name: Design handoff approval
 # Thin caller. The logic lives in github-kit and auto-tracks @main, so fixes to the
 # gate reach this repo on the next run without anyone re-installing anything.
 #
-# What it does: when a human submits an APPROVED review on a PR that touches a spec
-# file under spec_dir, it records who approved and when, in that file's front matter.
-# Nobody hand-edits YAML and nobody commits just to approve a scope — the click is
-# the approval.
+# What it does: when a human approves a PR that touches a spec file under spec_dir, it
+# records who approved and when, in that file's front matter. Nobody hand-edits YAML and
+# nobody commits just to approve a scope — the deliberate act is the approval.
+#
+# Two acts count, and a repo normally uses whichever one it can:
+#   * an APPROVED review — needs a second account, because GitHub never lets you approve
+#     your own PR; and
+#   * a PR comment whose first line is exactly `/approve-spec` — which you *can* post on
+#     your own PR, so a solo repo is not locked out of its own gate.
+# See docs/ai/design-handoffs/README.md → "Approving your own spec PR" for the trade-off.
 #
 # Paused (consuming no Actions minutes) while the repository Actions variable
 # KIT_ACTIONS_PAUSED is 'true'. See docs/ai/AGENT_WORKFLOW.md → "Actions budget and
@@ -15,6 +21,8 @@ name: Design handoff approval
 on:
   pull_request_review:
     types: [submitted]
+  issue_comment:
+    types: [created]
 
 # Required by the reusable workflow: contents:write to push the marker back to the
 # PR branch, pull-requests:read to list the PR's changed files. A reusable workflow
@@ -23,8 +31,10 @@ permissions:
   contents: write
   pull-requests: read
 
+# issue_comment payloads carry the PR number on `issue`, review payloads on
+# `pull_request`; taking whichever is set keeps both forms in one group per PR.
 concurrency:
-  group: design-approval-${{ github.event.pull_request.number }}
+  group: design-approval-${{ github.event.issue.number || github.event.pull_request.number }}
   cancel-in-progress: false
 
 jobs:
@@ -35,3 +45,8 @@ jobs:
       # is ignored, so approving a normal code PR does nothing here.
       spec_dir: docs/ai/design-handoffs
       stamp_script: scripts/design-handoffs/stamp.mjs
+      # Solo-friendly by default: one person can open a spec PR and approve it by comment.
+      # Set this to false on a repo with a second reviewer — the review form is stronger,
+      # because GitHub structurally prevents the PR author from being the approver.
+      allow_comment_approval: true
+      comment_marker: "/approve-spec"

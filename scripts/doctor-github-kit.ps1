@@ -232,6 +232,37 @@ if ($projectConfigDoc -match [regex]::Escape('Production-branch approval gate'))
 
 Write-Host ""
 
+# --- comment-form spec approval: lets a solo repo approve its own spec PR, which GitHub's ---------
+# no-self-approval rule otherwise makes impossible (see design-handoffs README, "Approving your ----
+# own spec PR") -----------------------------------------------------------------------------------
+
+$reusableDesignApproval = Get-Content -LiteralPath ".github/workflows/reusable-design-handoff-approval.yml" -Raw -ErrorAction SilentlyContinue
+if ($reusableDesignApproval -match 'allow_comment_approval' -and $reusableDesignApproval -match 'comment_marker') {
+    Write-Host "OK      reusable-design-handoff-approval.yml has the allow_comment_approval input and marker check"
+} else {
+    Write-Host "MISSING allow_comment_approval input / comment_marker in .github/workflows/reusable-design-handoff-approval.yml"
+    $script:Missing = 1
+}
+
+$callerDesignApproval = Get-Content -LiteralPath "templates/.github/workflows/design-handoff-approval.yml" -Raw -ErrorAction SilentlyContinue
+if ($callerDesignApproval -match 'allow_comment_approval:\s*true' -and $callerDesignApproval -match 'issue_comment') {
+    Write-Host "OK      templates/.github/workflows/design-handoff-approval.yml wires up allow_comment_approval + issue_comment"
+} else {
+    Write-Host "MISSING allow_comment_approval: true / issue_comment trigger in templates/.github/workflows/design-handoff-approval.yml"
+    $script:Missing = 1
+}
+
+$stampScript = Get-Content -LiteralPath "templates/scripts/design-handoffs/stamp.mjs" -Raw -ErrorAction SilentlyContinue
+$verifyScript = Get-Content -LiteralPath "templates/scripts/design-handoffs/verify.mjs" -Raw -ErrorAction SilentlyContinue
+if ($stampScript -match 'approval-comment-id' -and $verifyScript -match 'approval-comment-id') {
+    Write-Host "OK      stamp.mjs and verify.mjs both handle the comment approval form"
+} else {
+    Write-Host "MISSING approval-comment-id handling in templates/scripts/design-handoffs/{stamp,verify}.mjs"
+    $script:Missing = 1
+}
+
+Write-Host ""
+
 # --- require_gemini: wired into reusable-agent-workflow-verify.yml and the caller template --------
 # (see "Gemini agent identity support" -- GEMINI.md adapter) ---------------------------------------
 

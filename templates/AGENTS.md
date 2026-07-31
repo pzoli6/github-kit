@@ -123,18 +123,23 @@ marker, report the file as awaiting review and implement nothing; with it, the a
 the file's **Acceptance criteria** section and nothing beyond. Agents never write that marker on
 their own initiative — it is the human's signature.
 
-Prefer a marker that is **verifiable** rather than merely typed: derive it from a recorded
-`pull_request_review` (approve the spec PR, let automation transcribe reviewer, timestamp and
-review id) so a later agent can re-fetch and confirm it. A hand-typed field is one an agent could
-have typed too, and it makes approving a chore for no security gain.
+Prefer a marker that is **verifiable** rather than merely typed: derive it from an event GitHub
+already recorded on the spec PR, so a later agent can re-fetch and confirm it. A hand-typed field
+is one an agent could have typed too, and it makes approving a chore for no security gain. Two
+events qualify — an `APPROVED` review, or a comment whose first line is exactly `/approve-spec`.
+The review form is stronger, because GitHub refuses to let anyone approve their own PR; the comment
+form is the one a **solo repo** can actually use, since there the spec PR author and the approver
+are the same person and the Approve button is never offered.
 
 The kit ships this ready-made in `docs/ai/design-handoffs/` — see that folder's `README.md`.
 `.github/workflows/design-handoff-approval.yml` (a thin caller for a reusable workflow that
-auto-tracks `github-kit@main`) stamps the marker from an APPROVED review, and
+auto-tracks `github-kit@main`) stamps the marker from whichever event fired, and
 `scripts/design-handoffs/verify.mjs` re-checks it and fails closed. **Never write the marker
-yourself and never submit the approving review on a human's behalf** — `gh pr review --approve`
-run by an agent holding the human's token produces a marker that looks valid and guarantees
-nothing. If asked to approve a spec, say approval is a click the human makes, and link the PR.
+yourself, never submit the approving review, and never post the `/approve-spec` comment** — not
+even on a repo where the human is the only account. `gh pr review --approve` or `gh pr comment
+--body '/approve-spec'` run by an agent holding the human's token produces a marker that looks
+valid and guarantees nothing. GitHub blocks the first; only this rule blocks the second. If asked
+to approve a spec, say approval is an act the human performs, and link the PR.
 
 This is additive, not a replacement: `approve` remains the default gate for any
 task not invoked via `/github_kit`, and nothing else about the lifecycle below changes — same issue
