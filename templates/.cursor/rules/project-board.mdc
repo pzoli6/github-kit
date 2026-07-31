@@ -25,13 +25,17 @@ Done
 Cancelled
 ```
 
-The Project tracks these fields — keep the ones relevant to your current phase up to date, don't
-leave them stale:
+The Project tracks these agent-maintained fields — keep the ones relevant to your current phase
+up to date, don't leave them stale:
 
 ```text
-Status, Priority, Size, Estimate, Iteration, Start date, Target date, Agent, Area, Risk,
-Base Branch, Branch, PR URL, Last Agent Update, Handoff, Environment, Validation, Agent Run
+Status, Agent, Area, Risk, Base Branch, Branch, PR URL, Last Agent Update, Handoff,
+Environment, Validation, Agent Run
 ```
+
+`Priority`, `Size`, `Estimate`, `Iteration`, `Start date`, `Target date` are optional
+human-planning fields: no script writes them and agents never touch them — a blank one is not a
+gap to fill. See `docs/ai/PROJECT_SETUP.md` for how the board itself gets bootstrapped.
 
 Field vocabularies:
 

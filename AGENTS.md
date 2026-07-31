@@ -111,3 +111,48 @@ which preserves GitHub's structural guarantee that the PR author cannot be the a
 
 `verify.mjs` additionally re-checks that the approver holds write access, which it did not do
 before. A marker naming a login that has since lost write access now fails closed.
+
+### Automatic GitHub Project setup (project-setup workflow + setup script)
+
+The Project board a target repo needs (fields, Status options, repo link) used to be hand-built,
+and nothing verified it. Now `templates/scripts/project/setup_github_project.sh` carries the
+board contract as code (idempotent ensure/doctor modes, never renames or removes anything), and
+`reusable-project-setup.yml` + the caller `templates/.github/workflows/project-setup.yml` run it
+automatically: on merge of a kit update (or manual dispatch), with the `AGENT_PROJECT_TOKEN`
+secret present, the board is created/completed and a draft PR pins the resolved project number
+into the caller files and `PROJECT_CONFIG.md`. Without the secret the job skips green with a
+notice. `templates/docs/ai/PROJECT_SETUP.md` is the guide.
+
+**Behavior changes existing repos should know about:**
+
+- `update-github-kit.sh`/`.ps1` now treat `.github/workflows/project-sync.yml` as **create-only**
+  (like `pr-policy.yml`) instead of refreshing it. Refreshing used to reset a configured repo's
+  `project_number` back to `"TBD"` on every update, silently breaking Project Sync. Repos whose
+  sync config was clobbered by an earlier refresh get it restored by the project-setup config PR.
+- `create_agent_pr.sh` now writes the metadata fields (plus `Base Branch`/`Branch`) to the
+  **PR's own** Project item as well as the linked issue's — they are distinct items, and the
+  `check_project_fields` CI gate inspects the PR's item, which previously never received a
+  single field from any script.
+- All Project-touching scripts now fall back to the **main checkout's**
+  `docs/ai/PROJECT_CONFIG.env` when run from a linked worktree (where the gitignored file
+  doesn't exist). Previously an agent in a worktree silently behaved as if the Project were
+  unconfigured and stopped updating the board.
+- `templates/AGENTS.md` now splits the board schema into agent-maintained fields (scripted,
+  setup-created) and optional human planning fields (`Priority`, `Size`, `Estimate`,
+  `Iteration`, `Start date`, `Target date`) that no script writes — the old doc told agents to
+  keep fields updated that the toolchain cannot even set.
+- The resume procedure gained an explicit claim step: a resuming agent rewrites `Agent` on the
+  card (nothing else ever does), so `check_resume_safety.sh` stops comparing against a stale
+  name; the script now prints that reminder when it detects a takeover.
+
+### Checked-in Claude Code permissions (`.claude/settings.json`)
+
+Remote/web Claude Code sessions run in ephemeral containers, so personal `~/.claude` settings
+never persist — every session re-prompted for the same platform plumbing (Claude Code Remote MCP
+tools like `register_repo_root`), read-only GitHub MCP calls, and the kit's own scripts. The kit
+now ships `templates/.claude/settings.json`: a checked-in `permissions.allow` list covering
+exactly those, plus a `permissions.deny` that hard-blocks `mcp__github__merge_pull_request` and
+`mcp__github__enable_pr_auto_merge` — the kit's humans-merge rule enforced by the harness, not
+just by instruction. Create-only everywhere (installer, updater, and therefore fan-out): once a
+repo has the file, its customizations are never overwritten. Settings load at session start, so
+sessions opened before a repo's fan-out PR merged keep prompting until restarted.

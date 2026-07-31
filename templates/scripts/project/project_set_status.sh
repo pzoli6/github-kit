@@ -20,7 +20,15 @@ ITEM_URL="$1"
 STATUS="$2"
 
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+# PROJECT_CONFIG.env is gitignored, so a linked worktree doesn't have it — fall back to the
+# main checkout's copy (the same anchor publish_agent_branch.sh uses). Without this, an agent
+# working in a worktree would silently treat the Project as unconfigured and stop updating the
+# board, while the same command from the main checkout works.
 ENV_FILE="$REPO_ROOT/docs/ai/PROJECT_CONFIG.env"
+if [ ! -f "$ENV_FILE" ]; then
+  GIT_COMMON_DIR="$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)"
+  [ -n "$GIT_COMMON_DIR" ] && ENV_FILE="$(dirname "$GIT_COMMON_DIR")/docs/ai/PROJECT_CONFIG.env"
+fi
 # shellcheck disable=SC1090
 [ -f "$ENV_FILE" ] && source "$ENV_FILE"
 

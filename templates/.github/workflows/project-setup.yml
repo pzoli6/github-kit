@@ -1,0 +1,54 @@
+name: Project Setup
+
+# One-time (idempotent) GitHub Project bootstrap. Thin caller — the logic lives in github-kit
+# and auto-tracks @main; the field/status contract lives in this repo's
+# scripts/project/setup_github_project.sh.
+#
+# What it does, when the AGENT_PROJECT_TOKEN secret exists: ensures the Project board exists
+# with every field and Status option the kit writes, links it to this repo, and — if the
+# project_number below still says "TBD" — opens a draft PR pinning the real number into this
+# file, project-sync.yml, and docs/ai/PROJECT_CONFIG.md. Merge that PR and setup is complete;
+# every later run is a green no-op.
+#
+# Without the secret it skips green with a notice. That secret is the single one-time human
+# step: a PAT with the 'project' scope, saved as AGENT_PROJECT_TOKEN
+# (Settings → Secrets and variables → Actions). See docs/ai/PROJECT_SETUP.md.
+#
+# Triggers: merging a github-kit update that touches this file or the setup script (which is
+# how a fresh install bootstraps itself), or manual dispatch after adding the secret.
+# Paused while the repository Actions variable KIT_ACTIONS_PAUSED is 'true'.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, master, develop]
+    paths:
+      - '.github/workflows/project-setup.yml'
+      - 'scripts/project/setup_github_project.sh'
+
+# contents:write + pull-requests:write are for the one-time config PR only. The Project itself
+# is reached with AGENT_PROJECT_TOKEN — the default GITHUB_TOKEN cannot touch Projects (v2).
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: github-kit-project-setup
+  cancel-in-progress: false
+
+jobs:
+  setup:
+    uses: pzoli6/github-kit/.github/workflows/reusable-project-setup.yml@main
+    with:
+      # Empty owner = this repository's owner. Set explicitly for an org-owned board.
+      project_owner: ""
+      # "TBD" = find by title or create, then open the config PR that pins the number here.
+      # (The updater preserves this file once it exists, so the pinned value survives updates.)
+      project_number: "TBD"
+      # Empty = "<repo-name> Agent Board".
+      project_title: ""
+      # Branch the config PR targets. Empty = this repository's default branch. Set it to the
+      # kit base branch (e.g. develop) on repos with a develop/main split.
+      base_branch: ""
+    secrets:
+      project_token: ${{ secrets.AGENT_PROJECT_TOKEN }}

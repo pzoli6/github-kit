@@ -245,18 +245,15 @@ default `auto` makes it active while no real GitHub Project is configured), skip
 section and the status protocol above: there is no board to update, and the PR body's Validation
 section is the record instead. The rest of this section describes full (team) mode.
 
-The GitHub Project backing this repo is assumed to have these fields. Agents update the ones
+The GitHub Project backing this repo carries two kinds of fields, and the split matters:
+
+**Agent-maintained fields** — created by `scripts/project/setup_github_project.sh` (see
+`docs/ai/PROJECT_SETUP.md`) and written by the wrapper scripts below. Agents update the ones
 relevant to their current phase as they work — don't leave them stale once the underlying state
 has changed:
 
 ```text
 Status
-Priority
-Size
-Estimate
-Iteration
-Start date
-Target date
 Agent
 Area
 Risk
@@ -270,6 +267,12 @@ Validation
 Agent Run
 ```
 
+**Human planning fields** (optional) — `Priority`, `Size`, `Estimate`, `Iteration`,
+`Start date`, `Target date`. These belong to the humans running the board: no script writes
+them, no checkpoint covers them, and the toolchain can't even set some of their types
+(iteration/date fields). Agents never touch them and never treat a blank one as a gap to fill —
+if a repo doesn't add them to its board, nothing in this workflow misses them.
+
 Field value vocabularies:
 
 - **Validation**: `Not Run`, `Passed`, `Failed`, `Partial`, `Manual Required`, `Not Applicable`
@@ -282,11 +285,13 @@ keep values consistent with what's recorded in the issue/PR/handoff file:
 
 | When | Script | Fields it sets |
 |---|---|---|
+| Board bootstrap (once per repo) | `scripts/project/setup_github_project.sh --apply` | creates the Project, every agent-maintained field, every Status option, and the repo link — see `docs/ai/PROJECT_SETUP.md` |
 | Issue created | `scripts/project/create_agent_issue.sh --agent --area --risk --environment` | `Status` (Ready), `Agent`, `Area`, `Risk`, `Environment` |
 | Branch published | `scripts/project/publish_agent_branch.sh` | `Status` (In Progress), `Branch`, `Base Branch` |
 | Validation runs | `scripts/project/sync_project_fields.sh validation_*` | `Validation` |
 | Handoff written | `scripts/project/sync_project_fields.sh handoff_updated` | `Handoff`, `Last Agent Update` |
-| Draft PR opened | `scripts/project/create_agent_pr.sh --agent --area --risk --environment --agent-run --handoff` | `Status` (In Review), `PR URL`, `Agent`, `Area`, `Risk`, `Environment`, `Agent Run`, `Handoff` |
+| Resuming another agent's task | `scripts/project/sync_project_fields.sh metadata <url> "Agent=<name>"` | `Agent` (the claim — nothing else ever rewrites it) |
+| Draft PR opened | `scripts/project/create_agent_pr.sh --agent --area --risk --environment --agent-run --handoff` | `Status` (In Review), `PR URL`, `Agent`, `Area`, `Risk`, `Environment`, `Agent Run`, `Handoff` — on **both** the issue card and the PR's own card (they are distinct Project items) |
 
 Always pass `--agent`/`--area`/`--risk`/`--environment` explicitly to `create_agent_issue.sh` and
 `create_agent_pr.sh` — you know your own tool identity and the task's area/risk/environment; don't
@@ -310,11 +315,13 @@ lines marked optional (`Agent Run`, `Handoff`) map only when actually present in
 | Project metadata → Handoff | `Handoff` |
 | Validation → State | `Validation` |
 
-Automatic Project Sync (`.github/workflows/project-sync.yml`, which would update `Status` from
-PR/issue activity automatically) is **Phase 2** and is not installed by default — it only ever
-covered `Status`, never the metadata fields above, which are the wrapper scripts' job regardless
-of whether Project Sync is enabled. Check `docs/ai/PROJECT_CONFIG.md` for whether Project Sync is
-enabled in this repo before assuming `Status` updates happen automatically from PR activity.
+Automatic Project Sync (`.github/workflows/project-sync.yml`, which updates `Status` from
+PR/issue activity) is opt-in and only ever covers `Status` — never the metadata fields above,
+which are the wrapper scripts' job regardless of whether Project Sync is enabled. Check
+`docs/ai/PROJECT_CONFIG.md` for whether Project Sync is enabled in this repo before assuming
+`Status` updates happen automatically from PR activity. The board itself — Project, fields,
+Status options, repo link — is bootstrapped automatically by `.github/workflows/project-setup.yml`
+once the `AGENT_PROJECT_TOKEN` secret exists; `docs/ai/PROJECT_SETUP.md` is the full guide.
 
 The `status:`/`type:`/`risk:` labels created by `scripts/project/create_standard_labels.sh` are an
 optional convenience for filtering issues/PRs — their absence must never block creating an issue,

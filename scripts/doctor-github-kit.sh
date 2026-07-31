@@ -33,7 +33,7 @@ check_phrase() {
 
 # --- required reusable workflows --------------------------------------------
 
-for wf in reusable-agent-workflow-verify reusable-ci-node reusable-ci-python reusable-pr-policy reusable-project-sync; do
+for wf in reusable-agent-workflow-verify reusable-ci-node reusable-ci-python reusable-pr-policy reusable-project-sync reusable-project-setup reusable-design-handoff-approval; do
   check_file ".github/workflows/$wf.yml"
 done
 
@@ -57,12 +57,14 @@ check_file "templates/docs/ai/AGENT_WORKFLOW.md"
 check_file "templates/docs/ai/HANDOFF_INDEX.md"
 check_file "templates/docs/ai/PROJECT_CONFIG.md"
 check_file "templates/docs/ai/PROJECT_CONFIG.env.example"
+check_file "templates/docs/ai/PROJECT_SETUP.md"
 check_file "templates/docs/ai/handoffs/.gitkeep"
 check_file "templates/.agents/skills/issue-to-pr-project/SKILL.md"
 check_file "templates/.claude/skills/issue-to-pr-project/SKILL.md"
 check_file "templates/.agents/skills/github_kit/SKILL.md"
 check_file "templates/.claude/skills/github_kit/SKILL.md"
 check_file "templates/.claude/commands/github_kit.md"
+check_file "templates/.claude/settings.json"
 check_file "templates/.cursor/rules/agent-workflow.mdc"
 check_file "templates/.cursor/rules/git-safety.mdc"
 check_file "templates/.cursor/rules/project-board.mdc"
@@ -78,6 +80,8 @@ check_file "templates/scripts/project/sync_project_fields.sh"
 check_file "templates/scripts/project/create_agent_pr.sh"
 check_file "templates/scripts/project/check_resume_safety.sh"
 check_file "templates/scripts/project/post_handoff_comment.sh"
+check_file "templates/scripts/project/setup_github_project.sh"
+check_file "templates/.github/workflows/project-setup.yml"
 check_file "templates/scripts/project/cleanup_merged_branches.sh"
 check_file "templates/.github/workflows/agent-workflow-verify.yml"
 check_file "templates/.github/workflows/pr-policy.yml"
@@ -212,6 +216,62 @@ if grep -Fq 'Production-branch approval gate' templates/docs/ai/PROJECT_CONFIG.m
   echo "OK      templates/docs/ai/PROJECT_CONFIG.md documents the Production-branch approval gate"
 else
   echo "MISSING \"Production-branch approval gate\" section in templates/docs/ai/PROJECT_CONFIG.md"
+  missing=1
+fi
+
+echo
+
+# --- checked-in Claude Code permissions: kills routine permission prompts in remote sessions -----
+# while hard-denying MCP-based PR merging (humans merge — see templates/.claude/settings.json) ----
+
+if python3 -c "import json,sys; d=json.load(open('templates/.claude/settings.json')); sys.exit(0 if 'mcp__github__merge_pull_request' in d.get('permissions',{}).get('deny',[]) else 1)" 2>/dev/null; then
+  echo "OK      templates/.claude/settings.json is valid JSON and denies MCP PR merging"
+else
+  echo "MISSING templates/.claude/settings.json invalid or no longer denies mcp__github__merge_pull_request"
+  missing=1
+fi
+
+if grep -q '.claude/settings.json' scripts/install-github-kit.sh 2>/dev/null \
+    && grep -q '.claude/settings.json' scripts/update-github-kit.sh 2>/dev/null; then
+  echo "OK      installers wire up .claude/settings.json (create-only)"
+else
+  echo "MISSING .claude/settings.json wiring in scripts/install-github-kit.sh / update-github-kit.sh"
+  missing=1
+fi
+
+echo
+
+# --- automatic Project setup: the board is bootstrapped by a workflow + script, and the caller ----
+# files that carry a pinned project_number are preserved by the updaters (see PROJECT_SETUP.md) ----
+
+if grep -q 'open_config_pr' .github/workflows/reusable-project-setup.yml 2>/dev/null \
+    && grep -q 'setup_script' .github/workflows/reusable-project-setup.yml 2>/dev/null; then
+  echo "OK      reusable-project-setup.yml has the setup_script and open_config_pr inputs"
+else
+  echo "MISSING setup_script / open_config_pr inputs in .github/workflows/reusable-project-setup.yml"
+  missing=1
+fi
+
+if grep -q 'AGENT_PROJECT_TOKEN' templates/.github/workflows/project-setup.yml 2>/dev/null; then
+  echo "OK      templates/.github/workflows/project-setup.yml wires up AGENT_PROJECT_TOKEN"
+else
+  echo "MISSING AGENT_PROJECT_TOKEN wiring in templates/.github/workflows/project-setup.yml"
+  missing=1
+fi
+
+if grep -q 'REQUIRED_TEXT_FIELDS' templates/scripts/project/setup_github_project.sh 2>/dev/null \
+    && grep -q 'REQUIRED_STATUSES' templates/scripts/project/setup_github_project.sh 2>/dev/null; then
+  echo "OK      setup_github_project.sh carries the board contract (REQUIRED_TEXT_FIELDS / REQUIRED_STATUSES)"
+else
+  echo "MISSING REQUIRED_TEXT_FIELDS / REQUIRED_STATUSES contract in templates/scripts/project/setup_github_project.sh"
+  missing=1
+fi
+
+if grep -q 'create_only_workflow "$TEMPLATES/.github/workflows/project-sync.yml"' scripts/update-github-kit.sh 2>/dev/null \
+    && grep -q 'CreateOnly-Workflow (Join-Path $Templates ".github/workflows/project-sync.yml")' scripts/update-github-kit.ps1 2>/dev/null; then
+  echo "OK      updaters preserve project-sync.yml once created (no more TBD reset on refresh)"
+else
+  echo "MISSING create-only handling for project-sync.yml in scripts/update-github-kit.sh/.ps1 — refreshing it resets a configured project_number to TBD"
   missing=1
 fi
 

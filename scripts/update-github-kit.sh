@@ -272,6 +272,7 @@ fi
 refresh "$TEMPLATES/docs/ai/PROJECT_CONFIG.env.example" "docs/ai/PROJECT_CONFIG.env.example"
 refresh "$TEMPLATES/docs/ai/AGENT_WORKFLOW.md" "docs/ai/AGENT_WORKFLOW.md"
 refresh "$TEMPLATES/docs/ai/HANDOFF_INDEX.md" "docs/ai/HANDOFF_INDEX.md"
+refresh "$TEMPLATES/docs/ai/PROJECT_SETUP.md" "docs/ai/PROJECT_SETUP.md"
 mkdir -p "docs/ai/handoffs"
 [ -e "docs/ai/handoffs/.gitkeep" ] || refresh "$TEMPLATES/docs/ai/handoffs/.gitkeep" "docs/ai/handoffs/.gitkeep"
 
@@ -307,12 +308,21 @@ done
 # pr-policy.yml holds this repo's base-branch gate — preserve it if it already exists (see above).
 create_only_workflow "$TEMPLATES/.github/workflows/pr-policy.yml" ".github/workflows/pr-policy.yml"
 
+# project-sync.yml carries repo-specific inputs (project_owner, project_number) exactly like
+# pr-policy.yml carries the base-branch gate — refreshing it from the template used to reset a
+# configured repo's project_number back to "TBD" on every update, silently breaking Project Sync
+# until someone noticed the board had stopped moving. Preserve it once created.
 if [ "$INCLUDE_PROJECT_SYNC" -eq 1 ] || [ -e ".github/workflows/project-sync.yml" ]; then
-  refresh_workflow "$TEMPLATES/.github/workflows/project-sync.yml" ".github/workflows/project-sync.yml"
+  create_only_workflow "$TEMPLATES/.github/workflows/project-sync.yml" ".github/workflows/project-sync.yml"
 else
   echo "skip (default):  .github/workflows/project-sync.yml (pass --include-project-sync to install it)"
   SKIPPED_COUNT=$((SKIPPED_COUNT + 1))
 fi
+
+# project-setup.yml is installed unconditionally: without an AGENT_PROJECT_TOKEN secret it skips
+# green with a notice, so a repo that never uses Projects loses nothing. Once its config PR has
+# pinned a real project_number into it, it is repo-specific — preserved like pr-policy.yml.
+create_only_workflow "$TEMPLATES/.github/workflows/project-setup.yml" ".github/workflows/project-setup.yml"
 
 # --- .agents / .claude / .cursor ------------------------------------------
 
@@ -321,6 +331,17 @@ refresh "$TEMPLATES/.claude/skills/issue-to-pr-project/SKILL.md" ".claude/skills
 refresh "$TEMPLATES/.agents/skills/github_kit/SKILL.md" ".agents/skills/github_kit/SKILL.md"
 refresh "$TEMPLATES/.claude/skills/github_kit/SKILL.md" ".claude/skills/github_kit/SKILL.md"
 refresh "$TEMPLATES/.claude/commands/github_kit.md" ".claude/commands/github_kit.md"
+# .claude/settings.json carries repo-specific permission customizations once present — created
+# if missing, never refreshed (same rationale as PROJECT_CONFIG.md and pr-policy.yml).
+if [ -e ".claude/settings.json" ]; then
+  echo "skip (repo-specific, preserved): .claude/settings.json"
+  SKIPPED_COUNT=$((SKIPPED_COUNT + 1))
+else
+  mkdir -p ".claude"
+  cp "$TEMPLATES/.claude/settings.json" ".claude/settings.json"
+  echo "created:         .claude/settings.json"
+  CREATED_COUNT=$((CREATED_COUNT + 1))
+fi
 refresh "$TEMPLATES/.agents/skills/github_kit_update/SKILL.md" ".agents/skills/github_kit_update/SKILL.md"
 refresh "$TEMPLATES/.claude/skills/github_kit_update/SKILL.md" ".claude/skills/github_kit_update/SKILL.md"
 
@@ -342,7 +363,7 @@ fi
 
 for script in project_add_item project_set_status project_set_text verify_agent_workflow create_standard_labels \
               create_agent_issue publish_agent_branch sync_project_fields create_agent_pr \
-              check_resume_safety post_handoff_comment cleanup_merged_branches; do
+              check_resume_safety post_handoff_comment cleanup_merged_branches setup_github_project; do
   refresh "$TEMPLATES/scripts/project/$script.sh" "scripts/project/$script.sh"
   chmod +x "scripts/project/$script.sh" 2>/dev/null || true
 done
