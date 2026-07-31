@@ -125,8 +125,13 @@ jobs:
         run: |
           set -euo pipefail
           cd target
-          git config user.name "github-kit-bot"
-          git config user.email "github-kit-bot@users.noreply.github.com"
+          # Commit as github-actions[bot], NOT an invented "github-kit-bot" identity. Deployment
+          # providers verify that a commit author resolves to a real GitHub account before they
+          # will build: Vercel reports "GitHub couldn't verify an account for the commit" and marks
+          # the check failed. github-kit-bot@users.noreply.github.com belongs to no account, so
+          # every fan-out PR arrived with a red deploy check. This address is the real Actions bot.
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
           # Stage only github-kit-owned paths (the update script only ever writes these). This
           # honours the "never git add -A" rule while still capturing everything the updater changed.
