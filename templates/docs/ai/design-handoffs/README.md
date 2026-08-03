@@ -179,3 +179,80 @@ the design tool**. Concretely:
 
 Repo-specific guardrails (i18n rules, design-token rules, domain constraints) belong in this repo's
 `AGENTS.md`, not restated here — this file is installed by `github-kit` and refreshed from it.
+
+---
+
+## The sync loop — when a design tool reads this repo directly
+
+Some design tools (Claude Design among them) connect to GitHub and read a repository as context.
+That integration is **read-only**: the tool can read every file you point it at, but its only
+write path is its export bundle. Run that loop naively and it fails in three specific ways —
+each observed in practice, each with a rule here that prevents it.
+
+`DESIGN_SYNC.md` in this folder is the loop's anchor: the tool's reading list, the sync state,
+and the paste-in prompt live there. This section is the protocol behind it.
+
+### Rule 1 — diff by commit, not by count
+
+A design tool with no recorded baseline can only say "the repo grew from 2067 files to 2132" —
+a heuristic that cannot name a single changed file. `DESIGN_SYNC.md`'s front matter records
+`last-synced-commit`, written only by `apply-answers.mjs` when a round lands. The next round's
+change set is then exact:
+
+```bash
+git log --name-only <last-synced-commit>..HEAD -- <the listed paths>
+```
+
+### Rule 2 — unreadable is not absent
+
+Design tools read files through a bounded window; a file past it fails to read, and that failure
+surfaces indistinguishably from the file not existing. The reading list in `DESIGN_SYNC.md` marks
+such files `no — too large`, so the tool skips them knowingly instead of reporting them missing —
+and a coding agent told a flagged file is "missing" checks the tree before acting on it.
+**"Could not read" must never become "does not exist"** on either side of the loop.
+
+### Rule 3 — the bundle writes back through one door
+
+Feedback entries live in the file `DESIGN_SYNC.md` names as `feedback-file`, one section per
+entry: a heading starting with the entry id, a `- **status:** open` line, new entries grouped
+under `## Round <N> — synced <short-sha>` headers. When a design round resolves entries or
+answers open decisions, transcribing that by hand is how the two copies fork — the repo keeps
+saying `open` about things design already settled.
+
+So the bundle carries the answers as an artifact, and one script applies it:
+
+```json
+{
+  "format": "design-sync-answers/v1",
+  "synced-commit": "<full SHA the tool read>",
+  "round": 3,
+  "generated-on": "2026-08-03T00:00:00Z",
+  "entries": [
+    { "id": "DF-042", "status": "resolved-in-design",
+      "resolution": "Empty state now uses the token ramp from DF-037" }
+  ],
+  "decisions": [
+    { "id": "nav-placement", "answer": "Guardrails lands under Security, not a top-level tab" }
+  ]
+}
+```
+
+```bash
+node scripts/design-handoffs/apply-answers.mjs design-sync-answers.json
+```
+
+The script validates everything against the current tree first and applies all of it or none of
+it: entry statuses flip (allowed: `answered`, `resolved-in-design`, `declined`, `superseded` —
+reopening is a human act in the repo, never a bundle's), a generated resolution line lands under
+each status, decisions append to `DESIGN_SYNC.md`'s Decision log, and the front-matter state
+advances. It refuses an unknown entry id, an ambiguous one, a SHA this repo doesn't have, and a
+round already applied. An answer merely restating what an earlier round already recorded counts
+as current instead of re-appending — design tools export full state, not deltas, so an unedited
+bundle is always safe to apply. `--dry-run` shows the plan.
+
+**Nobody hand-edits what the script writes** — a status line, a resolution line, a decision-log
+line, or the sync state. A record a human types is one an agent can type too, which is the same
+reason approval markers are stamped from GitHub events rather than written by hand. And to keep
+the two status systems distinct: feedback statuses are bookkeeping about design conversation;
+they have nothing to do with a spec's `status: approved`, which remains exclusively the approval
+workflow's to write.

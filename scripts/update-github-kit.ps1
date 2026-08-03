@@ -25,7 +25,8 @@
 
 .PARAMETER IncludeProjectSync
   Also create .github/workflows/project-sync.yml if it doesn't exist yet. If it already
-  exists, it is always refreshed regardless of this flag.
+  exists it is preserved as-is (create-only — it carries the repo's project_number), and
+  this switch changes nothing.
 
 .PARAMETER Ref
   Git ref used in caller workflows' uses: lines when referencing pzoli6/github-kit reusable
@@ -350,10 +351,15 @@ if (Test-Path -LiteralPath ".claude/skills") {
 New-Item -ItemType Directory -Force "docs/ai/design-handoffs" | Out-Null
 Refresh-File (Join-Path $Templates "docs/ai/design-handoffs/README.md") "docs/ai/design-handoffs/README.md"
 Refresh-File (Join-Path $Templates "docs/ai/design-handoffs/_TEMPLATE.md") "docs/ai/design-handoffs/_TEMPLATE.md"
+# DESIGN_SYNC.md is the repo's own sync state (last-synced commit, round counter) — created if
+# absent, never refreshed, or a kit update would reset the repo's sync record.
+if (-not (Test-Path -LiteralPath "docs/ai/design-handoffs/DESIGN_SYNC.md")) {
+    Refresh-File (Join-Path $Templates "docs/ai/design-handoffs/DESIGN_SYNC.md") "docs/ai/design-handoffs/DESIGN_SYNC.md"
+}
 
 # --- scripts/design-handoffs/ ------------------------------------------
 
-foreach ($script in @("stamp", "verify")) {
+foreach ($script in @("stamp", "verify", "apply-answers")) {
     Refresh-File (Join-Path $Templates "scripts/design-handoffs/$script.mjs") "scripts/design-handoffs/$script.mjs"
 }
 

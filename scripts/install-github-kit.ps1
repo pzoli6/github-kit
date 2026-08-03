@@ -6,7 +6,8 @@
 .DESCRIPTION
   Safe by default:
     - never overwrites AGENTS.md/CLAUDE.md/GEMINI.md content outside the managed block
-    - never overwrites docs/ai/PROJECT_CONFIG.md or an existing PR/issue template
+    - never overwrites docs/ai/PROJECT_CONFIG.md, docs/ai/design-handoffs/DESIGN_SYNC.md (repo
+      sync state), or an existing PR/issue template
     - everything else is created only if missing, unless -Mode force is passed
 
 .PARAMETER Target
@@ -338,10 +339,13 @@ if (Test-Path -LiteralPath ".claude/skills") {
 New-Item -ItemType Directory -Force "docs/ai/design-handoffs" | Out-Null
 Copy-IfMissing (Join-Path $Templates "docs/ai/design-handoffs/README.md") "docs/ai/design-handoffs/README.md"
 Copy-IfMissing (Join-Path $Templates "docs/ai/design-handoffs/_TEMPLATE.md") "docs/ai/design-handoffs/_TEMPLATE.md"
+# DESIGN_SYNC.md is repo state (last-synced commit, round counter, reading list, decision log) —
+# create-only even in -Mode force, or a reinstall would reset the sync record and replay guard.
+Copy-CreateOnly (Join-Path $Templates "docs/ai/design-handoffs/DESIGN_SYNC.md") "docs/ai/design-handoffs/DESIGN_SYNC.md"
 
 # --- scripts/design-handoffs/ ------------------------------------------
 
-foreach ($script in @("stamp", "verify")) {
+foreach ($script in @("stamp", "verify", "apply-answers")) {
     Copy-IfMissing (Join-Path $Templates "scripts/design-handoffs/$script.mjs") "scripts/design-handoffs/$script.mjs"
 }
 

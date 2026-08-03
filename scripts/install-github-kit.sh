@@ -45,6 +45,8 @@ Usage: install-github-kit.sh [--target <path>] [--mode merge|force] [--allow-dir
 
   Regardless of mode, this script NEVER overwrites:
     - docs/ai/PROJECT_CONFIG.md (repo-specific, edit it yourself)
+    - docs/ai/design-handoffs/DESIGN_SYNC.md (repo sync state: last-synced commit, round counter,
+      reading list, decision log), if it already exists
     - .github/workflows/pr-policy.yml (repo-specific required_base_branch gate), if it already exists
     - .github/ISSUE_TEMPLATE/agent_task.yml or .github/PULL_REQUEST_TEMPLATE.md, if they already
       exist (they may already contain repo-specific customization)
@@ -353,10 +355,13 @@ fi
 mkdir -p "docs/ai/design-handoffs"
 copy_if_missing "$TEMPLATES/docs/ai/design-handoffs/README.md" "docs/ai/design-handoffs/README.md"
 copy_if_missing "$TEMPLATES/docs/ai/design-handoffs/_TEMPLATE.md" "docs/ai/design-handoffs/_TEMPLATE.md"
+# DESIGN_SYNC.md is repo state (last-synced commit, round counter, reading list, decision log) —
+# create-only even in --mode force, or a reinstall would reset the sync record and replay guard.
+copy_create_only "$TEMPLATES/docs/ai/design-handoffs/DESIGN_SYNC.md" "docs/ai/design-handoffs/DESIGN_SYNC.md"
 
 # --- scripts/design-handoffs/ ------------------------------------------
 
-for script in stamp verify; do
+for script in stamp verify apply-answers; do
   copy_if_missing "$TEMPLATES/scripts/design-handoffs/$script.mjs" "scripts/design-handoffs/$script.mjs"
 done
 

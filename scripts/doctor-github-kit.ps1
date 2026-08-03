@@ -329,6 +329,16 @@ if ($stampScript -match 'approval-comment-id' -and $verifyScript -match 'approva
     $script:Missing = 1
 }
 
+# The install/update scripts hard-depend on both design-sync payload files existing; a missing
+# one aborts an installer mid-run in a target repo, so catch it before tagging.
+$applyScript = Get-Content -LiteralPath "templates/scripts/design-handoffs/apply-answers.mjs" -Raw -ErrorAction SilentlyContinue
+if ($applyScript -match 'design-sync-answers/v1' -and (Test-Path -LiteralPath "templates/docs/ai/design-handoffs/DESIGN_SYNC.md")) {
+    Write-Host "OK      apply-answers.mjs + DESIGN_SYNC.md ship the design-sync loop"
+} else {
+    Write-Host "MISSING design-sync loop payload (apply-answers.mjs with the design-sync-answers/v1 marker, DESIGN_SYNC.md)"
+    $script:Missing = 1
+}
+
 Write-Host ""
 
 # --- require_gemini: wired into reusable-agent-workflow-verify.yml and the caller template --------

@@ -305,6 +305,16 @@ else
   missing=1
 fi
 
+# The install/update scripts hard-depend on both design-sync payload files existing; a missing
+# one aborts an installer mid-run in a target repo, so catch it before tagging.
+if grep -q 'design-sync-answers/v1' templates/scripts/design-handoffs/apply-answers.mjs 2>/dev/null \
+    && [ -e templates/docs/ai/design-handoffs/DESIGN_SYNC.md ]; then
+  echo "OK      apply-answers.mjs + DESIGN_SYNC.md ship the design-sync loop"
+else
+  echo "MISSING design-sync loop payload (templates/scripts/design-handoffs/apply-answers.mjs with the design-sync-answers/v1 marker, templates/docs/ai/design-handoffs/DESIGN_SYNC.md)"
+  missing=1
+fi
+
 echo
 
 # --- require_gemini: wired into reusable-agent-workflow-verify.yml and the caller template --------
