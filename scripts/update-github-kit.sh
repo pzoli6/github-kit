@@ -33,7 +33,8 @@ Usage: update-github-kit.sh [--target <path>] [--force-config] [--allow-dirty]
   --allow-dirty             Proceed even if the target repo has uncommitted changes
                              (default: refuse and ask you to commit/stash first).
   --include-project-sync    Also create .github/workflows/project-sync.yml if it doesn't exist yet.
-                             If it already exists, it is always refreshed regardless of this flag.
+                             If it already exists it is preserved as-is (create-only — it carries the
+                             repo's project_number), and this flag changes nothing.
   --ref <ref>               Git ref used in caller workflows' uses: lines when referencing
                              pzoli6/github-kit reusable workflows. Default: main, the
                              always-latest channel — most repos should leave this alone and let
@@ -278,10 +279,13 @@ mkdir -p "docs/ai/handoffs"
 
 # design-handoffs/ holds Design -> Code specs plus the protocol that governs them. README and
 # _TEMPLATE are kit-owned and always refreshed; the spec files themselves are the repo's own
-# content and are never touched.
+# content and are never touched. DESIGN_SYNC.md is the repo's own sync state (last-synced
+# commit, round counter) — created if absent, never refreshed: refreshing would reset a repo's
+# sync record the same way refreshing project-sync.yml used to reset its project_number.
 mkdir -p "docs/ai/design-handoffs"
 refresh "$TEMPLATES/docs/ai/design-handoffs/README.md" "docs/ai/design-handoffs/README.md"
 refresh "$TEMPLATES/docs/ai/design-handoffs/_TEMPLATE.md" "docs/ai/design-handoffs/_TEMPLATE.md"
+[ -e "docs/ai/design-handoffs/DESIGN_SYNC.md" ] || refresh "$TEMPLATES/docs/ai/design-handoffs/DESIGN_SYNC.md" "docs/ai/design-handoffs/DESIGN_SYNC.md"
 
 # --- .github/ (issue/PR templates are never auto-overwritten) -------------
 
@@ -371,8 +375,9 @@ done
 # --- scripts/design-handoffs/ -----------------------------------------
 
 # stamp.mjs is run by .github/workflows/design-handoff-approval.yml; verify.mjs is run by agents
-# before implementing a spec. Node, not bash, so they work identically on Windows without jq.
-for script in stamp verify; do
+# before implementing a spec; apply-answers.mjs writes a design tool's exported answers back into
+# the repo. Node, not bash, so they work identically on Windows without jq.
+for script in stamp verify apply-answers; do
   refresh "$TEMPLATES/scripts/design-handoffs/$script.mjs" "scripts/design-handoffs/$script.mjs"
 done
 

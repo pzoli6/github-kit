@@ -156,3 +156,24 @@ exactly those, plus a `permissions.deny` that hard-blocks `mcp__github__merge_pu
 just by instruction. Create-only everywhere (installer, updater, and therefore fan-out): once a
 repo has the file, its customizations are never overwritten. Settings load at session start, so
 sessions opened before a repo's fan-out PR merged keep prompting until restarted.
+
+### Design-sync loop (`DESIGN_SYNC.md` + `apply-answers.mjs`)
+
+Design tools that read a repo directly (Claude Design and its kin) have a read-only GitHub
+integration — their only write path is the export bundle. Run naively, that loop fails three
+ways: the tool diffs by file count instead of by commit, a too-large file it cannot read gets
+reported as missing, and the statuses it resolves in its bundle fork from the statuses in the
+repo because write-back is hand transcription. The kit now ships the protocol that closes all
+three: `templates/docs/ai/design-handoffs/DESIGN_SYNC.md` (the tool's reading list, the
+last-synced commit, large-file flags, the paste-in sync prompt) and
+`templates/scripts/design-handoffs/apply-answers.mjs` (sole writer of the bundle's
+`design-sync-answers/v1` JSON into the repo — status flips, resolution lines, decision log, sync
+state; fails closed, all-or-nothing, replay-guarded). Spec: design-handoffs `README.md` → "The
+sync loop".
+
+Fully additive — no existing input, phrase, or CLI flag changed. `DESIGN_SYNC.md` carries
+repo-specific *state* (last-synced commit, round counter), so installers copy it if missing and
+`update-github-kit.sh`/`.ps1` treat it as **create-only**, exactly like `project-sync.yml` after
+its project_number-reset lesson. `apply-answers.mjs` refreshes like `stamp.mjs`/`verify.mjs`. A
+repo that pairs with no design tool gets the files inert and loses nothing; a repo that does
+pairs the loop by filling `DESIGN_SYNC.md`'s reading list and feedback-file key.

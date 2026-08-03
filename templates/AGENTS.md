@@ -141,6 +141,17 @@ even on a repo where the human is the only account. `gh pr review --approve` or 
 valid and guarantees nothing. GitHub blocks the first; only this rule blocks the second. If asked
 to approve a spec, say approval is an act the human performs, and link the PR.
 
+The same folder also anchors the **design-sync loop**, for repos where a design tool reads the
+repository directly through its (read-only) GitHub integration:
+`docs/ai/design-handoffs/DESIGN_SYNC.md` is the tool's reading list plus the record of the commit
+it last read, and `scripts/design-handoffs/apply-answers.mjs` is the only thing that writes the
+tool's exported answers back into the repo. **Never hand-edit a feedback entry's status line, a
+resolution line, the decision log, or the sync state in the front matter** (`last-synced-commit`,
+`last-round`, `last-synced-on` — the `feedback-file` key is the one a human sets, once) — those
+come from the answers file
+in the tool's export bundle, through that script, for the same reason approval markers are stamped
+from events rather than typed. See the folder `README.md` → "The sync loop".
+
 This is additive, not a replacement: `approve` remains the default gate for any
 task not invoked via `/github_kit`, and nothing else about the lifecycle below changes — same issue
 template, same Project tracking, same draft-PR-only rule, same human-merges-only rule. See
