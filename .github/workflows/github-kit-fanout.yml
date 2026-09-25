@@ -11,7 +11,19 @@ name: github-kit fan-out (propagate bootstrap updates)
 # This workflow makes that automatic. On every push to main that changes template/script content
 # (plus a weekly safety net, plus manual dispatch), it refreshes each target repo listed in
 # .github/fanout-targets.json from github-kit@main and opens a DRAFT PR whenever anything drifted.
-# It never merges, never touches docs/ai/PROJECT_CONFIG.md, and never force-pushes.
+# It never merges, never overwrites an existing docs/ai/PROJECT_CONFIG.md (only an explicit
+# "install": true creates the template one), and never force-pushes. Its PRs change
+# .github/workflows/*, which the kit's auto-merge.yml can merge only when the target has an
+# AUTOMERGE_TOKEN with the workflow permission (GitHub refuses workflow-file merges from
+# GITHUB_TOKEN) -- otherwise the owner merges them by hand. The fan-out itself only opens drafts.
+#
+# Per-target entry: { "repo": "owner/name", "base": "<branch>", "install": true }
+#   base    optional -- the branch the draft PR targets; omitted = the repo's default branch,
+#           resolved at run time (gh api repos/<repo> .default_branch).
+#   install optional, default false -- a target WITHOUT the kit installed (no
+#           docs/ai/PROJECT_CONFIG.md at the base branch) is skipped with a visible log line
+#           and no PR. Only "install": true makes fan-out run the full installer there; the kit
+#           is never silently installed into a repo that never had it.
 #
 # Requires one repository secret in github-kit: FANOUT_TOKEN
 #
@@ -90,6 +102,7 @@ jobs:
           FANOUT_TOKEN: ${{ secrets.FANOUT_TOKEN }}
         shell: bash
         run: |
+          # Read through env and tested for emptiness only — the value is never echoed.
           if [ -z "${FANOUT_TOKEN:-}" ]; then
             echo "::error::FANOUT_TOKEN secret is not set in github-kit. Create a CLASSIC PAT with BOTH the repo and workflow scopes (workflow is required because fan-out updates .github/workflows/*.yml in targets) and add it as this secret. See docs/OWNER_SETUP.md."
             exit 1
@@ -100,27 +113,79 @@ jobs:
         with:
           path: github-kit
 
+      - name: Resolve target base branch (${{ matrix.repo }})
+        id: base
+        env:
+          GH_TOKEN: ${{ secrets.FANOUT_TOKEN }}
+          TARGET_REPO: ${{ matrix.repo }}
+          TARGET_BASE: ${{ matrix.base }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -n "${TARGET_BASE:-}" ]; then
+            echo "Base branch for ${TARGET_REPO}: ${TARGET_BASE} (from fanout-targets.json)."
+          else
+            # `|| true` so a 403/404 reaches the explicit error below instead of aborting the step
+            # under `set -e` with only gh's own message.
+            TARGET_BASE="$(gh api "repos/${TARGET_REPO}" --jq '.default_branch' || true)"
+            if [ -z "$TARGET_BASE" ]; then
+              echo "::error::Could not resolve the default branch of ${TARGET_REPO} — does FANOUT_TOKEN reach it?"
+              exit 1
+            fi
+            echo "Base branch for ${TARGET_REPO}: ${TARGET_BASE} (repository default branch)."
+          fi
+          echo "base=${TARGET_BASE}" >> "$GITHUB_OUTPUT"
+
       - name: Checkout target repo (${{ matrix.repo }})
         uses: actions/checkout@v4
         with:
           repository: ${{ matrix.repo }}
-          ref: ${{ matrix.base }}
+          ref: ${{ steps.base.outputs.base }}
           token: ${{ secrets.FANOUT_TOKEN }}
           path: target
           fetch-depth: 0
 
+      - name: Check the kit is installed in the target
+        id: gate
+        env:
+          TARGET_REPO: ${{ matrix.repo }}
+          INSTALL: ${{ matrix.install }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -e target/docs/ai/PROJECT_CONFIG.md ]; then
+            echo "github-kit is installed in ${TARGET_REPO} (docs/ai/PROJECT_CONFIG.md present) — refreshing."
+            echo "mode=update" >> "$GITHUB_OUTPUT"
+          elif [ "${INSTALL:-}" = "true" ]; then
+            echo "github-kit is NOT installed in ${TARGET_REPO}, but its fanout-targets.json entry says \"install\": true — running the full installer."
+            echo "mode=install" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice title=Skipped ${TARGET_REPO}::github-kit is not installed there (no docs/ai/PROJECT_CONFIG.md at the base branch) and the target entry does not say \"install\": true — skipping, no PR opened. Add \"install\": true to its fanout-targets.json entry to install the kit on the next run."
+            echo "mode=skip" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Refresh bootstrap files from github-kit@main
+        if: steps.gate.outputs.mode == 'update'
         shell: bash
         run: |
           set -euo pipefail
           bash github-kit/scripts/update-github-kit.sh --target target --allow-dirty --ref main
 
+      - name: 'Install github-kit (first install, opted in via "install": true)'
+        if: steps.gate.outputs.mode == 'install'
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash github-kit/scripts/install-github-kit.sh --target target --mode merge --allow-dirty --ref main
+
       - name: Open draft PR if anything drifted
+        if: steps.gate.outputs.mode != 'skip'
         env:
           GH_TOKEN: ${{ secrets.FANOUT_TOKEN }}
           TARGET_REPO: ${{ matrix.repo }}
-          TARGET_BASE: ${{ matrix.base }}
+          TARGET_BASE: ${{ steps.base.outputs.base }}
           RUN_ID: ${{ github.run_id }}
+          MODE: ${{ steps.gate.outputs.mode }}
         shell: bash
         run: |
           set -euo pipefail
@@ -147,7 +212,14 @@ jobs:
 
           branch="agent/github-kit-selfupdate-${RUN_ID}"
           git switch -c "$branch"
-          git commit -m "chore(github-kit): propagate bootstrap updates from github-kit@main"
+          if [ "$MODE" = "install" ]; then
+            commit_msg="chore(github-kit): install github-kit from github-kit@main"
+            pr_title="chore(github-kit): install github-kit bootstrap files from github-kit@main"
+          else
+            commit_msg="chore(github-kit): propagate bootstrap updates from github-kit@main"
+            pr_title="chore(github-kit): auto-propagate bootstrap updates from github-kit@main"
+          fi
+          git commit -m "$commit_msg"
           git push -u origin "$branch"
 
           body_file="${RUNNER_TEMP}/gk-fanout-body.md"
@@ -160,22 +232,38 @@ jobs:
           - `AGENTS.md` / `CLAUDE.md` / `GEMINI.md` managed blocks
           - `.claude` / `.agents` skills and commands, `.cursor` rules, `.github/copilot-instructions.md`
           - `docs/ai/AGENT_WORKFLOW.md`, `docs/ai/HANDOFF_INDEX.md`, `docs/ai/PROJECT_CONFIG.env.example`
-          - `scripts/project/*` helper scripts and the reusable-workflow callers
-
-          It does **not** touch `docs/ai/PROJECT_CONFIG.md` or your issue/PR templates.
+          - `scripts/project/*` helper scripts and the reusable-workflow callers, including
+            `.github/workflows/auto-merge.yml` (merge after green; hold any PR back with the
+            `no-automerge` label)
 
           Reusable CI workflows already auto-track `@main`; this PR covers the local files that don't.
 
-          Draft on purpose — review the diff and merge when you're happy. This automation never merges.
+          Draft on purpose — review the diff, then merge it yourself. It changes `.github/workflows/*`,
+          and GitHub refuses workflow-file merges from `GITHUB_TOKEN`, so `auto-merge.yml` can merge it
+          only if this repo has an `AUTOMERGE_TOKEN` with the workflow permission; with one, marking it
+          ready merges it once its checks are green. This automation itself never merges.
 
           Relationships: none declared.
           BODY
+          if [ "$MODE" = "install" ]; then
+            {
+              echo
+              echo "**First install** (\`\"install\": true\` in github-kit's \`fanout-targets.json\`): this PR adds the"
+              echo "whole kit, including a template \`docs/ai/PROJECT_CONFIG.md\` — fill in its base branch, validation"
+              echo "commands and forbidden files before merging. Your issue/PR templates are only added where missing."
+            } >> "$body_file"
+          else
+            {
+              echo
+              echo "It does **not** touch \`docs/ai/PROJECT_CONFIG.md\` or your issue/PR templates."
+            } >> "$body_file"
+          fi
 
           gh pr create \
             --repo "${TARGET_REPO}" \
             --base "${TARGET_BASE}" \
             --head "$branch" \
             --draft \
-            --title "chore(github-kit): auto-propagate bootstrap updates from github-kit@main" \
+            --title "$pr_title" \
             --body-file "$body_file"
-          echo "Opened draft PR for ${TARGET_REPO} (${branch} -> ${TARGET_BASE})."
+          echo "Opened draft PR for ${TARGET_REPO} (${branch} -> ${TARGET_BASE}, mode: ${MODE})."

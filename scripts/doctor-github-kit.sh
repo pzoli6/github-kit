@@ -33,7 +33,7 @@ check_phrase() {
 
 # --- required reusable workflows --------------------------------------------
 
-for wf in reusable-agent-workflow-verify reusable-ci-node reusable-ci-python reusable-pr-policy reusable-project-sync reusable-project-setup reusable-design-handoff-approval; do
+for wf in reusable-agent-workflow-verify reusable-ci-node reusable-ci-python reusable-pr-policy reusable-project-sync reusable-project-setup reusable-design-handoff-approval reusable-auto-merge; do
   check_file ".github/workflows/$wf.yml"
 done
 
@@ -88,6 +88,7 @@ check_file "templates/.github/workflows/pr-policy.yml"
 check_file "templates/.github/workflows/ci-node.yml"
 check_file "templates/.github/workflows/ci-python.yml"
 check_file "templates/.github/workflows/project-sync.yml"
+check_file "templates/.github/workflows/auto-merge.yml"
 
 echo
 
@@ -133,10 +134,10 @@ echo
 # --- template caller workflows use literal @main (always-latest channel) ----
 
 main_count="$(grep -l 'pzoli6/github-kit/.*@main' templates/.github/workflows/*.yml 2>/dev/null | wc -l)"
-if [ "$main_count" -ge 4 ]; then
+if [ "$main_count" -ge 5 ]; then
   echo "OK      caller workflow templates use literal @main ($main_count files)"
 else
-  echo "MISSING literal @main in template caller workflows (found in $main_count files, need >= 4)"
+  echo "MISSING literal @main in template caller workflows (found in $main_count files, need >= 5)"
   missing=1
 fi
 
@@ -313,6 +314,91 @@ if grep -q 'design-sync-answers/v1' templates/scripts/design-handoffs/apply-answ
 else
   echo "MISSING design-sync loop payload (templates/scripts/design-handoffs/apply-answers.mjs with the design-sync-answers/v1 marker, templates/docs/ai/design-handoffs/DESIGN_SYNC.md)"
   missing=1
+fi
+
+echo
+
+# --- auto-merge after green: the Free-plan substitute for required checks + native auto-merge -----
+# (reusable rules + a refresh-on-update caller; see README.md → "Auto-merge after green") ---------
+
+if grep -q 'opt_out_label' .github/workflows/reusable-auto-merge.yml 2>/dev/null \
+    && grep -q 'automerge_token' .github/workflows/reusable-auto-merge.yml 2>/dev/null \
+    && grep -q "vars.KIT_ACTIONS_PAUSED != 'true'" .github/workflows/reusable-auto-merge.yml 2>/dev/null \
+    && grep -q "vars.KIT_AUTOMERGE_DISABLED != 'true'" .github/workflows/reusable-auto-merge.yml 2>/dev/null \
+    && grep -q 'allow_no_checks:' .github/workflows/reusable-auto-merge.yml 2>/dev/null \
+    && grep -q 'require_human_ready:' .github/workflows/reusable-auto-merge.yml 2>/dev/null; then
+  echo "OK      reusable-auto-merge.yml has opt_out_label, automerge_token, allow_no_checks, require_human_ready and the pause/disable switches"
+else
+  echo "MISSING opt_out_label / automerge_token / allow_no_checks / require_human_ready / KIT_ACTIONS_PAUSED / KIT_AUTOMERGE_DISABLED in .github/workflows/reusable-auto-merge.yml"
+  missing=1
+fi
+
+if grep -q 'reusable-auto-merge.yml@main' templates/.github/workflows/auto-merge.yml 2>/dev/null \
+    && grep -q 'ready_for_review' templates/.github/workflows/auto-merge.yml 2>/dev/null \
+    && grep -q 'workflow_run' templates/.github/workflows/auto-merge.yml 2>/dev/null \
+    && grep -q 'check_suite' templates/.github/workflows/auto-merge.yml 2>/dev/null \
+    && grep -q 'issues: read' templates/.github/workflows/auto-merge.yml 2>/dev/null \
+    && grep -q 'vars.KIT_AUTOMERGE_ALLOW_NO_CHECKS' templates/.github/workflows/auto-merge.yml 2>/dev/null; then
+  echo "OK      templates/.github/workflows/auto-merge.yml calls reusable-auto-merge.yml@main with the PR/workflow_run/check_suite triggers, issues: read and the allow-no-checks variable"
+else
+  echo "MISSING reusable-auto-merge.yml@main call, ready_for_review/workflow_run/check_suite triggers, issues: read or KIT_AUTOMERGE_ALLOW_NO_CHECKS in templates/.github/workflows/auto-merge.yml"
+  missing=1
+fi
+
+# The caller carries no repo-specific values, so every installer/updater refreshes it (not
+# create-only) — the same list that carries ci-node.
+if grep -q 'design-handoff-approval auto-merge' scripts/install-github-kit.sh 2>/dev/null \
+    && grep -q 'design-handoff-approval auto-merge' scripts/update-github-kit.sh 2>/dev/null \
+    && grep -q '"design-handoff-approval", "auto-merge"' scripts/install-github-kit.ps1 2>/dev/null \
+    && grep -q '"design-handoff-approval", "auto-merge"' scripts/update-github-kit.ps1 2>/dev/null; then
+  echo "OK      install/update scripts (.sh and .ps1) refresh auto-merge.yml alongside ci-node.yml"
+else
+  echo "MISSING auto-merge in the caller-workflow refresh list of scripts/{install,update}-github-kit.{sh,ps1}"
+  missing=1
+fi
+
+# A repo's own PR workflows are listed in the caller between two marker lines, which every
+# refresh (update, fan-out, install --mode force) carries over instead of resetting.
+if grep -Fq '# >>> github-kit: repo workflows >>>' templates/.github/workflows/auto-merge.yml 2>/dev/null \
+    && grep -Fq '# <<< github-kit: repo workflows <<<' templates/.github/workflows/auto-merge.yml 2>/dev/null \
+    && grep -Fq -- '- "CI"' templates/.github/workflows/auto-merge.yml 2>/dev/null \
+    && grep -Fq 'carry_repo_block "' scripts/install-github-kit.sh 2>/dev/null \
+    && grep -Fq 'carry_repo_block "' scripts/update-github-kit.sh 2>/dev/null \
+    && grep -Fq 'Merge-RepoBlock -OldPath' scripts/install-github-kit.ps1 2>/dev/null \
+    && grep -Fq 'Merge-RepoBlock -OldPath' scripts/update-github-kit.ps1 2>/dev/null \
+    && grep -Fq "'# >>> github-kit: repo workflows >>>'" scripts/install-github-kit.sh 2>/dev/null \
+    && grep -Fq "'# >>> github-kit: repo workflows >>>'" scripts/update-github-kit.sh 2>/dev/null \
+    && grep -Fq "'# >>> github-kit: repo workflows >>>'" scripts/install-github-kit.ps1 2>/dev/null \
+    && grep -Fq "'# >>> github-kit: repo workflows >>>'" scripts/update-github-kit.ps1 2>/dev/null; then
+  echo "OK      auto-merge.yml carries the repo-workflows block and all four install/update scripts keep it on refresh"
+else
+  echo "MISSING repo-workflows markers in templates/.github/workflows/auto-merge.yml, or carry_repo_block / Merge-RepoBlock in scripts/{install,update}-github-kit.{sh,ps1}"
+  missing=1
+fi
+
+if grep -Fq 'Auto-merge after green' templates/AGENTS.md 2>/dev/null \
+    && grep -Fq 'Auto-merge |' templates/docs/ai/PROJECT_CONFIG.md 2>/dev/null \
+    && grep -Fq 'no-automerge' templates/docs/ai/AGENT_WORKFLOW.md 2>/dev/null; then
+  echo "OK      templates/AGENTS.md, PROJECT_CONFIG.md and AGENT_WORKFLOW.md document auto-merge and the no-automerge label"
+else
+  echo "MISSING \"Auto-merge after green\" section in templates/AGENTS.md, \"Auto-merge |\" row in templates/docs/ai/PROJECT_CONFIG.md, or no-automerge in templates/docs/ai/AGENT_WORKFLOW.md"
+  missing=1
+fi
+
+# The no-mark-ready rule must live inside the managed block: it is the only part of AGENTS.md /
+# CLAUDE.md / GEMINI.md that the updater (and so the fan-out) refreshes in existing repos.
+am_block_ok=1
+for f in scripts/install-github-kit.sh scripts/update-github-kit.sh scripts/install-github-kit.ps1 scripts/update-github-kit.ps1 \
+         templates/AGENTS.md templates/CLAUDE.md templates/GEMINI.md; do
+  if ! awk '/<!-- BEGIN GITHUB-KIT UNIVERSAL WORKFLOW -->/{p=1} p{print} /<!-- END GITHUB-KIT UNIVERSAL WORKFLOW -->/{p=0}' "$f" 2>/dev/null \
+      | grep -q 'never mark a PR ready for review.*no-automerge'; then
+    echo "MISSING managed-block auto-merge rule (never mark ready / no-automerge) in $f"
+    am_block_ok=0
+    missing=1
+  fi
+done
+if [ "$am_block_ok" = 1 ]; then
+  echo "OK      managed block (7 copies) carries the never-mark-ready / no-automerge rule"
 fi
 
 echo
