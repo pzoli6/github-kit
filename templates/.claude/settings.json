@@ -1,5 +1,5 @@
 {
-  "_comment": "Installed by github-kit (create-only: never overwritten once present — customize freely). Checked-in project permissions for Claude Code, so remote/web sessions stop prompting for the platform plumbing and read-only GitHub calls the kit's workflow uses constantly. Writes that the kit's rules forbid agents to perform (merging a PR, enabling auto-merge) are DENIED outright rather than merely prompted. Both spellings of the Claude Code Remote server name are listed because different surfaces register it differently.",
+  "_comment": "Installed by github-kit (create-only: never overwritten once present — customize freely). Checked-in project permissions for Claude Code, so remote/web sessions stop prompting for the platform plumbing and read-only GitHub calls the kit's workflow uses constantly. Writes that the kit's rules forbid agents to perform (merging a PR, enabling GitHub's native auto-merge, marking a PR ready for review -- which is what triggers the kit's own auto-merge.yml) are DENIED outright rather than merely prompted. Both spellings of the Claude Code Remote server name are listed because different surfaces register it differently.",
   "permissions": {
     "allow": [
       "mcp__Claude_Code_Remote",
@@ -68,7 +68,9 @@
     ],
     "deny": [
       "mcp__github__merge_pull_request",
-      "mcp__github__enable_pr_auto_merge"
+      "mcp__github__enable_pr_auto_merge",
+      "Bash(gh pr merge*)",
+      "Bash(gh pr ready*)"
     ]
   }
 }

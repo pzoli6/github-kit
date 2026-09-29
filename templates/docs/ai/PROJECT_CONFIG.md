@@ -24,6 +24,7 @@
 | Project Sync enabled | `false` |
 | Project field completeness gate enabled | `false` |
 | Branch protection enforced | `false` |
+| Auto-merge | github-kit auto-merge.yml (PRs a person marked ready, merge commit, after green) |
 
 This repository follows `pzoli6/github-kit@main` for central reusable workflows. Local agent files
 (`AGENTS.md`, `CLAUDE.md`, skills, Cursor rules, this file) are lightweight bootstraps and fallback
@@ -41,6 +42,18 @@ Project + `AGENT_PROJECT_TOKEN` secret — see "When Project Sync isn't enabled"
 `AGENT_WORKFLOW.md`. `Branch protection enforced` is `false` for any private repo on the GitHub
 Free plan (a platform limitation, not a config you can flip) — see "Free-tier limitations" in
 `AGENT_WORKFLOW.md`.
+
+`Auto-merge` records that `.github/workflows/auto-merge.yml` (a github-kit caller, refreshed by
+`/github_kit_update`) merges **a PR that a person marked ready for review, with a merge commit,
+once every check and workflow run on its head commit is green** — the Free-plan substitute for
+required status checks. Hold a PR back with the `no-automerge` label. A PR with no checks at all
+is **not** merged (with the kit's budget-first triggers that includes a PR into the base branch
+unless a third-party check such as Vercel reports on it) unless the repository variable
+`KIT_AUTOMERGE_ALLOW_NO_CHECKS` is `true`; PRs opened non-draft and PRs from long-lived branches
+are never merged automatically. Agents never mark a PR ready, never touch the label, never merge
+— see `docs/ai/AGENT_WORKFLOW.md` → "Auto-merge after green". To switch it off, set the repository variable
+`KIT_AUTOMERGE_DISABLED` to `true` and change this row to `off`; deleting the caller file does not
+last, because the next kit update recreates it.
 
 `Agent branch prefix` is a comma-separated allowlist of branch-name prefixes, matched by the
 `pr-policy` CI check and swept by `cleanup_merged_branches.sh`. The **first** entry is what the
@@ -209,6 +222,7 @@ here **and** the `on:` triggers in `.github/workflows/*.yml` together.
 | Agents may dispatch CI | `only on explicit human request` |
 | Agents may report CI status | `only for production-bound changes, or on request` |
 | github-kit tier | the `# github-kit tier: N` line in the CI callers (1 = automatic on production-bound changes, 2 = dispatch only), set by the github-kit fan-out |
+| Merge after green | `automatic` (`auto-merge.yml`; needs at least one check unless `KIT_AUTOMERGE_ALLOW_NO_CHECKS`; nothing merges while paused or over budget) |
 
 - **`metered`** means Actions minutes cost real money on this account, so an unnecessary run is a
   real cost. Set it to `free` only for a public repo, where standard-runner minutes are free.

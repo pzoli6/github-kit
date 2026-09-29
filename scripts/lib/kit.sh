@@ -59,7 +59,43 @@ kit_render_workflow() {
       { print }
     ' > "$tmp"
   mkdir -p "$(dirname "$dst")"
-  mv "$tmp" "$dst"
+  kit_carry_repo_block "$dst" "$tmp" > "$tmp.carried"
+  cat "$tmp.carried" > "$dst"
+  rm -f "$tmp" "$tmp.carried"
+}
+
+# A refreshed caller may hold one repo-owned region: auto-merge.yml's list of extra workflow names
+# lives between these marker lines. Everything else comes from the template; the lines between the
+# markers are carried over from the existing file.
+KIT_REPO_BLOCK_BEGIN='# >>> github-kit: repo workflows >>>'
+KIT_REPO_BLOCK_END='# <<< github-kit: repo workflows <<<'
+
+# Print $2 (the new file) with the lines between the repo-block markers replaced by the lines
+# between the same markers in $1 (the existing file). Prints $2 unchanged unless both files carry
+# both markers. Trailing CRs from a Windows checkout are dropped from the carried lines.
+kit_carry_repo_block() {
+  local old="$1" new="$2"
+  if [ -f "$old" ] \
+     && grep -qF -- "$KIT_REPO_BLOCK_BEGIN" "$old" && grep -qF -- "$KIT_REPO_BLOCK_END" "$old" \
+     && grep -qF -- "$KIT_REPO_BLOCK_BEGIN" "$new" && grep -qF -- "$KIT_REPO_BLOCK_END" "$new"; then
+    awk -v b="$KIT_REPO_BLOCK_BEGIN" -v e="$KIT_REPO_BLOCK_END" -v oldf="$old" '
+      BEGIN {
+        inb = 0; n = 0
+        while ((getline line < oldf) > 0) {
+          sub(/\r$/, "", line)
+          if (index(line, b)) { inb = 1; continue }
+          if (index(line, e)) { inb = 0; continue }
+          if (inb) keep[++n] = line
+        }
+        close(oldf)
+      }
+      index($0, b) { print; for (i = 1; i <= n; i++) print keep[i]; skip = 1; next }
+      index($0, e) { skip = 0; print; next }
+      !skip { print }
+    ' "$new"
+  else
+    cat "$new"
+  fi
 }
 
 kit_copy() {

@@ -133,8 +133,12 @@ comes from each template's own markers instead of copies inside four scripts.
   `agent-workflow-verify.yml`), leaving `workflow_dispatch`. Without the flag each file keeps its
   current `# github-kit tier: N` line, so a manual update never flips a repo's tier. Default 1,
   whose triggers are exactly the previous ones (only comment lines were added).
-- **Fan-out:** reads `tier` and `fanout` from `.github/fanout-targets.json`, stages exactly the
-  manifest's paths (so `REVIEW.md` is included), and uses `actions/checkout@v5`.
+- **Fan-out:** passes each registry entry's `tier` (default 1) to the updater/installer as
+  `--tier`, stages exactly the manifest's paths (so `REVIEW.md` and retired-file deletions are
+  included), and uses `actions/checkout@v5`.
+- **Managed block:** the seven copies the auto-merge change below describes are now three — the
+  scripts no longer carry the block; they read it from `templates/AGENTS.md` / `CLAUDE.md` /
+  `GEMINI.md`. The doctor checks those three.
 - **Security:** `reusable-pr-policy.yml` and `reusable-design-handoff-approval.yml` no longer paste
   the PR head branch name into shell scripts (including the `git push` in the design gate, which
   holds `contents:write`); values arrive through `env:`. The fan-out's `only_repo` input does too.
@@ -145,6 +149,72 @@ comes from each template's own markers instead of copies inside four scripts.
 **What a target repo must do:** nothing. The reusable-workflow changes are live on `@main`; the
 fan-out PR brings the new files. Set Codex automatic review per tier by hand
 (`docs/PR_REVIEW_SETUP.md`).
+
+### Auto-merge after green (`reusable-auto-merge.yml` + `auto-merge.yml`)
+
+Private Free-plan repos cannot have required status checks, so GitHub's native auto-merge is
+unusable there. The kit now ships its own: `reusable-auto-merge.yml` (the rules) and the caller
+`templates/.github/workflows/auto-merge.yml`. A PR that **a person marked ready for review**
+(timeline `ready_for_review` by a User account) merges — merge commit — once every check run and
+every other workflow run on its head commit is `success`/`neutral`/`skipped` and the combined
+commit status is `success` or empty. The `no-automerge` label holds a PR back; forks,
+long-lived head branches (default branch, `main`/`master`/`develop`/`staging`/`production`),
+PRs opened non-draft, `CHANGES_REQUESTED` reviews and conflicts block. **No checks at all is not
+green** (opt-in per repo with `KIT_AUTOMERGE_ALLOW_NO_CHECKS=true`), kit checks the pause left
+`skipped` are not green, and every API read fails closed. It honours `KIT_ACTIONS_PAUSED` like
+every other kit job. README → "Auto-merge after green".
+
+**Behaviour and wording changes target repos should know about:**
+
+- The caller `auto-merge.yml` is **refreshed** by the installer and updater (like `ci-node.yml`),
+  not create-only — it carries no repo-specific values, and a deleted caller is recreated by the
+  next update or fan-out. Per-repo choices are repository Actions variables
+  (`KIT_AUTOMERGE_DISABLED=true` is the durable opt-out, `KIT_AUTOMERGE_ALLOW_NO_CHECKS=true`),
+  the label, and the `AUTOMERGE_TOKEN` secret (passed through unconditionally; absent means
+  `GITHUB_TOKEN`). Its `workflow_run` trigger lists the kit's own workflow names plus `CI`. A
+  repo lists its other PR workflows (by `name:`) between the `# >>> github-kit: repo workflows >>>`
+  / `# <<< github-kit: repo workflows <<<` marker lines; the updater, the fan-out and
+  `install --mode force` carry those lines over (now `kit_carry_repo_block` / `Merge-KitRepoBlock`
+  in `scripts/lib/`, applied to every `workflow` manifest row), and every other edit to the file is
+  overwritten.
+- The `workflow_run` trigger is there because GitHub does not fire `check_suite` events for
+  check suites that GitHub Actions itself created; `check_suite` and `status` cover third-party
+  apps and legacy statuses. All three only fire for a workflow file on the **default branch**,
+  so auto-merge in a target starts working once its fan-out/update PR has merged.
+- Merges made with the default `GITHUB_TOKEN` do not trigger other Actions workflows on the base
+  branch, and are expected to be refused for PRs that change `.github/workflows/*` — which every
+  fan-out PR does, so fan-out PRs are merged by hand unless the target has an `AUTOMERGE_TOKEN`
+  with the workflow permission. `docs/OWNER_SETUP.md` → "Step 4".
+- The caller needs `issues: read` and `actions: read` in addition to `contents: write`,
+  `pull-requests: write`, `checks: read`, `statuses: read` (PR timeline; workflow runs on the
+  head commit).
+- Agent wording: *human-merges-only* is now *human-approves-only, merge is automated after
+  green*. The human decides by marking a draft PR ready (or removing `no-automerge`). Agents must
+  never mark a PR ready, never add/remove the label, never merge or enable native auto-merge.
+  That rule is in the **managed block** (all seven copies: `write_managed_block` /
+  `Get-ManagedBlockText` in both installers and both updaters, and the blocks in
+  `templates/AGENTS.md`, `CLAUDE.md`, `GEMINI.md`; the doctor checks it), so the updater and
+  fan-out deliver it to existing repos. The longer text — `templates/AGENTS.md` → "Auto-merge
+  after green", gate 8, PR rules, Human authority — sits **outside** the block and is **not**
+  refreshed in repos that already have an `AGENTS.md`. In particular their old PR rule "only
+  mark ready for review when validation has actually run" survives; the managed block overrides
+  it, but owners should delete that line by hand.
+- `templates/.claude/settings.json` now also denies `Bash(gh pr merge*)` and `Bash(gh pr
+  ready*)`. The file is create-only, so existing repos do not get these lines — add them by hand
+  if wanted. Nothing denies `mcp__github__update_pull_request` with `draft: false` (the tool is
+  needed for ordinary PR edits) or a GraphQL `markPullRequestReadyForReview`; for those the
+  instruction is the only guard, and `require_human_ready` still refuses a PR that only a bot
+  marked ready.
+
+### Fan-out: optional `base`, install gate, current target list
+
+`.github/fanout-targets.json` entries now need only `"repo"`. `"base"` is optional (omitted =
+the target's default branch, resolved at run time with `gh api repos/<repo>`). A target without
+the kit installed (no `docs/ai/PROJECT_CONFIG.md` at the base branch) is **skipped with a
+`::notice` and no PR** unless its entry says `"install": true`, in which case
+`install-github-kit.sh --mode merge` runs there once and the draft PR says so. The stale target
+list was replaced with the owner's current repositories; `pzoli6/github-kit` and
+`pzoli6/app-investment` are deliberately excluded (the latter is maintained directly).
 
 ### Spec approval by comment (`/approve-spec`)
 

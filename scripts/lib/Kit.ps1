@@ -59,6 +59,38 @@ function Get-KitExistingTier {
     return ""
 }
 
+# A refreshed caller may hold one repo-owned region: auto-merge.yml's list of extra workflow names
+# lives between these marker lines. Everything else comes from the template; the lines between the
+# markers are carried over from the existing file. Same result as kit_carry_repo_block in kit.sh.
+$KitRepoBlockBegin = '# >>> github-kit: repo workflows >>>'
+$KitRepoBlockEnd = '# <<< github-kit: repo workflows <<<'
+
+function Merge-KitRepoBlock {
+    param([string]$OldPath, [string]$NewContent)
+    if (-not (Test-Path -LiteralPath $OldPath)) { return $NewContent }
+    $old = Get-Content -LiteralPath $OldPath -Raw
+    if ($null -eq $old -or $null -eq $NewContent) { return $NewContent }
+    foreach ($marker in @($KitRepoBlockBegin, $KitRepoBlockEnd)) {
+        if (-not $old.Contains($marker) -or -not $NewContent.Contains($marker)) { return $NewContent }
+    }
+    $nl = if ($NewContent.Contains("`r`n")) { "`r`n" } else { "`n" }
+    $keep = New-Object System.Collections.Generic.List[string]
+    $inBlock = $false
+    foreach ($line in ($old -split "`r?`n")) {
+        if ($line.Contains($KitRepoBlockBegin)) { $inBlock = $true; continue }
+        if ($line.Contains($KitRepoBlockEnd)) { $inBlock = $false; continue }
+        if ($inBlock) { $keep.Add($line) }
+    }
+    $out = New-Object System.Collections.Generic.List[string]
+    $skip = $false
+    foreach ($line in ($NewContent -split "`r?`n")) {
+        if ($line.Contains($KitRepoBlockBegin)) { $out.Add($line); $out.AddRange($keep); $skip = $true; continue }
+        if ($line.Contains($KitRepoBlockEnd)) { $skip = $false; $out.Add($line); continue }
+        if (-not $skip) { $out.Add($line) }
+    }
+    return ($out -join $nl)
+}
+
 function Write-KitWorkflow {
     # Render a caller workflow template: point `uses: pzoli6/github-kit/...` at $WorkflowRef and
     # apply the tier. Other occurrences of "main" (branch filters) are left alone.
@@ -73,6 +105,7 @@ function Write-KitWorkflow {
         $content = [regex]::Replace($content, "(?ms)^[^\n]*$b[^\n]*\n.*?^[^\n]*$e[^\n]*\n", "")
     }
     Ensure-KitParentDir $Dst
+    $content = Merge-KitRepoBlock -OldPath $Dst -NewContent $content
     Set-Content -LiteralPath $Dst -Value $content -NoNewline
 }
 

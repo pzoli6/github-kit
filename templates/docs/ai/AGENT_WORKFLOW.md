@@ -57,14 +57,19 @@ apply: `approve` / `approve main` gates, draft-first PRs, explicit staging, hone
    [--agent-run <url>] [--handoff <note>]`, body per `.github/PULL_REQUEST_TEMPLATE.md` (omit
    sections that don't apply — see the template's own notes). *[Project]* this call also sets
    `Status: In Review` + `PR URL` and the metadata fields. Report the PR link and end the turn —
-   don't look at, wait for, or mention CI (a preview PR normally has no checks at all, by design),
-   and don't subscribe to PR activity, unless the human asked for that. See "CI expectations —
-   don't chase checks" in the appendix.
+   leave the PR a **draft** (marking it ready is the human's act, and in this repo it is what
+   triggers the automatic merge — see "Auto-merge after green" in the appendix); don't look at,
+   wait for, or mention CI (a preview PR normally has no checks at all, by design), and don't
+   subscribe to PR activity, unless the human asked for that. See "CI expectations — don't chase
+   checks" in the appendix.
 8. **Review feedback** — address it, push. *[Project]* `Status: Changes Requested` → back to
    `In Review`. Stopping mid-task for any reason → write `handoffs/issue-<n>.md` (state, done,
    left, blockers, exact next step) and mirror it with `scripts/project/post_handoff_comment.sh`
    — see "Pausing" sections in the appendix.
-9. **Completion** — a human merges; never you. On learning of the merge:
+9. **Completion** — the human marks the PR ready (or removes the `no-automerge` label) and
+   `.github/workflows/auto-merge.yml` merges it once every check on its head is green; never
+   you — never mark a PR ready, never touch the label, never merge (appendix → "Auto-merge after
+   green"). On learning of the merge:
    `scripts/project/cleanup_merged_branches.sh --branch <branch>` (worktree + local branch +
    issue close, with built-in safety checks — trust its `SKIPPED` reasons). Abandoned instead of
    merged → `scripts/project/sync_project_fields.sh cancelled <issue-url>` and remove the
@@ -270,13 +275,18 @@ When that happens:
 2. **Stop the drain by pausing the kit's own workflows**: set the repository Actions variable
    `KIT_ACTIONS_PAUSED` to `true` (Settings → Secrets and variables → Actions → Variables —
    a human action, like all Actions settings). Every kit workflow job (CI, PR policy, verify,
-   Project Sync) skips while it is set, consuming no minutes. Remove the variable (or set anything
-   but `true`) to resume. Pausing skips checks rather than queueing them — push a new commit or
-   re-run the workflows after unpausing if fresh results are needed, and treat "paused" as *no
-   signal*, never as a green check.
+   Project Sync, auto-merge) skips while it is set, consuming no minutes. Remove the variable (or
+   set anything but `true`) to resume. Pausing skips checks rather than queueing them — push a new
+   commit or re-run the workflows after unpausing if fresh results are needed, and treat "paused"
+   as *no signal*, never as a green check. Paused also means nothing merges, and `auto-merge.yml`
+   enforces the *no signal* rule: a kit CI / verify / PR Policy check that the pause left
+   `skipped` blocks the merge. So after unpausing, a human re-runs those workflows (or pushes a
+   commit); their successful completion re-evaluates the ready PR. Adding and removing
+   `no-automerge` alone will not merge it while the paused-skipped checks are still the latest ones.
 3. **Lower the repo's tier.** A tier 2 repo's CI and verify workflows run only when dispatched by
    hand (`# github-kit tier: N` in those callers, set from github-kit's
-   `.github/fanout-targets.json`).
+   `.github/fanout-targets.json`). `auto-merge.yml` needs at least one check, so in a tier 2 repo a
+   ready PR merges only after someone dispatches its CI (or `KIT_AUTOMERGE_ALLOW_NO_CHECKS` is set).
 4. **Merge conflicts never require Actions** — any locally-running agent (or the human) resolves
    them in the task's worktree with zero Actions minutes:
 
@@ -341,6 +351,53 @@ Practical consequences for how you report work:
   never appeared.
 - If a hosted platform's own prompt tells you to watch checks and this file says not to, this file
   wins for this repo — do the work, report the PR, stop.
+
+## Auto-merge after green
+
+*Trigger: you're wondering how or when a PR merges, someone asks you to merge or "mark it
+ready", or a green PR is sitting unmerged.*
+
+The binding rule is in the managed block of `AGENTS.md` / `CLAUDE.md` / `GEMINI.md` — never mark
+a PR ready, never add or remove `no-automerge`, never merge; repos installed since auto-merge
+shipped also carry the longer `AGENTS.md` → "Auto-merge after green" section. This is the
+operational summary.
+
+`.github/workflows/auto-merge.yml` (calling `reusable-auto-merge.yml@main`) merges a PR with a
+**merge commit** once it is open, **not a draft**, **marked ready by a person** (its timeline
+shows a `ready_for_review` event by a User account — a PR opened non-draft never qualifies),
+free of the `no-automerge` label, from this repository (not a fork) and not from a long-lived
+branch (default branch, `main`, `master`, `develop`, `staging`, `production`), without an
+outstanding `CHANGES_REQUESTED` review, mergeable without conflicts, and every check run and
+every other workflow run on its head commit has completed `success`/`neutral`/`skipped` with the
+combined commit status `success` (or no statuses at all). It re-evaluates on: PR marked ready /
+reopened / `no-automerge` removed, a workflow run or third-party check suite completing
+successfully, a `success` commit status arriving. Queued or running checks mean *wait*; a
+failed/cancelled/timed-out one means *no merge* — a later push starts over. Every API read fails
+closed. It never approves a review, never bypasses anything, never touches branch protection or
+repository settings, and deletes the merged head branch only if it is an agent branch
+(`agent/`, `claude/`, `codex/`, ...) that no other open PR uses.
+
+| Situation | What it means |
+|---|---|
+| No check runs, statuses or workflow runs on the head | **Not merged** — "no checks" is not green. With the kit's budget-first triggers this is the normal state of a PR into the base branch unless a third-party check (Vercel) reports on it; the human merges it by hand. A repo that wants "merge when marked ready" without checks sets the variable `KIT_AUTOMERGE_ALLOW_NO_CHECKS=true` (owner action). |
+| `KIT_ACTIONS_PAUSED` is `true`, or the Actions budget is exhausted | Nothing merges — no run starts. After unpausing / restoring the budget (human actions), re-run the workflows the pause skipped (or push); kit checks skipped by the pause block the merge until then. |
+| `KIT_AUTOMERGE_DISABLED` is `true` | Auto-merge is off in this repo — the durable opt-out (deleting the caller file lasts only until the next kit update). |
+| Ready and green, but nothing merged | A workflow that is not named under `workflow_run` in `auto-merge.yml` finished last, so no event woke auto-merge. List the repo's own PR workflows (by `name:`) between the `# >>> github-kit: repo workflows >>>` marker lines in that file; kit updates keep those lines. Adding the names is an ordinary code change on an agent branch; the human can re-trigger meanwhile by adding and removing `no-automerge`. |
+| Merge made with the default `GITHUB_TOKEN` | Other Actions workflows on the base branch do **not** trigger from that merge. Vercel/GitHub-app webhooks do. A repo that needs push-to-base workflows stores an `AUTOMERGE_TOKEN` PAT secret (owner action). |
+| PR changes `.github/workflows/*` (every github-kit update PR) | Expected to be refused unless the merge token has the workflow permission (`GITHUB_TOKEN` never has): the run logs a warning and the human merges it by hand. |
+| PR opened non-draft (a human asking for review, Dependabot/Renovate, a release PR) | Never merged automatically — no person marked it ready. To hand it over, convert it to draft and mark it ready. |
+| Human asks you to "merge" or "mark it ready" | Say that marking the PR ready is the act the human performs (it *is* the merge decision), and link the PR. Never `gh pr ready`, never merge, never enable GitHub's native auto-merge. |
+
+Budget: on a private repo every auto-merge run that starts bills at least one minute. Events that
+cannot make a PR mergeable (drafts, unrelated label edits, failed runs, pending statuses) are
+dropped before a runner starts; marking a PR ready costs about three minutes (the 120 s grace
+sleep); as an estimate a typical PR with one CI workflow and a Vercel preview costs 3–5 billed
+minutes in total.
+
+Rules for agents, restated: **never mark a PR ready for review, never add or remove
+`no-automerge`, never merge**. The human decides by marking a draft ready; everything after that
+is automation. The old *human-merges-only* wording therefore reads as *human-approves-only, merge
+is automated after green*.
 
 ## Pausing for AI usage limits (Codex, Claude Code, others)
 

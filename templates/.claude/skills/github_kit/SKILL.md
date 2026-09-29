@@ -159,8 +159,10 @@ instruction files may lag behind `github-kit/main` until someone runs `/github_k
     Address the feedback, push the updates, then run
     `scripts/project/sync_project_fields.sh pr_opened <issue-url> <pr-url>` to move `Status` back
     to `In Review`.
-20. **Completion is human-driven.** A human merges the PR — no agent merges its own or anyone
-    else's.
+20. **Completion is human-driven.** A human marks the PR ready (or removes the `no-automerge`
+    label), and `.github/workflows/auto-merge.yml` merges it once every check is green — no agent
+    merges its own or anyone else's PR, marks one ready, or touches that label (`docs/ai/AGENT_WORKFLOW.md`
+    → "Auto-merge after green").
 21. **On merge, clean up after yourself.**
     ```bash
     scripts/project/cleanup_merged_branches.sh --branch <branch>
@@ -201,7 +203,8 @@ instruction files may lag behind `github-kit/main` until someone runs `/github_k
   workflow, not expected behavior.
 - Never leave the relationships question unaddressed — declare a real one or write
   `Relationships: none declared`.
-- Never merge a PR.
+- Never merge a PR, never mark one ready for review, never add or remove the `no-automerge`
+  label.
 - Never push directly to the production branch.
 - Never commit `docs/ai/PROJECT_CONFIG.env` or any secret.
 - Never invoke this skill for a repo-specific or one-off hack — it must stay generic, same as

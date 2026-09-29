@@ -141,6 +141,14 @@ for impl in $impls; do
   grep -qx '{"mine": 1}' "$R/fresh/.claude/settings.json" || { echo "        overwritten: settings.json"; ok=0; }
   tail -1 "$R/fresh/CLAUDE.md" | grep -qx 'My own footer.' || { echo "        lost: CLAUDE.md text after the block"; ok=0; }
   [ "$ok" -eq 1 ] && pass "$impl update refreshes kit files and keeps repo-owned ones" || fail "$impl update refreshes kit files and keeps repo-owned ones"
+  # A repo's own lines between the auto-merge.yml repo-workflows markers survive a refresh.
+  am="$R/fresh/.github/workflows/auto-merge.yml"
+  if [ -f "$am" ] && grep -qF '# >>> github-kit: repo workflows >>>' "$am"; then
+    awk '{ print } index($0, "# >>> github-kit: repo workflows >>>") { print "      - \"My Repo Tests\"" }' "$am" > "$am.tmp" && mv "$am.tmp" "$am"
+    update "$impl" "$R/fresh" --allow-dirty > /dev/null 2>&1
+    grep -qF -- '- "My Repo Tests"' "$am" && pass "$impl update keeps the repo's auto-merge workflow list" \
+      || fail "$impl update keeps the repo's auto-merge workflow list"
+  fi
   before="$(tree_hash "$R/fresh")"
   update "$impl" "$R/fresh" --allow-dirty > /dev/null 2>&1
   [ "$before" = "$(tree_hash "$R/fresh")" ] && pass "$impl update is idempotent" || fail "$impl update is idempotent"

@@ -20,8 +20,9 @@ below itself.
 - [ ] Both `scripts/install-github-kit.ps1` and `scripts/update-github-kit.ps1` parse cleanly:
       `[System.Management.Automation.Language.Parser]::ParseFile(...)` reports zero errors.
 - [ ] A dry-run install into a fresh temp repo (`install-github-kit.sh` and `install-github-kit.ps1`,
-      at least one of the two on this machine) creates the expected files and does **not** install
-      `.github/workflows/project-sync.yml` by default.
+      at least one of the two on this machine) creates the expected files — including
+      `.github/workflows/auto-merge.yml`, which both installers and both updaters refresh — and
+      does **not** install `.github/workflows/project-sync.yml` by default.
 - [ ] `docs/RELEASE_CHECKLIST.md` (this file) and `README.md`'s "Versioning" section agree on the
       version-bump policy being applied.
 - [ ] The new version number has been decided: bump **minor** for additive, backward-compatible
