@@ -44,7 +44,7 @@ on:
       node_version:
         description: "Node version used to run the stamping script."
         type: string
-        default: "20"
+        default: "22"
       allow_comment_approval:
         description: >-
           Accept a PR comment whose first line is comment_marker as an approval, alongside the
@@ -144,14 +144,19 @@ jobs:
       - name: Resolve the PR head
         id: head
         if: steps.ev.outputs.proceed == 'true'
+        # The head ref arrives through env:, never pasted into the script text: a branch name may
+        # legally contain $ ( ) ; ' and this job holds contents:write.
         env:
           GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          REVIEW_HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          REVIEW_HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
         run: |
           set -euo pipefail
-          if [ "${{ github.event_name }}" = "pull_request_review" ]; then
+          if [ "$EVENT_NAME" = "pull_request_review" ]; then
             {
-              echo "ref=${{ github.event.pull_request.head.ref }}"
-              echo "repo=${{ github.event.pull_request.head.repo.full_name }}"
+              echo "ref=$REVIEW_HEAD_REF"
+              echo "repo=$REVIEW_HEAD_REPO"
             } >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -218,6 +223,8 @@ jobs:
 
       - name: Commit the marker back to the PR branch
         if: steps.ev.outputs.proceed == 'true'
+        env:
+          HEAD_REF: ${{ steps.head.outputs.ref }}
         run: |
           set -euo pipefail
           if git diff --quiet; then
@@ -230,4 +237,4 @@ jobs:
           git commit \
             -m "chore(design): record ${{ steps.ev.outputs.login }}'s approval" \
             -m "Transcribed from ${{ steps.ev.outputs.via }} ${{ steps.ev.outputs.id }} on PR #${{ steps.ev.outputs.pr }}. Re-check it with the verify script in scripts/design-handoffs/."
-          git push origin HEAD:${{ steps.head.outputs.ref }}
+          git push origin "HEAD:$HEAD_REF"

@@ -64,18 +64,32 @@ jobs:
     steps:
       - name: Check base branch and branch prefix
         shell: bash
+        # Every value reaches the script through env:, never as ${{ }} pasted into the script
+        # text: a branch name may legally contain $ ( ) ; ' and would otherwise run as shell.
         env:
           PR_BODY: ${{ github.event.pull_request.body }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          REQUIRED_BASE: ${{ inputs.required_base_branch }}
+          PREFIXES: ${{ inputs.require_agent_branch_prefix }}
+          ALLOW_HOTFIX: ${{ inputs.allow_hotfix }}
+          PRODUCTION_BRANCH: ${{ inputs.production_branch }}
+          REQUIRE_PROD_APPROVAL: ${{ inputs.require_production_branch_approval }}
+          PROD_MARKER: ${{ inputs.production_branch_marker }}
         run: |
           set -euo pipefail
-          base='${{ github.event.pull_request.base.ref }}'
-          head='${{ github.event.pull_request.head.ref }}'
-          required_base='${{ inputs.required_base_branch }}'
-          prefixes='${{ inputs.require_agent_branch_prefix }}'
-          allow_hotfix='${{ inputs.allow_hotfix }}'
-          production_branch='${{ inputs.production_branch }}'
-          require_prod_approval='${{ inputs.require_production_branch_approval }}'
-          prod_marker='${{ inputs.production_branch_marker }}'
+          # The UPPER names are the env: inputs above, not misspellings of the locals.
+          # shellcheck disable=SC2153
+          {
+            base="$BASE_REF"
+            head="$HEAD_REF"
+            required_base="$REQUIRED_BASE"
+            prefixes="$PREFIXES"
+            allow_hotfix="$ALLOW_HOTFIX"
+            production_branch="$PRODUCTION_BRANCH"
+            require_prod_approval="$REQUIRE_PROD_APPROVAL"
+            prod_marker="$PROD_MARKER"
+          }
 
           fail=0
 
@@ -168,6 +182,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # $id is a GraphQL variable, deliberately not expanded by the shell.
+          # shellcheck disable=SC2016
           fields_json="$(gh api graphql -f query='
             query($id: ID!) {
               node(id: $id) {
