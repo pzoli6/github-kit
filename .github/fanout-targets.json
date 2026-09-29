@@ -1,16 +1,13 @@
 {
-  "_comment": "Registry of the repos github-kit manages. 'base' is the branch the fan-out's update PR targets (a repo's integration branch). 'tier' is the Actions-budget tier the fan-out writes into the repo's CI callers: 1 = CI and verify run automatically on production-bound changes; 2 = they run only when dispatched by hand (see README.md -> 'Repository tiers'). Missing tier = 1. 'fanout': false keeps a repo in the registry for tiering without opening update PRs there (the kit isn't installed yet); install it first, then drop that key and add 'base'.",
+  "_comment": "Registry of the repos github-kit manages. 'base' is the branch the fan-out's update PR targets (a repo's integration branch). 'tier' is the Actions-budget tier the fan-out writes into the repo's CI callers: 1 = CI and verify run automatically on production-bound changes; 2 = they run only when dispatched by hand (see README.md -> 'Repository tiers'). Missing tier = 1. 'fanout': false keeps a repo in the registry for tiering without opening update PRs there (the kit isn't installed yet); install it first, then drop that key and add 'base'. Use each repo's current name: GitHub redirects renamed repos, but a stale name hides which repo is which.",
   "targets": [
     { "repo": "pzoli6/Modelling_and_Simulations", "base": "develop", "tier": 1 },
-    { "repo": "pzoli6/ai-company", "tier": 1, "fanout": false },
+    { "repo": "pzoli6/ai-company", "base": "main", "tier": 1 },
+    { "repo": "pzoli6/app-dance", "base": "develop", "tier": 1 },
+    { "repo": "pszichocloud/Platform", "base": "develop", "tier": 1 },
     { "repo": "pzoli6/app-investment", "tier": 1, "fanout": false },
-    { "repo": "pzoli6/app-dance", "tier": 1, "fanout": false },
-    { "repo": "pzoli6/DancePass", "base": "develop", "tier": 2 },
-    { "repo": "pzoli6/Space", "base": "master", "tier": 2 },
-    { "repo": "pzoli6/Travel", "base": "main", "tier": 2 },
-    { "repo": "pzoli6/AI_Settings", "base": "main", "tier": 2 },
-    { "repo": "pzoli6/Invoice_Sync", "base": "main", "tier": 2 },
-    { "repo": "pzoli6/agent_os", "base": "main", "tier": 2 },
-    { "repo": "pszichocloud/Platform", "base": "develop", "tier": 2 }
+    { "repo": "pzoli6/app-space", "base": "master", "tier": 2 },
+    { "repo": "pzoli6/app-travel", "base": "main", "tier": 2 },
+    { "repo": "pzoli6/Invoice_Sync", "base": "main", "tier": 2 }
   ]
 }
