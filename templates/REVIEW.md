@@ -1,7 +1,7 @@
 # REVIEW.md — review rules for this repository
 
 This file tells every reviewer of a pull request what to flag, at what severity, and what to leave
-alone: human reviewers, Codex code review, Claude (Code Review and `/code-review`), and Copilot.
+alone: human reviewers, Codex code review, and Claude (Code Review and `/code-review`).
 It is the single rulebook; each tool's own instruction file only points here.
 
 The block between the `GITHUB-KIT REVIEW RULES` markers is maintained by `pzoli6/github-kit` and is

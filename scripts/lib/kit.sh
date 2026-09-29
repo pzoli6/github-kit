@@ -25,9 +25,9 @@ kit_manifest_path() {
   printf '%s\n' "$TEMPLATES/docs/ai/KIT_MANIFEST.tsv"
 }
 
-# Print "<path>\t<mode>\t<verify>" for every file row of the kit's manifest.
+# Print "<path>\t<mode>\t<verify>\t<retired SHAs>" for every file row of the kit's manifest.
 kit_manifest_files() {
-  awk -F'\t' '{ sub(/\r$/, "") } $1 == "file" && NF >= 4 { print $2 "\t" $3 "\t" $4 }' "$(kit_manifest_path)"
+  awk -F'\t' '{ sub(/\r$/, "") } $1 == "file" && NF >= 4 { print $2 "\t" $3 "\t" $4 "\t" $5 }' "$(kit_manifest_path)"
 }
 
 kit_log() {
@@ -115,9 +115,29 @@ kit_apply_block() {
   rm -f "$block_tmp"
 }
 
+# A file the kit no longer ships: delete it only if it is exactly a version the kit shipped
+# ($2 = comma-separated git blob SHAs). An edited copy belongs to the repo now, so it stays.
+kit_retire_file() {
+  local path="$1" shas=",$2," sha
+  [ -e "$path" ] || return 0
+  sha="$(git hash-object -- "$path" 2>/dev/null || true)"
+  if [ -n "$sha" ] && [ "${shas#*,"$sha",}" != "$shas" ]; then
+    rm -f -- "$path"
+    kit_log "removed (retired)" "$path"
+    UPDATED_COUNT=$((UPDATED_COUNT + 1))
+  else
+    kit_log "kept (retired, edited)" "$path — the kit no longer ships it; delete it if unused"
+    SKIPPED_COUNT=$((SKIPPED_COUNT + 1))
+  fi
+}
+
 # Apply one manifest row.
 kit_sync_file() {
   local path="$1" mode="$2" src="$TEMPLATES/$1"
+  if [ "$mode" = "retired" ]; then
+    kit_retire_file "$path" "$3"
+    return
+  fi
   if [ ! -e "$src" ]; then
     echo "error: manifest lists $path but $src does not exist" >&2
     return 1
@@ -171,9 +191,9 @@ kit_sync_file() {
 }
 
 kit_sync_manifest() {
-  local path mode _verify
-  while IFS=$'\t' read -r path mode _verify; do
-    kit_sync_file "$path" "$mode" || return 1
+  local path mode _verify retired
+  while IFS=$'\t' read -r path mode _verify retired; do
+    kit_sync_file "$path" "$mode" "$retired" || return 1
   done < <(kit_manifest_files)
 }
 

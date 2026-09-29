@@ -2,7 +2,7 @@
 # Update a target repository that already has github-kit installed.
 #
 # Refreshes github-kit-owned boilerplate (agent-workflow-verify/ci-node/ci-python caller workflows,
-# Cursor rules, skills, CODEOWNERS, copilot-instructions.md, project helper scripts,
+# Cursor rules, skills, CODEOWNERS, REVIEW.md block, project helper scripts,
 # docs/ai/AGENT_WORKFLOW.md, docs/ai/HANDOFF_INDEX.md, docs/ai/PROJECT_CONFIG.env.example) and the
 # managed block in AGENTS.md/CLAUDE.md/GEMINI.md. Never overwrites docs/ai/PROJECT_CONFIG.md,
 # .github/workflows/pr-policy.yml (it holds the repo-specific required_base_branch gate),
@@ -50,7 +50,7 @@ Usage: update-github-kit.sh [--target <path>] [--force-config] [--allow-dirty]
                              The fan-out passes the tier from .github/fanout-targets.json.
 
 This always refreshes: the managed block in AGENTS.md/CLAUDE.md/GEMINI.md, the agent-workflow-verify
-/ ci-node / ci-python caller workflows, Cursor rules, skills, CODEOWNERS, copilot-instructions.md,
+/ ci-node / ci-python caller workflows, Cursor rules, skills, CODEOWNERS, REVIEW.md block,
 project helper scripts, docs/ai/AGENT_WORKFLOW.md, docs/ai/HANDOFF_INDEX.md, and
 docs/ai/PROJECT_CONFIG.env.example. This is what /github_kit_update runs under the hood.
 

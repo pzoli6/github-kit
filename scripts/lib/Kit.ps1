@@ -33,6 +33,7 @@ function Get-KitManifestRows {
             A      = if ($f.Count -gt 1) { $f[1] } else { "" }
             Mode   = if ($f.Count -gt 2) { $f[2] } else { "" }
             Verify = if ($f.Count -gt 3) { $f[3] } else { "" }
+            Retired = if ($f.Count -gt 4) { $f[4] } else { "" }
         }
     }
 }
@@ -118,8 +119,25 @@ function Set-KitManagedBlock {
     $script:UpdatedCount++
 }
 
+function Remove-KitRetiredFile {
+    # A file the kit no longer ships: delete it only if it is exactly a version the kit shipped
+    # ($Shas = comma-separated git blob SHAs). An edited copy belongs to the repo now, so it stays.
+    param([string]$Path, [string]$Shas)
+    if (-not (Test-Path -LiteralPath $Path)) { return }
+    $sha = (& git hash-object -- $Path 2>$null)
+    if ($sha -and (($Shas -split ',') -contains $sha.Trim())) {
+        Remove-Item -LiteralPath $Path -Force
+        Write-KitLog "removed (retired)" $Path
+        $script:UpdatedCount++
+    } else {
+        Write-KitLog "kept (retired, edited)" "$Path -- the kit no longer ships it; delete it if unused"
+        $script:SkippedCount++
+    }
+}
+
 function Sync-KitFile {
-    param([string]$Path, [string]$Mode)
+    param([string]$Path, [string]$Mode, [string]$Retired = "")
+    if ($Mode -eq 'retired') { Remove-KitRetiredFile $Path $Retired; return }
     $src = Join-Path $Templates $Path
     if (-not (Test-Path -LiteralPath $src)) { throw "manifest lists $Path but $src does not exist" }
 
@@ -160,7 +178,7 @@ function Sync-KitFile {
 
 function Sync-KitManifest {
     foreach ($row in Get-KitManifestRows) {
-        if ($row.Kind -eq 'file') { Sync-KitFile $row.A $row.Mode }
+        if ($row.Kind -eq 'file') { Sync-KitFile $row.A $row.Mode $row.Retired }
     }
 }
 

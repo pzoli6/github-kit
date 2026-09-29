@@ -5,7 +5,7 @@
 
 .DESCRIPTION
   Refreshes github-kit-owned boilerplate (caller workflows, Cursor rules, skills, CODEOWNERS,
-  copilot-instructions.md, project helper scripts, docs/ai/AGENT_WORKFLOW.md,
+  REVIEW.md block, project helper scripts, docs/ai/AGENT_WORKFLOW.md,
   docs/ai/HANDOFF_INDEX.md, docs/ai/PROJECT_CONFIG.env.example) and the managed block in
   AGENTS.md/CLAUDE.md/GEMINI.md. Never overwrites docs/ai/PROJECT_CONFIG.md, .github/ISSUE_TEMPLATE/
   agent_task.yml, or .github/PULL_REQUEST_TEMPLATE.md -- those may contain repo-specific

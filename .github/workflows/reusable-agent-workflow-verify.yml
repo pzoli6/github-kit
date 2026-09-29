@@ -21,20 +21,17 @@ on:
         type: boolean
         default: false
       require_copilot:
-        description: "Require the GitHub Copilot adapter file (.github/copilot-instructions.md).
-          The file is inert instruction text — keeping it needs no Copilot subscription — but repos
-          that don't use Copilot may delete it and set this false. Default true because every
-          existing install ships the file."
+        description: "Deprecated, ignored. The kit no longer ships a GitHub Copilot adapter file; the
+          input stays so callers that still pass it keep working."
         type: boolean
-        default: true
+        default: false
 
 jobs:
   verify:
     runs-on: ubuntu-latest
     # Actions-budget pause switch: while the caller repo's Actions variable KIT_ACTIONS_PAUSED is
-    # 'true', every github-kit job skips and consumes no Actions minutes — so a human can keep the
-    # account's Actions budget available for e.g. manual GitHub Copilot coding agent runs. See
-    # templates/docs/ai/AGENT_WORKFLOW.md → "Actions budget and manual Copilot use".
+    # 'true', every github-kit job skips and consumes no Actions minutes, leaving the account's
+    # shared Actions budget to other work. See templates/docs/ai/AGENT_WORKFLOW.md → "Actions budget".
     if: vars.KIT_ACTIONS_PAUSED != 'true'
     # Cancel a run superseded by a newer push to the same PR; never cancel base-branch push runs.
     concurrency:
@@ -57,7 +54,6 @@ jobs:
           REQUIRE_CURSOR: ${{ inputs.require_cursor }}
           REQUIRE_SKILLS: ${{ inputs.require_skills }}
           REQUIRE_GEMINI: ${{ inputs.require_gemini }}
-          REQUIRE_COPILOT: ${{ inputs.require_copilot }}
         run: |
           set -uo pipefail
           script=scripts/project/verify_agent_workflow.sh

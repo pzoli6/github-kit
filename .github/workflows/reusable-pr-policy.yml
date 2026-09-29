@@ -52,9 +52,7 @@ jobs:
   policy:
     runs-on: ubuntu-latest
     # KIT_ACTIONS_PAUSED: caller-repo Actions variable that pauses all github-kit jobs so they
-    # consume no Actions minutes (e.g. to keep the Actions budget available for manual GitHub
-    # Copilot coding agent runs). See templates/docs/ai/AGENT_WORKFLOW.md → "Actions budget and
-    # manual Copilot use".
+    # consume no Actions minutes. See templates/docs/ai/AGENT_WORKFLOW.md → "Actions budget".
     if: >-
       vars.KIT_ACTIONS_PAUSED != 'true' &&
       (github.event_name == 'pull_request' || github.event_name == 'pull_request_target')

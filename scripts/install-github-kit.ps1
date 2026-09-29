@@ -16,7 +16,7 @@
 .PARAMETER Mode
   'merge' (default) copies missing files and never overwrites existing ones.
   'force' also refreshes github-kit-owned boilerplate that's already installed (caller
-  workflows, Cursor rules, skills, CODEOWNERS, copilot-instructions.md, project helper
+  workflows, Cursor rules, skills, CODEOWNERS, REVIEW.md block, project helper
   scripts, docs/ai/AGENT_WORKFLOW.md, docs/ai/HANDOFF_INDEX.md, docs/ai/PROJECT_CONFIG.env.example).
 
 .PARAMETER AllowDirty

@@ -90,7 +90,7 @@ for impl in $impls; do
   missing_files=0
   while IFS=$'\t' read -r kind path mode _group; do
     [ "$kind" = file ] || continue
-    [ "$mode" = workflow-opt ] && continue
+    case "$mode" in workflow-opt|retired) continue ;; esac
     [ -e "$R/fresh/$path" ] || { echo "        not installed: $path"; missing_files=1; }
   done < "$KIT_ROOT/templates/docs/ai/KIT_MANIFEST.tsv"
   [ "$missing_files" -eq 0 ] && pass "$impl install places every manifest file" || fail "$impl install places every manifest file"
@@ -145,7 +145,26 @@ for impl in $impls; do
   update "$impl" "$R/fresh" --allow-dirty > /dev/null 2>&1
   [ "$before" = "$(tree_hash "$R/fresh")" ] && pass "$impl update is idempotent" || fail "$impl update is idempotent"
 
-  # 4. Tier: 2 drops the automatic triggers, sticks without the flag, and 1 restores them.
+  # 4. Retired files: an untouched shipped copy is deleted, an edited copy is kept.
+  retired_row="$(awk -F'\t' '$1 == "file" && $3 == "retired" { print $2 "\t" $5; exit }' "$KIT_ROOT/templates/docs/ai/KIT_MANIFEST.tsv")"
+  if [ -n "$retired_row" ]; then
+    rpath="${retired_row%%$'\t'*}"
+    rsha="${retired_row#*$'\t'}"; rsha="${rsha%%,*}"
+    mkdir -p "$R/fresh/$(dirname "$rpath")"
+    git -C "$KIT_ROOT" cat-file blob "$rsha" > "$R/fresh/$rpath"
+    new_repo "$R/edited"; install "$impl" "$R/edited" > /dev/null 2>&1
+    mkdir -p "$R/edited/$(dirname "$rpath")"
+    { git -C "$KIT_ROOT" cat-file blob "$rsha"; echo "local edit"; } > "$R/edited/$rpath"
+    update "$impl" "$R/fresh" --allow-dirty > /dev/null 2>&1
+    update "$impl" "$R/edited" --allow-dirty > /dev/null 2>&1
+    if [ ! -e "$R/fresh/$rpath" ] && [ -e "$R/edited/$rpath" ]; then
+      pass "$impl retired file removed when untouched, kept when edited"
+    else
+      fail "$impl retired file removed when untouched, kept when edited"
+    fi
+  fi
+
+  # 5. Tier: 2 drops the automatic triggers, sticks without the flag, and 1 restores them.
   update "$impl" "$R/fresh" --allow-dirty --tier 2 > /dev/null 2>&1
   wf="$R/fresh/.github/workflows/ci-python.yml"
   if grep -qx '# github-kit tier: 2' "$wf" && ! grep -q 'pull_request:' "$wf"; then
@@ -161,7 +180,7 @@ for impl in $impls; do
   fi
 done
 
-# 5. Parity: bash and PowerShell produce identical trees for the same steps.
+# 6. Parity: bash and PowerShell produce identical trees for the same steps.
 if [ -n "$PWSH" ]; then
   for step in fresh custom; do
     if [ "$(tree_hash "$WORK/sh/$step")" = "$(tree_hash "$WORK/ps1/$step")" ]; then

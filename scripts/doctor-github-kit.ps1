@@ -73,12 +73,24 @@ if (Test-Path -LiteralPath $Manifest) {
         if ($f[0] -eq 'phrase') { continue }
         if ($f[0] -ne 'file') { Write-Host "FAILED  manifest row kind '$($f[0])' is unknown"; $manifestOk = $false; continue }
         $path = $f[1]; $mode = $f[2]; $group = $f[3]
+        if ($mode -eq 'retired') {
+            # A retired file must be gone from templates/ and carry the blob SHAs of every shipped
+            # version, or the updater could never tell an untouched copy from an edited one.
+            if (Test-Path -LiteralPath "templates/$path") {
+                Write-Host "FAILED  templates/$path is marked retired but still exists"; $manifestOk = $false
+            }
+            $shas = if ($f.Count -gt 4) { $f[4] } else { "" }
+            if ($shas -notmatch '^[0-9a-f]{40}(,[0-9a-f]{40})*$') {
+                Write-Host "FAILED  retired $path needs a 5th column of comma-separated 40-hex blob SHAs"; $manifestOk = $false
+            }
+            continue
+        }
         $modes[$path] = $mode
         Check-File "templates/$path"
         if ($mode -notin 'block', 'refresh', 'refresh-exec', 'workflow', 'workflow-create', 'workflow-opt', 'create', 'config') {
             Write-Host "FAILED  manifest mode '$mode' for $path is unknown"; $manifestOk = $false
         }
-        if ($group -notin 'core', 'claude', 'cursor', 'skills', 'gemini', 'copilot', '-') {
+        if ($group -notin 'core', 'claude', 'cursor', 'skills', 'gemini', '-') {
             Write-Host "FAILED  manifest verify group '$group' for $path is unknown"; $manifestOk = $false
         }
         if ($mode -eq 'block' -and (Test-Path -LiteralPath "templates/$path")) {
@@ -407,24 +419,6 @@ if ($callerAgentWorkflowVerify -match 'require_gemini:\s*true') {
 }
 
 Write-Host ""
-
-# --- require_copilot: the Copilot adapter file must be opt-outable, keeping CI subscription-free --
-# (the adapter file is inert text; repos without a Copilot subscription may drop it) ---------------
-
-if ($reusableAgentWorkflowVerify -match 'require_copilot') {
-    Write-Host "OK      reusable-agent-workflow-verify.yml has the require_copilot input"
-} else {
-    Write-Host "MISSING require_copilot input in .github/workflows/reusable-agent-workflow-verify.yml"
-    $script:Missing = 1
-}
-
-$verifyScript = Get-Content -LiteralPath "templates/scripts/project/verify_agent_workflow.sh" -Raw -ErrorAction SilentlyContinue
-if ($verifyScript -match 'REQUIRE_COPILOT') {
-    Write-Host "OK      templates/scripts/project/verify_agent_workflow.sh honours REQUIRE_COPILOT"
-} else {
-    Write-Host "MISSING REQUIRE_COPILOT gating in templates/scripts/project/verify_agent_workflow.sh"
-    $script:Missing = 1
-}
 
 Write-Host ""
 

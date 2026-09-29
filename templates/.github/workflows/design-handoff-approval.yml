@@ -15,8 +15,7 @@ name: Design handoff approval
 # See docs/ai/design-handoffs/README.md → "Approving your own spec PR" for the trade-off.
 #
 # Paused (consuming no Actions minutes) while the repository Actions variable
-# KIT_ACTIONS_PAUSED is 'true'. See docs/ai/AGENT_WORKFLOW.md → "Actions budget and
-# manual Copilot use".
+# KIT_ACTIONS_PAUSED is 'true'. See docs/ai/AGENT_WORKFLOW.md → "Actions budget".
 
 on:
   pull_request_review:

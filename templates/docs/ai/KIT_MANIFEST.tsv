@@ -7,7 +7,7 @@
 #
 # Format: TAB-separated, '#' starts a comment line. Two row kinds:
 #
-#   file   <path>   <mode>   <verify>
+#   file   <path>   <mode>   <verify>   [<retired blob SHAs, comma-separated>]
 #   phrase <text>
 #
 # <path> is relative to both templates/ (source) and the target repo root (destination).
@@ -25,9 +25,12 @@
 #                    already present on update).
 #   create           repo-owned after creation: created once, never overwritten, even with --mode force.
 #   config           like create, except update --force-config resets it to the template.
+#   retired          no longer shipped. Install and update delete the file only when it is byte-for-byte
+#                    a version the kit shipped (git blob SHA listed in the 5th column); an edited copy
+#                    is kept with a warning. The template is gone from templates/.
 #
 # <verify> is the group that makes the file required in verify_agent_workflow.sh:
-#   core (always), claude, cursor, skills, gemini, copilot (each toggled by a REQUIRE_* switch),
+#   core (always), claude, cursor, skills, gemini (each toggled by a REQUIRE_* switch),
 #   or - (installed but not required).
 #
 # phrase rows: key phrases that must appear somewhere in the repo's *.md / *.yml / *.yaml files.
@@ -53,7 +56,6 @@ file	docs/ai/design-handoffs/DESIGN_SYNC.md	create	-
 # --- .github ------------------------------------------------------------------------------------
 file	.github/ISSUE_TEMPLATE/agent_task.yml	create	core
 file	.github/PULL_REQUEST_TEMPLATE.md	create	core
-file	.github/copilot-instructions.md	refresh	copilot
 file	.github/CODEOWNERS	refresh	core
 file	.github/workflows/agent-workflow-verify.yml	workflow	-
 file	.github/workflows/ci-node.yml	workflow	-
@@ -62,6 +64,10 @@ file	.github/workflows/design-handoff-approval.yml	workflow	-
 file	.github/workflows/pr-policy.yml	workflow-create	-
 file	.github/workflows/project-setup.yml	workflow-create	-
 file	.github/workflows/project-sync.yml	workflow-opt	-
+
+# --- retired: no longer installed; removed from repos where unmodified -----------------------
+# GitHub Copilot adapter, dropped when the kit stopped supporting Copilot (see AGENTS.md migration notes).
+file	.github/copilot-instructions.md	retired	-	0201080ca451ef1995e84ae49e80e714d6f5a185,14a4759ed74d4811a780fd01c403f3fa7ce9a09b,14eaa915b968594da8b966b2601131c0efb823d4,6e8295e0ea268b37e104e762c825092865ac4f55,822ff11b932783236d2756b7d82a3939018c0b12,86c26d5418388d5ed556cdcb1da60982459fff44,912e02144ce942d3fbb4a5c98c5f2f1eb81c7ec3,afd6a7f23c0e714ebfc3e3bcab2df22ba1ef1bed,be27aa49d564b2462e07ccdca9bc9983748a51fa,e5c43d5fd48b0d66044f37051a2fa7ebe4cd54d1
 
 # --- Claude Code / Codex / generic agents / Cursor ----------------------------------------------
 file	.claude/skills/issue-to-pr-project/SKILL.md	refresh	claude

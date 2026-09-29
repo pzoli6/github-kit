@@ -58,17 +58,29 @@ check_file "scripts/lib/Kit.ps1"
 if [ -f "$MANIFEST" ]; then
   manifest_ok=1
   listed="$(mktemp)"
-  while IFS=$'\t' read -r kind path mode group; do
+  while IFS=$'\t' read -r kind path mode group retired; do
     group="${group%$'\r'}"
+    retired="${retired%$'\r'}"
     case "$kind" in ''|'#'*|phrase) continue ;; file) ;; *)
       echo "FAILED  manifest row kind '$kind' is unknown"; manifest_ok=0; continue ;;
     esac
+    if [ "$mode" = "retired" ]; then
+      # A retired file must be gone from templates/ and carry the blob SHAs of every shipped version,
+      # or the updater could never tell an untouched copy from an edited one.
+      if [ -e "templates/$path" ]; then
+        echo "FAILED  templates/$path is marked retired but still exists"; manifest_ok=0
+      fi
+      if ! printf '%s' "$retired" | grep -Eq '^[0-9a-f]{40}(,[0-9a-f]{40})*$'; then
+        echo "FAILED  retired $path needs a 5th column of comma-separated 40-hex blob SHAs"; manifest_ok=0
+      fi
+      continue
+    fi
     echo "$path" >> "$listed"
     check_file "templates/$path"
     case "$mode" in block|refresh|refresh-exec|workflow|workflow-create|workflow-opt|create|config) ;; *)
       echo "FAILED  manifest mode '$mode' for $path is unknown"; manifest_ok=0 ;;
     esac
-    case "$group" in core|claude|cursor|skills|gemini|copilot|-) ;; *)
+    case "$group" in core|claude|cursor|skills|gemini|-) ;; *)
       echo "FAILED  manifest verify group '$group' for $path is unknown"; manifest_ok=0 ;;
     esac
     if [ "$mode" = "block" ] && [ "$(grep -cE '^<!-- (BEGIN|END) GITHUB-KIT [A-Z -]+ -->$' "templates/$path")" != 2 ]; then
@@ -369,23 +381,6 @@ else
 fi
 
 echo
-
-# --- require_copilot: the Copilot adapter file must be opt-outable, keeping CI subscription-free --
-# (the adapter file is inert text; repos without a Copilot subscription may drop it) --------------
-
-if grep -q 'require_copilot' .github/workflows/reusable-agent-workflow-verify.yml 2>/dev/null; then
-  echo "OK      reusable-agent-workflow-verify.yml has the require_copilot input"
-else
-  echo "MISSING require_copilot input in .github/workflows/reusable-agent-workflow-verify.yml"
-  missing=1
-fi
-
-if grep -q 'REQUIRE_COPILOT' templates/scripts/project/verify_agent_workflow.sh 2>/dev/null; then
-  echo "OK      templates/scripts/project/verify_agent_workflow.sh honours REQUIRE_COPILOT"
-else
-  echo "MISSING REQUIRE_COPILOT gating in templates/scripts/project/verify_agent_workflow.sh"
-  missing=1
-fi
 
 echo
 

@@ -63,7 +63,7 @@ jobs:
     runs-on: ubuntu-latest
     # KIT_ACTIONS_PAUSED: caller-repo Actions variable that pauses all github-kit jobs
     # so they consume no Actions minutes. See templates/docs/ai/AGENT_WORKFLOW.md →
-    # "Actions budget and manual Copilot use".
+    # "Actions budget".
     #
     # Bot events are rejected outright in both forms: the entire value of the marker is
     # that a human looked at the scope. An automated approval would be exactly the forgery

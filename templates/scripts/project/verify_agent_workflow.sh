@@ -12,9 +12,8 @@ REQUIRE_CLAUDE="${REQUIRE_CLAUDE:-true}"
 REQUIRE_CURSOR="${REQUIRE_CURSOR:-true}"
 REQUIRE_SKILLS="${REQUIRE_SKILLS:-true}"
 REQUIRE_GEMINI="${REQUIRE_GEMINI:-false}"
-# The Copilot adapter file is inert text (no subscription needed to keep it); repos that don't
-# use Copilot may delete it and run with REQUIRE_COPILOT=false.
-REQUIRE_COPILOT="${REQUIRE_COPILOT:-true}"
+# REQUIRE_COPILOT is still accepted (older callers pass it) but no longer does anything: the kit
+# stopped shipping the Copilot adapter file.
 
 missing=0
 
@@ -57,7 +56,6 @@ group_required() {
     cursor) [ "$REQUIRE_CURSOR" = "true" ] ;;
     skills) [ "$REQUIRE_SKILLS" = "true" ] ;;
     gemini) [ "$REQUIRE_GEMINI" = "true" ] ;;
-    copilot) [ "$REQUIRE_COPILOT" = "true" ] ;;
     *) return 1 ;;
   esac
 }

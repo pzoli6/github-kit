@@ -28,7 +28,7 @@ Usage: install-github-kit.sh [--target <path>] [--mode merge|force] [--allow-dir
   --mode merge              Copy missing files, never overwrite existing ones (default)
   --mode force              Also refresh github-kit-owned boilerplate that's already installed
                              (caller workflows, Cursor rules, skills, CODEOWNERS,
-                             copilot-instructions.md, project helper scripts,
+                             REVIEW.md block, project helper scripts,
                              docs/ai/AGENT_WORKFLOW.md, docs/ai/HANDOFF_INDEX.md,
                              docs/ai/PROJECT_CONFIG.env.example).
   --allow-dirty             Proceed even if the target repo has uncommitted changes

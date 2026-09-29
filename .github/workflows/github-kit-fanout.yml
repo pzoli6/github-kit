@@ -5,7 +5,7 @@ name: github-kit fan-out (propagate bootstrap updates)
 # Reusable CI workflows (reusable-*.yml) already auto-track @main: any repo that calls
 # `uses: pzoli6/github-kit/.github/workflows/reusable-*.yml@main` gets fixes on its next run.
 # But the *local* bootstrap files copied into each repo — AGENTS.md/CLAUDE.md/GEMINI.md managed
-# blocks, skills, Cursor rules, copilot-instructions.md, docs/ai/*, and scripts/project/* — do
+# blocks, skills, Cursor rules, REVIEW.md, docs/ai/*, and scripts/project/* — do
 # NOT auto-track; historically they only refreshed when a human ran /github_kit_update.
 #
 # This workflow makes that automatic. On every push to main that changes template/script content
@@ -141,11 +141,14 @@ jobs:
 
           # Stage exactly the github-kit-owned paths: every file row of the kit manifest (the list
           # the updater itself writes from), plus .gitignore. This honours the "never git add -A"
-          # rule, and a new template can never be forgotten here. Paths a target doesn't have are
-          # skipped, so `git add` never aborts on a missing pathspec.
+          # rule, and a new template can never be forgotten here. `git add -A -- <path>` also
+          # stages the deletion of a retired file the updater removed; a path that neither exists
+          # nor is tracked is skipped, so `git add` never aborts on a missing pathspec.
           while IFS=$'\t' read -r kind p _rest; do
             [ "$kind" = "file" ] || continue
-            if [ -e "$p" ]; then git add -- "$p"; fi
+            if [ -e "$p" ] || git ls-files --error-unmatch -- "$p" > /dev/null 2>&1; then
+              git add -A -- "$p"
+            fi
           done < ../github-kit/templates/docs/ai/KIT_MANIFEST.tsv
           if [ -e .gitignore ]; then git add -- .gitignore; fi
 
@@ -167,7 +170,8 @@ jobs:
           `pzoli6/github-kit@main`:
 
           - `AGENTS.md` / `CLAUDE.md` / `GEMINI.md` / `REVIEW.md` managed blocks
-          - `.claude` / `.agents` skills and commands, `.cursor` rules, `.github/copilot-instructions.md`
+          - `.claude` / `.agents` skills and commands, `.cursor` rules
+          - removes retired kit files you never edited (e.g. `.github/copilot-instructions.md`)
           - `docs/ai/AGENT_WORKFLOW.md`, `docs/ai/HANDOFF_INDEX.md`, `docs/ai/PROJECT_CONFIG.env.example`
           - `scripts/project/*` helper scripts and the reusable-workflow callers
 

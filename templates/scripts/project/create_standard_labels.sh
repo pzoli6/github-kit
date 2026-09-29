@@ -29,7 +29,6 @@ LABELS=(
   "agent:antigravity|F9D0C4|Antigravity worked this task"
   "agent:gemini|FEF2C0|Gemini worked this task"
   "agent:chatgpt|74AAF2|ChatGPT worked this task"
-  "agent:copilot|6F42C1|GitHub Copilot worked this task"
   "agent:manual|E4E669|Done by a human, no agent involved"
 )
 

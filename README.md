@@ -4,13 +4,14 @@ Central reusable GitHub workflow and AI-agent development kit.
 
 `github-kit` is the canonical source of truth for the issue-to-PR-to-Project workflow used across
 all of `pzoli6`'s repositories, for both human contributors and AI coding agents (Claude Code,
-ChatGPT Codex, GitHub Copilot coding agent, Cursor agents, Antigravity, ChatGPT with repo context,
-and future agents). It provides:
+ChatGPT Codex, Cursor agents, Antigravity, Gemini CLI, ChatGPT with repo context, and future
+agents). It provides:
 
 1. **Reusable GitHub Actions workflows** (`.github/workflows/reusable-*.yml`) — called via
    `workflow_call` from any target repo.
 2. **AI-agent workflow templates** (`templates/`) — `AGENTS.md`, `CLAUDE.md`, Cursor rules, Claude
-   and generic agent skills, Copilot instructions, and the `docs/ai/` workflow specification.
+   and generic agent skills, the `REVIEW.md` review rulebook, and the `docs/ai/` workflow
+   specification.
 3. **Install / update / doctor scripts** — both Bash (`scripts/*.sh`, for Linux/macOS/WSL/Git
    Bash) and native PowerShell (`scripts/*.ps1`, for Windows) — bring a target repo up to date
    without clobbering its existing content, and audit `github-kit`'s own packaging.
@@ -35,14 +36,11 @@ etc.) lives in the target repo's `docs/ai/PROJECT_CONFIG.md`, not here.
 - **No paid subscription is required — or invoked — by any part of the kit's CI/CD.** Every
   workflow is plain GitHub Actions (free for public repos, free-minutes tier for private ones)
   using standard public actions (`actions/checkout`, `setup-node`, `setup-python`,
-  `pnpm/action-setup`) plus the free `gh` CLI and GitHub Projects (v2). Nothing calls GitHub
-  Copilot, GitHub Advanced Security/CodeQL, or a paid Marketplace app; PR review is human review.
-  The Copilot *adapter file* (`.github/copilot-instructions.md`) is inert instruction text — free
-  to keep, only read by Copilot if a repo owner separately subscribes — and a repo that doesn't
-  use Copilot can delete it and set `require_copilot: false` in `agent-workflow-verify.yml`.
-- **The kit's CI shares the account's Actions budget with everything else that runs on Actions** —
-  notably manual GitHub Copilot coding agent runs (assign a task, resolve a PR's merge conflicts,
-  apply review feedback), which execute as Actions workflow runs in the repo. So the kit is
+  `pnpm/action-setup`) plus the free `gh` CLI and GitHub Projects (v2). Nothing calls a paid AI
+  service, GitHub Advanced Security/CodeQL, or a paid Marketplace app; PR review is human review,
+  optionally helped by AI reviewers you run outside CI (see "PR review" below). The kit no longer
+  ships a GitHub Copilot adapter (see `AGENTS.md` → Migration notes).
+- **The kit's CI shares one Actions budget with every other repo on the account.** So the kit is
   budget-aware: the template CI/verify workflows trigger only for production-bound changes (PR
   targeting the production branch, or a push to it) or an explicit `workflow_dispatch` — never
   automatically on preview-bound PRs, where agents validate locally instead; every reusable
@@ -56,11 +54,9 @@ etc.) lives in the target repo's `docs/ai/PROJECT_CONFIG.md`, not here.
   red" — which keeps their tokens and your attention on the work instead of a non-problem. CI is
   their business only when you ask or when a change is production-bound; see
   [`templates/AGENTS.md`](templates/AGENTS.md) → "CI expectations — don't chase checks" and
-  `docs/ai/PROJECT_CONFIG.md` → "CI trigger policy and Actions budget".
-  Manual Copilot use itself is always the human's
-  call and never blocked by the kit; the budget guidance (including a zero-Actions local
-  conflict-resolution fallback) is in [`templates/docs/ai/AGENT_WORKFLOW.md`](templates/docs/ai/AGENT_WORKFLOW.md)
-  → "Actions budget and manual Copilot use".
+  `docs/ai/PROJECT_CONFIG.md` → "CI trigger policy and Actions budget". The budget guidance
+  (including a zero-Actions local conflict-resolution fallback) is in
+  [`templates/docs/ai/AGENT_WORKFLOW.md`](templates/docs/ai/AGENT_WORKFLOW.md) → "Actions budget".
 - **Private repositories on GitHub Free cannot enforce branch protection rulesets** — no required
   reviews, no required status checks blocking a merge, at the platform level. This is a GitHub
   plan limitation, not a `github-kit` configuration gap.
@@ -176,7 +172,7 @@ opt-in step, changes here deserve a higher review bar than a typical app repo.
 
 `@main` auto-tracking covers reusable workflows but structurally can't cover the *local* bootstrap
 files copied into each repo (`AGENTS.md`/`CLAUDE.md`/`GEMINI.md` managed blocks, skills, Cursor
-rules, `copilot-instructions.md`, `docs/ai/*`, `scripts/project/*`). The fan-out workflow closes
+rules, `REVIEW.md`, `docs/ai/*`, `scripts/project/*`). The fan-out workflow closes
 that gap so you never have to run `/github_kit_update` in each repo by hand.
 
 [`.github/workflows/github-kit-fanout.yml`](.github/workflows/github-kit-fanout.yml) runs in
@@ -253,10 +249,10 @@ Codex column is a setting in Codex, not something the kit can write; see
 ## PR review
 
 `REVIEW.md` (installed in every repo, managed block plus a repo-specific section) is the one
-rulebook for human reviewers, Codex, Claude, and Copilot: what is blocking, what to always check,
-what to skip, and how the PR's agent handles bot findings. Each tool's own instruction file points
-to it: the `## Code Review Rules` section of the managed block in `AGENTS.md` (read by Codex) and
-`CLAUDE.md`, and `.github/copilot-instructions.md`. Setup and the per-tier recommendation:
+rulebook for human reviewers, Codex, and Claude: what is blocking, what to always check, what to
+skip, and how the PR's agent handles bot findings. Each tool's own instruction file points to it:
+the `## Code Review Rules` section of the managed block in `AGENTS.md` (read by Codex) and
+`CLAUDE.md`. Setup and the per-tier recommendation:
 **[docs/PR_REVIEW_SETUP.md](docs/PR_REVIEW_SETUP.md)**.
 
 ## Checking github-kit itself
@@ -293,7 +289,7 @@ Refreshing those local files from `pzoli6/github-kit@main` is a separate, option
 ## Local bootstrap refresh: /github_kit_update
 
 `@main` auto-tracking only covers reusable workflows. `AGENTS.md`/`CLAUDE.md`, Cursor rules,
-Claude/Codex skills, `copilot-instructions.md`, and this kit's own helper scripts are local files
+Claude/Codex skills, `REVIEW.md`, and this kit's own helper scripts are local files
 that lag behind until something explicitly refreshes them. `/github_kit_update`
 (`.claude/skills/github_kit_update/SKILL.md`, `.agents/skills/github_kit_update/SKILL.md`) is that
 something: it runs `update-github-kit.sh`/`.ps1` against `pzoli6/github-kit@main`, refuses a dirty
@@ -452,7 +448,6 @@ different tool entirely) reads the handoff file before touching the worktree. Fu
 |---|---|
 | Claude Code | Reads `CLAUDE.md`, which points to `AGENTS.md` + `docs/ai/PROJECT_CONFIG.md` + `docs/ai/AGENT_WORKFLOW.md`. Also has a Claude Skill at `.claude/skills/issue-to-pr-project/SKILL.md`, and the fast-path `/github_kit` slash command (`.claude/commands/github_kit.md`, runbook `.claude/skills/github_kit/SKILL.md`). |
 | ChatGPT Codex | Reads `AGENTS.md` directly (the tool-agnostic universal rules file) plus the generic skill at `.agents/skills/issue-to-pr-project/SKILL.md` (and its fast-path counterpart, `.agents/skills/github_kit/SKILL.md`). |
-| GitHub Copilot coding agent | Reads `.github/copilot-instructions.md`, which points to the same three files. |
 | Cursor agents | Load `.cursor/rules/agent-workflow.mdc`, `git-safety.mdc`, `project-board.mdc`, and `github-kit-command.mdc` (the `/github_kit` fast-path trigger). |
 | Antigravity / ChatGPT with repo context / future agents | Read `AGENTS.md` — it is intentionally tool-agnostic and is the fallback entry point for any agent without a dedicated adapter, including recognizing the `/github_kit` trigger. |
 | Manual development | Same lifecycle, same Project statuses — `AGENTS.md` and `docs/ai/AGENT_WORKFLOW.md` describe the human-authored path too. |
@@ -462,8 +457,8 @@ different tool entirely) reads the handoff file before touching the worktree. Fu
 When an agent runs out of context/tokens mid-task, it writes its current state to
 `docs/ai/handoffs/issue-<number>.md` and updates the Project's `Last Agent Update` and `Validation`
 fields before stopping. The next agent (same tool or a different one entirely) reads that file
-instead of re-deriving context from scratch — this is what let this exact task move from GitHub
-Copilot to Claude Code mid-stream. See
+instead of re-deriving context from scratch, so a task can move from one tool to another
+mid-stream. See
 [`templates/docs/ai/HANDOFF_INDEX.md`](templates/docs/ai/HANDOFF_INDEX.md).
 
 ## Worktree-per-task lifecycle

@@ -1,6 +1,6 @@
 ---
 name: github_kit_update
-description: Refresh this repo's local github-kit bootstrap files (AGENTS.md/CLAUDE.md managed block, skills, Cursor rules, copilot-instructions.md, docs/ai/AGENT_WORKFLOW.md, project helper scripts) from pzoli6/github-kit@main by opening a draft PR. Use when a user explicitly invokes /github_kit_update, or asks to refresh/sync this repo's github-kit bootstrap files.
+description: Refresh this repo's local github-kit bootstrap files (AGENTS.md/CLAUDE.md managed block, skills, Cursor rules, REVIEW.md, docs/ai/AGENT_WORKFLOW.md, project helper scripts) from pzoli6/github-kit@main by opening a draft PR. Use when a user explicitly invokes /github_kit_update, or asks to refresh/sync this repo's github-kit bootstrap files.
 ---
 
 # github_kit_update
@@ -11,7 +11,7 @@ purpose is pulling the latest central bootstrap content. If `github-kit@main` is
 silently doing nothing.
 
 This command only touches **local bootstrap files** — `AGENTS.md`/`CLAUDE.md` managed block,
-`.claude`/`.agents` skills, `.cursor/rules`, `.github/copilot-instructions.md`,
+`.claude`/`.agents` skills, `.cursor/rules`, `REVIEW.md`,
 `docs/ai/AGENT_WORKFLOW.md`, `docs/ai/HANDOFF_INDEX.md`, project helper scripts, CODEOWNERS, and
 the reusable-workflow *caller* templates (which already auto-track `@main` and rarely need this).
 It never touches `docs/ai/PROJECT_CONFIG.md` unless `--force-config` is explicitly requested, and
