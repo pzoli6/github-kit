@@ -1,13 +1,18 @@
 {
-  "_comment": "Repos that receive automatic github-kit bootstrap-file updates via .github/workflows/github-kit-fanout.yml. 'base' is the branch the auto-update draft PR targets (a repo's integration branch). Add a new repo by appending an entry here — nothing else is needed on the target side.",
+  "_comment": "Repos that receive automatic github-kit bootstrap-file updates via .github/workflows/github-kit-fanout.yml. 'repo' is required. 'base' is optional: the branch the auto-update draft PR targets (a repo's integration branch); when omitted the target's default branch is resolved at run time via the GitHub API. 'install' (optional, default false): a target that does not have the kit installed yet (no docs/ai/PROJECT_CONFIG.md) is skipped with a log line and no PR unless install is true, in which case the full kit is installed on the first run. pzoli6/github-kit itself and pzoli6/app-investment are deliberately not listed (the latter is maintained directly). Add a repo by appending an entry here; nothing is needed on the target side.",
   "targets": [
+    { "repo": "pzoli6/ai-company" },
     { "repo": "pzoli6/Modelling_and_Simulations", "base": "develop" },
-    { "repo": "pzoli6/DancePass", "base": "develop" },
-    { "repo": "pzoli6/Space", "base": "master" },
-    { "repo": "pzoli6/Travel", "base": "main" },
-    { "repo": "pzoli6/AI_Settings", "base": "main" },
+    { "repo": "pzoli6/app-dance" },
+    { "repo": "pzoli6/app-career" },
+    { "repo": "pzoli6/ai-stack" },
+    { "repo": "pzoli6/app-scrape" },
+    { "repo": "pzoli6/app-travel" },
+    { "repo": "pzoli6/app-general-aviation" },
+    { "repo": "pzoli6/app-space" },
     { "repo": "pzoli6/Invoice_Sync", "base": "main" },
-    { "repo": "pzoli6/agent_os", "base": "main" },
-    { "repo": "pszichocloud/Platform", "base": "develop" }
+    { "repo": "pszichocloud/Platform", "base": "develop" },
+    { "repo": "pszichocloud/expenses" },
+    { "repo": "pszichocloud/pszichocloud" }
   ]
 }

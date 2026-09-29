@@ -30,7 +30,9 @@ Follow that workflow exactly:
   always passing `--agent`/`--area`/`--risk`/`--environment` explicitly (plus `--parent
   <parent-issue>` for a sub-task, `--agent-run`/`--handoff` on the PR) — never leave those Project
   fields blank. Open PRs as drafts targeting the base branch from `docs/ai/PROJECT_CONFIG.md`.
-  Never merge.
+  Never merge, never mark a PR ready for review, never add or remove the `no-automerge` label —
+  marking a PR ready is the human's act, and `auto-merge.yml` then merges it once its checks are
+  green (`docs/ai/AGENT_WORKFLOW.md` → "Auto-merge after green").
 - Work in a dedicated git worktree. Create it with `scripts/project/publish_agent_branch.sh`
   (forks a real worktree from `origin/<base>`, prints its path), `cd` into that path, and read the
   `WORKTREE.md` it drops there before implementing — agents run this repo in parallel and must

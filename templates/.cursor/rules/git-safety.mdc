@@ -18,7 +18,9 @@ alwaysApply: true
   know exactly what you're committing.
 - Never force-push a branch another agent or human might also be working on.
 - Never amend or rewrite history on a branch that may already be pulled elsewhere.
-- Never merge a pull request — open it as a draft and let a human merge it.
+- Never merge a pull request, never mark one ready for review, never add or remove the
+  `no-automerge` label — open it as a draft; the human marks it ready, and `auto-merge.yml`
+  merges it once its checks are green (`docs/ai/AGENT_WORKFLOW.md` → "Auto-merge after green").
 - Never run destructive git commands (`reset --hard`, `clean -f`, `branch -D`, force-push to a
   shared branch) without explicit human instruction for that specific action.
 - Never commit secrets, tokens, or `docs/ai/PROJECT_CONFIG.env`.

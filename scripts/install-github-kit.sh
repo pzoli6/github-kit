@@ -165,16 +165,54 @@ copy_create_only() {
   fi
 }
 
+# auto-merge.yml's per-repo list of extra workflow names lives between these two marker lines;
+# --mode force carries it over from the existing file instead of resetting it (same helper as in
+# update-github-kit.sh).
+REPO_BLOCK_BEGIN='# >>> github-kit: repo workflows >>>'
+REPO_BLOCK_END='# <<< github-kit: repo workflows <<<'
+
+carry_repo_block() {
+  # Prints $2 (the new file) with the lines between the repo-block markers replaced by the lines
+  # between the same markers in $1 (the existing file). Prints $2 unchanged unless both files
+  # carry both markers. Trailing CRs from a Windows checkout are dropped from the carried lines.
+  local old="$1" new="$2"
+  if [ -f "$old" ] \
+     && grep -qF -- "$REPO_BLOCK_BEGIN" "$old" && grep -qF -- "$REPO_BLOCK_END" "$old" \
+     && grep -qF -- "$REPO_BLOCK_BEGIN" "$new" && grep -qF -- "$REPO_BLOCK_END" "$new"; then
+    awk -v b="$REPO_BLOCK_BEGIN" -v e="$REPO_BLOCK_END" -v oldf="$old" '
+      BEGIN {
+        inb = 0; n = 0
+        while ((getline line < oldf) > 0) {
+          sub(/\r$/, "", line)
+          if (index(line, b)) { inb = 1; continue }
+          if (index(line, e)) { inb = 0; continue }
+          if (inb) keep[++n] = line
+        }
+        close(oldf)
+      }
+      index($0, b) { print; for (i = 1; i <= n; i++) print keep[i]; skip = 1; next }
+      index($0, e) { skip = 0; print; next }
+      !skip { print }
+    ' "$new"
+  else
+    cat "$new"
+  fi
+}
+
 copy_workflow() {
   # Copies $1 -> $2. Templates pin caller `uses:` lines to @main (the always-latest channel); if
   # --ref/--workflow-ref resolved to something else, repoint only that `uses: pzoli6/github-kit/...`
   # line to the requested ref — never touch unrelated occurrences of the word "main" (e.g. branch
-  # triggers). Same merge/force semantics as copy_if_missing.
-  local src="$1" dst="$2"
+  # triggers). Same merge/force semantics as copy_if_missing; --mode force keeps a marked repo block.
+  local src="$1" dst="$2" tmp
   if [ -e "$dst" ]; then
     if [ "$MODE" = "force" ]; then
       mkdir -p "$(dirname "$dst")"
-      sed -E "s#(uses: pzoli6/github-kit/[^@[:space:]]+)@main#\1@$WORKFLOW_REF#" "$src" > "$dst"
+      tmp="$(mktemp)"
+      sed -E "s#(uses: pzoli6/github-kit/[^@[:space:]]+)@main#\1@$WORKFLOW_REF#" "$src" > "$tmp"
+      carry_repo_block "$dst" "$tmp" > "$tmp.carried"
+      cat "$tmp.carried" > "$dst"
+      rm -f "$tmp" "$tmp.carried"
       echo "updated (force): $dst"
       UPDATED_COUNT=$((UPDATED_COUNT + 1))
     else
@@ -218,7 +256,7 @@ Agents must read:
 - `docs/ai/AGENT_WORKFLOW.md`
 
 Every implementation task must follow:
-User task → plan → human approval → GitHub issue → Project update → agent branch/worktree → implementation → validation → draft PR → handoff → human review.
+User task → plan → human approval → GitHub issue → Project update → agent branch/worktree → implementation → validation → draft PR → handoff → human review → human marks ready → auto-merge after green.
 
 Required approval phrase:
 ```text
@@ -228,6 +266,8 @@ approve
 Fast path: `/github_kit <task>` is a pre-approved alternative entry point — the invocation itself is the approval for the described task, scoped to that task only. See `docs/ai/AGENT_WORKFLOW.md` → "Fast-path trigger: /github_kit".
 
 Agents must not push to protected branches, merge PRs, modify secrets, use `git add .`, or claim validation passed unless validation actually ran.
+
+Agents must never mark a PR ready for review (with `.github/workflows/auto-merge.yml` installed, a person marking a draft PR ready is what lets it merge automatically once every check is green), never add or remove the `no-automerge` label, and never enable GitHub's native auto-merge. PRs stay drafts. See `docs/ai/AGENT_WORKFLOW.md` → "Auto-merge after green".
 
 Solo mode: `docs/ai/PROJECT_CONFIG.md` → "Solo mode" (default `auto` — active until a real GitHub Project is configured) collapses the lifecycle to plan → approval → branch/worktree → implementation → validation → draft PR: no issue for pre-approved iterations, no Project-field updates, handoff files only when actually stopping mid-task. Approval gates and git/PR safety rules apply unchanged.
 
@@ -300,7 +340,9 @@ copy_create_only "$TEMPLATES/.github/PULL_REQUEST_TEMPLATE.md" ".github/PULL_REQ
 copy_if_missing  "$TEMPLATES/.github/copilot-instructions.md" ".github/copilot-instructions.md"
 copy_if_missing  "$TEMPLATES/.github/CODEOWNERS" ".github/CODEOWNERS"
 
-for wf in agent-workflow-verify ci-node ci-python design-handoff-approval; do
+# auto-merge.yml carries no repo-specific values (its rules live in reusable-auto-merge.yml@main),
+# so it is github-kit-owned boilerplate refreshed like ci-node.yml — not create-only.
+for wf in agent-workflow-verify ci-node ci-python design-handoff-approval auto-merge; do
   copy_workflow "$TEMPLATES/.github/workflows/$wf.yml" ".github/workflows/$wf.yml"
 done
 # pr-policy.yml carries the repo-specific required_base_branch gate; never overwrite it (even in

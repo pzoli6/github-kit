@@ -137,16 +137,53 @@ function Refresh-File {
     }
 }
 
+# auto-merge.yml's per-repo list of extra workflow names lives between these two marker lines.
+# Everything else in a refreshed caller is replaced from the template; the lines between the
+# markers are carried over from the existing file (see Merge-RepoBlock).
+$script:RepoBlockBegin = '# >>> github-kit: repo workflows >>>'
+$script:RepoBlockEnd = '# <<< github-kit: repo workflows <<<'
+
+function Merge-RepoBlock {
+    # Returns $NewContent with the lines between the repo-block markers replaced by the lines
+    # between the same markers in the existing file $OldPath. Returns $NewContent unchanged unless
+    # both carry both markers. Same result as carry_repo_block in update-github-kit.sh.
+    param([string]$OldPath, [string]$NewContent)
+    if (-not (Test-Path -LiteralPath $OldPath)) { return $NewContent }
+    $old = Get-Content -LiteralPath $OldPath -Raw
+    if ($null -eq $old -or $null -eq $NewContent) { return $NewContent }
+    foreach ($marker in @($script:RepoBlockBegin, $script:RepoBlockEnd)) {
+        if (-not $old.Contains($marker) -or -not $NewContent.Contains($marker)) { return $NewContent }
+    }
+    $nl = if ($NewContent.Contains("`r`n")) { "`r`n" } else { "`n" }
+    $keep = New-Object System.Collections.Generic.List[string]
+    $inBlock = $false
+    foreach ($line in ($old -split "`r?`n")) {
+        if ($line.Contains($script:RepoBlockBegin)) { $inBlock = $true; continue }
+        if ($line.Contains($script:RepoBlockEnd)) { $inBlock = $false; continue }
+        if ($inBlock) { $keep.Add($line) }
+    }
+    $out = New-Object System.Collections.Generic.List[string]
+    $skip = $false
+    foreach ($line in ($NewContent -split "`r?`n")) {
+        if ($line.Contains($script:RepoBlockBegin)) { $out.Add($line); $out.AddRange($keep); $skip = $true; continue }
+        if ($line.Contains($script:RepoBlockEnd)) { $skip = $false; $out.Add($line); continue }
+        if (-not $skip) { $out.Add($line) }
+    }
+    return ($out -join $nl)
+}
+
 function Refresh-Workflow {
     # Always overwrite $Dst with $Src (creating it if missing). Templates pin caller `uses:`
     # lines to @main (the always-latest channel); if -Ref/-WorkflowRef resolved to something
     # else, repoint only that `uses: pzoli6/github-kit/...` line to the requested ref -- never
-    # touch unrelated occurrences of the word "main" (e.g. branch triggers).
+    # touch unrelated occurrences of the word "main" (e.g. branch triggers). A marked repo block
+    # (auto-merge.yml's extra workflow names) is carried over from the existing file.
     param([string]$Src, [string]$Dst)
     Ensure-ParentDir $Dst
     $pattern = '(uses: pzoli6/github-kit/[^@\s]+)@main'
     $content = (Get-Content -LiteralPath $Src -Raw) -replace $pattern, "`$1@$WorkflowRef"
     if (Test-Path -LiteralPath $Dst) {
+        $content = Merge-RepoBlock -OldPath $Dst -NewContent $content
         Set-Content -LiteralPath $Dst -Value $content -NoNewline
         Write-Host "refreshed:       $Dst"
         $script:UpdatedCount++
@@ -189,7 +226,7 @@ Agents must read:
 - `docs/ai/AGENT_WORKFLOW.md`
 
 Every implementation task must follow:
-User task → plan → human approval → GitHub issue → Project update → agent branch/worktree → implementation → validation → draft PR → handoff → human review.
+User task → plan → human approval → GitHub issue → Project update → agent branch/worktree → implementation → validation → draft PR → handoff → human review → human marks ready → auto-merge after green.
 
 Required approval phrase:
 ```text
@@ -199,6 +236,8 @@ approve
 Fast path: `/github_kit <task>` is a pre-approved alternative entry point — the invocation itself is the approval for the described task, scoped to that task only. See `docs/ai/AGENT_WORKFLOW.md` → "Fast-path trigger: /github_kit".
 
 Agents must not push to protected branches, merge PRs, modify secrets, use `git add .`, or claim validation passed unless validation actually ran.
+
+Agents must never mark a PR ready for review (with `.github/workflows/auto-merge.yml` installed, a person marking a draft PR ready is what lets it merge automatically once every check is green), never add or remove the `no-automerge` label, and never enable GitHub's native auto-merge. PRs stay drafts. See `docs/ai/AGENT_WORKFLOW.md` → "Auto-merge after green".
 
 Solo mode: `docs/ai/PROJECT_CONFIG.md` → "Solo mode" (default `auto` — active until a real GitHub Project is configured) collapses the lifecycle to plan → approval → branch/worktree → implementation → validation → draft PR: no issue for pre-approved iterations, no Project-field updates, handoff files only when actually stopping mid-task. Approval gates and git/PR safety rules apply unchanged.
 
@@ -286,7 +325,11 @@ if (Test-Path -LiteralPath ".github/PULL_REQUEST_TEMPLATE.md") {
 Refresh-File (Join-Path $Templates ".github/copilot-instructions.md") ".github/copilot-instructions.md"
 Refresh-File (Join-Path $Templates ".github/CODEOWNERS") ".github/CODEOWNERS"
 
-foreach ($wf in @("agent-workflow-verify", "ci-node", "ci-python", "design-handoff-approval")) {
+# auto-merge.yml carries no repo-specific values (its rules live in reusable-auto-merge.yml@main),
+# so it is refreshed like ci-node.yml -- and recreated if deleted. Per-repo choices are repository
+# Actions variables (KIT_AUTOMERGE_DISABLED=true switches it off durably,
+# KIT_AUTOMERGE_ALLOW_NO_CHECKS=true) or the no-automerge label on a PR, never edits to this file.
+foreach ($wf in @("agent-workflow-verify", "ci-node", "ci-python", "design-handoff-approval", "auto-merge")) {
     Refresh-Workflow (Join-Path $Templates ".github/workflows/$wf.yml") ".github/workflows/$wf.yml"
 }
 # pr-policy.yml holds this repo's base-branch gate — preserve it if it already exists.

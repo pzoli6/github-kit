@@ -38,15 +38,18 @@ which they now do:
 
 | Owner | Targets |
 | --- | --- |
-| `pzoli6` | `Modelling_and_Simulations`, `DancePass`, `Space`, `Travel`, `AI_Settings`, `Invoice_Sync`, `agent_os` |
-| `pszichocloud` | `Platform` |
+| `pzoli6` | `ai-company`, `Modelling_and_Simulations`, `app-dance`, `app-career`, `ai-stack`, `app-scrape`, `app-travel`, `app-general-aviation`, `app-space`, `Invoice_Sync` |
+| `pszichocloud` | `Platform`, `expenses`, `pszichocloud` |
+
+(`pzoli6/github-kit` itself and `pzoli6/app-investment` are deliberately not targets — the
+latter is maintained directly. The authoritative list is `.github/fanout-targets.json`.)
 
 A **fine-grained PAT is scoped to exactly one resource owner** — the dropdown offers only your own
 account and organisations you belong to. Repos you're an *outside collaborator* on can't be
 selected at all. So no single fine-grained PAT can cover both lists.
 
-A **classic PAT reaches every repo its creating account can push to.** `pzoli6` has `write` on
-`pszichocloud/Platform`, so one classic PAT from `pzoli6` covers all eight targets.
+A **classic PAT reaches every repo its creating account can push to.** As long as `pzoli6` has
+`write` on every `pszichocloud/*` target, one classic PAT from `pzoli6` covers all thirteen.
 
 > Prefer least privilege? See "Alternative: two fine-grained PATs" at the bottom. It needs a
 > change to the fan-out workflow, so it isn't the default.
@@ -107,8 +110,8 @@ gh api repos/pzoli6/github-kit/actions/secrets --jq '[.secrets[].name] | join(",
 
 ## Step 2 — First run, on one repo only
 
-Fan-out has probably never run successfully, so the first success will open draft PRs on **all
-eight** targets at once, each carrying however much drift has accumulated. Do one first:
+Fan-out has probably never run successfully, so the first success will open draft PRs on **every**
+installed target at once, each carrying however much drift has accumulated. Do one first:
 
 ```bash
 gh workflow run github-kit-fanout.yml --repo pzoli6/github-kit \
@@ -143,14 +146,100 @@ gh secret set AGENT_PROJECT_TOKEN --repo <owner>/<repo>
 
 ---
 
+## Step 4 — Auto-merge after green: the Actions budget, and an optional token
+
+Every installed repo gets `.github/workflows/auto-merge.yml` (see `README.md` → "Auto-merge
+after green"): a PR that a person marked ready for review merges by itself once every check on
+it is green, and the `no-automerge` label holds one back. A PR with no checks at all, a PR opened
+non-draft, and a PR from a long-lived branch (`develop` → `main`) are never merged
+automatically. Three things only you can do:
+
+### 4a. Restore / confirm the Actions spending limit *(required — nothing merges without it)*
+
+Auto-merge is a GitHub Actions run like any other. While the account's Actions budget is
+exhausted, **no run starts, so no PR merges** — a green PR simply sits there. Check the budget
+for whichever account pays for the repo (personal `pzoli6`, and the `pszichocloud`
+organisation): **Settings → Billing and licensing → Budgets and alerts**. GitHub's default
+budget for metered products is $0, which hard-stops all Actions once the plan's included minutes
+are used. Set a budget you are comfortable with (public repos consume no paid minutes), or raise
+it when the kit's `KIT_ACTIONS_PAUSED` pause is lifted. Agents never change billing settings.
+
+Check whether auto-merge runs are starting at all:
+
+```bash
+gh run list --repo <owner>/<repo> --workflow auto-merge.yml --limit 5 \
+  --json createdAt,conclusion,event --jq '.[] | "\(.createdAt[0:16])  \(.event)  \(.conclusion)"'
+```
+
+No rows after a PR was marked ready means either the budget stopped it or the caller file is
+not on the repo's default branch yet (its `workflow_run` / `check_suite` / `status` triggers only
+fire from the default branch — merge the fan-out PR first). Rows with conclusion `skipped` cost
+nothing: they are events filtered out before a runner started (a pending status, a failed run, a
+draft PR, an unrelated label), or `KIT_ACTIONS_PAUSED` / `KIT_AUTOMERGE_DISABLED` is `true`.
+
+### 4b. Optional: `AUTOMERGE_TOKEN` per repo *(base-branch workflows after a merge, or merging workflow-file PRs)*
+
+Merges made with the default `GITHUB_TOKEN` do **not** trigger other Actions workflows on the
+base branch (a `CI (Node)` push run on `main`, for example). Vercel and other webhook/GitHub-app
+integrations are unaffected. GitHub also refuses changes to `.github/workflows/*` from a token
+without the workflow permission, which `GITHUB_TOKEN` can never have, so a PR that touches
+workflow files — **every github-kit fan-out/update PR does** — is expected to be refused and
+left for you to merge by hand (the auto-merge run logs a warning saying so; this follows from
+GitHub's documented rules and has not been observed live yet). If a repo needs either, store a
+PAT in **that target repo** (not in github-kit) as the secret **`AUTOMERGE_TOKEN`**:
+
+- **Fine-grained PAT (recommended), this one repository only:** *Contents: Read and write*,
+  *Pull requests: Read and write*, *Issues: Read*, *Checks: Read*, *Commit statuses: Read*,
+  *Actions: Read*, and — only if it should merge PRs that change workflow files — *Workflows:
+  Read and write*. Every read permission is required: the workflow fails closed, so a token
+  that cannot read checks, statuses, workflow runs or the PR timeline merges **nothing** (each
+  run logs which read failed).
+- **Classic PAT (fallback):** scopes `repo` (+ `workflow` for workflow-file PRs). Note that a
+  classic token reaches **every** repository its account can push to, while being stored in
+  just this one — prefer the fine-grained token.
+- The account creating it must have push access to the repo; the merge commits and the summary
+  comment will be attributed to that account.
+
+```bash
+gh secret set AUTOMERGE_TOKEN --repo <owner>/<repo>
+```
+
+The caller already passes the secret through (`secrets.AUTOMERGE_TOKEN`); an absent secret means
+"use `GITHUB_TOKEN`". Nothing to edit in the repo, which matters because `auto-merge.yml` is
+refreshed by every kit update.
+
+### 4c. Per-repo switches *(repository Actions variables)*
+
+Settings → Secrets and variables → Actions → **Variables**, per target repo:
+
+| Variable | Effect |
+| --- | --- |
+| `KIT_AUTOMERGE_DISABLED` = `true` | Auto-merge off in this repo. This is the durable opt-out — deleting `auto-merge.yml` lasts only until the next kit update or fan-out recreates it. |
+| `KIT_AUTOMERGE_ALLOW_NO_CHECKS` = `true` | A ready PR whose head commit has no check runs, statuses or workflow runs merges anyway. Off by default because "no checks" cannot be told apart from "CI did not run". With the kit's budget-first triggers a PR into the base branch has no kit checks, so without this (or a third-party check such as Vercel) such PRs are merged by hand. |
+| `KIT_ACTIONS_PAUSED` = `true` | Pauses every github-kit job, auto-merge included. Checks the pause left `skipped` are never counted as green: after unpausing, re-run those workflows (or push) and their completion re-evaluates the PR. |
+
+```bash
+gh variable set KIT_AUTOMERGE_DISABLED --body true --repo <owner>/<repo>
+```
+
+---
+
 ## Adding a new target repo
 
 One line, then nothing on the target side:
 
 ```jsonc
 // .github/fanout-targets.json
-{ "repo": "owner/name", "base": "develop" }   // base = that repo's integration branch
+{ "repo": "owner/name" }                        // base = the repo's default branch, resolved at run time
+{ "repo": "owner/name", "base": "develop" }     // base = that repo's integration branch, if not the default
+{ "repo": "owner/name", "install": true }       // first install: the kit is not there yet
 ```
+
+A target that does **not** have the kit installed (no `docs/ai/PROJECT_CONFIG.md` at its base
+branch) is **skipped with a log line and no PR** unless its entry says `"install": true` — the
+kit is never silently installed into a repo that never had it. With `"install": true` the full
+installer runs once and opens a draft PR that says so (fill in `docs/ai/PROJECT_CONFIG.md`
+before merging); after that the flag is harmless and can stay or go.
 
 Then confirm the fan-out token can actually reach it — if it's under a **different account**, a
 fine-grained PAT will not, and a classic PAT only will if its creating account has push access
@@ -185,6 +274,11 @@ Neither file hints at the other. Check both.
 | `gh project`/field commands fail with "missing required scopes" | Token lacks `project` | `gh auth refresh -s read:project,project` |
 | A new `templates/` file never appears in target repos | One of the two registration points above | See "Adding a new file to `templates/`" |
 | Fan-out PR is missing a script the workflow calls | Fan-out staging allowlist | Same |
+| Fan-out logs `Skipped <repo>: github-kit is not installed there` and opens no PR | The target has no `docs/ai/PROJECT_CONFIG.md` and its entry lacks `"install": true` | Add `"install": true` to that entry (see "Adding a new target repo"), or leave it skipped on purpose |
+| A green, ready PR never merges | Draft; opened non-draft (no person marked it ready); `no-automerge` label; head is `develop`/`main`/another long-lived branch; no checks at all (see `KIT_AUTOMERGE_ALLOW_NO_CHECKS`); checks skipped by `KIT_ACTIONS_PAUSED`; `KIT_AUTOMERGE_DISABLED`; Actions budget exhausted; caller not on the default branch yet; a `CHANGES_REQUESTED` review; a fork PR | Steps 4a and 4c; the auto-merge run's log names the exact reason |
+| Auto-merge logs "GitHub refused the merge because the PR changes .github/workflows/*" | The merge token lacks the workflow permission (always true of `GITHUB_TOKEN`) | Merge that PR by hand, or Step 4b with *Workflows: Read and write* |
+| Auto-merge run fails with "could not read ... - not merged" | The token cannot read checks / statuses / workflow runs / the PR timeline, or the API was down | Step 4b permissions; re-trigger by adding and removing `no-automerge` |
+| Base-branch workflows don't run after an automatic merge | Merge made with `GITHUB_TOKEN`, which never triggers other workflows | Step 4b (`AUTOMERGE_TOKEN`) |
 | `scripts/project/*.sh` fail on Windows with `jq: command not found` | `jq` isn't bundled with Git Bash | `winget install jqlang.jq`, or use `gh api --jq` which uses gh's built-in jq and needs no install |
 
 ---

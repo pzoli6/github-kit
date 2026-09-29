@@ -97,7 +97,10 @@ fewer interruptions, not more: anything not here is the agent's judgment call.
    Actions permissions, branch protection, or repo secrets (see "Security rules"); destructive git
    operations on a shared branch (force-push, `reset --hard`, rewriting history another agent/human
    may have pulled).
-8. **Merging a PR, or marking one ready for review when validation hasn't actually run.**
+8. **Merging a PR, or marking one ready for review.** Both are human acts. Marking a draft PR
+   ready is what hands it to `auto-merge.yml`, which merges it once every check is green (see
+   "Auto-merge after green" below) — so an agent never marks a PR ready, even when validation
+   passed, and never adds or removes the `no-automerge` label.
 
 Everything else — file layout, naming, which files to touch for an approved task, how to phrase
 commit messages, which validation command to run first, whether to split work into more than one
@@ -154,7 +157,8 @@ from events rather than typed. See the folder `README.md` → "The sync loop".
 
 This is additive, not a replacement: `approve` remains the default gate for any
 task not invoked via `/github_kit`, and nothing else about the lifecycle below changes — same issue
-template, same Project tracking, same draft-PR-only rule, same human-merges-only rule. See
+template, same Project tracking, same draft-PR-only rule, same human-approves-only rule (the merge
+itself is automated after green — see "Auto-merge after green" below). See
 [`docs/ai/AGENT_WORKFLOW.md`](../docs/ai/AGENT_WORKFLOW.md) → "Fast-path trigger: /github_kit" for
 the full spec, and the `github_kit` skill/command files (`.claude/commands/
 github_kit.md`, `.claude/skills/github_kit/SKILL.md`, `.agents/skills/github_kit/SKILL.md`,
@@ -215,7 +219,8 @@ User task
 → draft PR
 → handoff file
 → human review
-→ human merge
+→ human marks the PR ready
+→ auto-merge after green
 ```
 
 See [`docs/ai/AGENT_WORKFLOW.md`](../docs/ai/AGENT_WORKFLOW.md) for the step-by-step spec (task
@@ -412,12 +417,72 @@ issue; the remote branch (and whether GitHub auto-deletes it on merge) is untouc
   platform limitation, not a misconfiguration. Don't treat a missing/unenforceable ruleset as
   something to "fix" by changing repo visibility or plan without explicit human instruction.
 - Compensate with process discipline instead: always open PRs as drafts, always wait for actual
-  human review before a human marks a PR ready and merges it, and keep the CI workflows
+  human review before a human marks a PR ready — which, with `auto-merge.yml`, merges it once
+  every check is green (see "Auto-merge after green" below) — and keep the CI workflows
   configured in `.github/workflows/` even though they can't be made "required" — they're useful
   signal where they run, which by default is production-bound changes and explicit dispatches
   only (see "CI expectations — don't chase checks" above).
 - If this repo is later upgraded to a plan that supports branch protection (or made public), a
   human can enable required reviews/status checks at that point — see `README.md`.
+
+## Auto-merge after green
+
+`.github/workflows/auto-merge.yml` — a thin caller for `pzoli6/github-kit`'s
+`reusable-auto-merge.yml@main` — merges a PR automatically, with a **merge commit**, once a
+person has marked it ready and every check on its head commit is green. It exists because
+private repositories on the GitHub Free plan cannot have required status checks, which makes
+GitHub's own auto-merge unusable there. The decision, re-evaluated on every event that can
+change it (PR marked ready / reopened / `no-automerge` removed, a workflow run or check suite
+completing successfully, a `success` commit status arriving):
+
+- the PR is open and **not a draft**, and its timeline shows that **a person** (a User account,
+  not a bot) marked it ready for review — a PR opened non-draft is never merged automatically;
+- it does **not** carry the `no-automerge` label (the human's brake — add it to hold a PR back
+  for as long as it is present; re-checked right before merging);
+- its head branch lives in this repository (a fork PR is never merged) and is not a long-lived
+  branch (the default branch, `main`, `master`, `develop`, `staging`, `production`) — a
+  release/promotion PR is always a human merge;
+- no reviewer's latest review is `CHANGES_REQUESTED` (plain comments neither request nor clear);
+- GitHub reports it mergeable, with no conflicts;
+- every check run on the head commit has completed with `success`, `neutral` or `skipped`, the
+  latest run of every other workflow on it has completed the same way, and the combined commit
+  status is `success` (or there are no statuses at all). A queued or running check or workflow
+  means "wait"; a failed, cancelled or timed-out one means "do not merge". Kit CI, verify and
+  PR Policy checks that were **skipped because `KIT_ACTIONS_PAUSED` was set** are no signal and
+  block the merge until those workflows are re-run;
+- **no checks at all is not green.** A head commit with no check runs, statuses or workflow runs
+  is not merged unless the repository variable `KIT_AUTOMERGE_ALLOW_NO_CHECKS` is `true`. With
+  the kit's budget-first CI triggers, a PR into the base branch starts no kit workflow, so unless
+  a third-party check (a Vercel preview, say) reports on it, such a PR is merged by the human by
+  hand; only production-bound PRs, or PRs with third-party checks, are gated by CI and policy.
+
+Every read of the GitHub API fails closed — an unreadable check list is never "no checks".
+Nothing merges while the repository Actions variable `KIT_ACTIONS_PAUSED` is `true`, while
+`KIT_AUTOMERGE_DISABLED` is `true` (the durable per-repo opt-out; deleting the caller file lasts
+only until the next kit update), or while the account's Actions budget is exhausted (no run
+starts). A merge made with the default `GITHUB_TOKEN` does not trigger other Actions workflows on
+the base branch, and a PR that changes `.github/workflows/*` (every github-kit update PR) needs
+a token with the workflow permission, so without an `AUTOMERGE_TOKEN` secret the human merges
+those by hand; see `README.md` in github-kit → "Auto-merge after green".
+
+**The human still decides — by marking a draft PR ready (or removing `no-automerge`).** For
+agents this turns the old *human-merges-only* rule into *human-approves-only, merge is automated
+after green*, and it adds three hard rules on top of "never merge":
+
+- **Never mark a PR ready for review** — not with `gh pr ready`, not through the REST/GraphQL
+  API or an MCP tool (`update_pull_request` with `draft: false`, `markPullRequestReadyForReview`),
+  and never open a PR non-draft. Ready means "merge this when green", and that is the human's
+  call. A draft PR you open stays a draft when your turn ends; if validation is incomplete, say
+  so in the PR body and let the human decide. The checked-in `.claude/settings.json` denies only
+  some of these paths; the rule covers all of them.
+- **Never add or remove the `no-automerge` label.**
+- **Never merge, and never call `enable_pr_auto_merge` / `merge_pull_request`** (the checked-in
+  `.claude/settings.json` denies both MCP tools). GitHub's native auto-merge is not this mechanism
+  and must not be enabled either. If asked to "merge" a PR, say that marking it ready is the act
+  the human performs, and link the PR.
+
+`docs/ai/PROJECT_CONFIG.md` → `Auto-merge` records that this is on; `docs/ai/AGENT_WORKFLOW.md`
+→ "Auto-merge after green" has the operational summary.
 
 ## Pausing and resuming work
 
@@ -537,8 +602,10 @@ concurrent edits to any shared index.
 
 ## PR rules
 
-- Open PRs as **drafts** by default; only mark ready for review when validation has actually run
-  and the PR template is filled in.
+- Open PRs as **drafts**, always — and leave them drafts. Marking a PR ready for review is the
+  human's decision, because in this repo it is what triggers the automatic merge (see
+  "Auto-merge after green"). Fill in the template and record the true validation state so the
+  human can make that call quickly.
 - Use the PR template (`.github/PULL_REQUEST_TEMPLATE.md`) — fill in Project metadata, agent/tool
   used, validation state, and human review focus. Don't leave placeholder text in a submitted PR,
   and **delete** sections the template marks optional when they don't apply rather than writing
@@ -603,7 +670,9 @@ body and `@mention` the relevant person instead of assuming they'll see it.
 
 ## Human authority
 
-- Humans approve plans, review PRs, and merge. No agent merges its own PR or anyone else's.
+- Humans approve plans, review PRs, and decide when a PR is ready; the merge itself is automated
+  after green (`auto-merge.yml`). No agent merges its own PR or anyone else's, marks a PR ready,
+  or touches the `no-automerge` label.
 - A human can override any rule in this file for a specific task by saying so explicitly in that
   task's context — that override applies to the stated scope only, not as a standing change to
   this file.
@@ -620,7 +689,7 @@ Agents must read:
 - `docs/ai/AGENT_WORKFLOW.md`
 
 Every implementation task must follow:
-User task → plan → human approval → GitHub issue → Project update → agent branch/worktree → implementation → validation → draft PR → handoff → human review.
+User task → plan → human approval → GitHub issue → Project update → agent branch/worktree → implementation → validation → draft PR → handoff → human review → human marks ready → auto-merge after green.
 
 Required approval phrase:
 ```text
@@ -630,6 +699,8 @@ approve
 Fast path: `/github_kit <task>` is a pre-approved alternative entry point — the invocation itself is the approval for the described task, scoped to that task only. See `docs/ai/AGENT_WORKFLOW.md` → "Fast-path trigger: /github_kit".
 
 Agents must not push to protected branches, merge PRs, modify secrets, use `git add .`, or claim validation passed unless validation actually ran.
+
+Agents must never mark a PR ready for review (with `.github/workflows/auto-merge.yml` installed, a person marking a draft PR ready is what lets it merge automatically once every check is green), never add or remove the `no-automerge` label, and never enable GitHub's native auto-merge. PRs stay drafts. See `docs/ai/AGENT_WORKFLOW.md` → "Auto-merge after green".
 
 Solo mode: `docs/ai/PROJECT_CONFIG.md` → "Solo mode" (default `auto` — active until a real GitHub Project is configured) collapses the lifecycle to plan → approval → branch/worktree → implementation → validation → draft PR: no issue for pre-approved iterations, no Project-field updates, handoff files only when actually stopping mid-task. Approval gates and git/PR safety rules apply unchanged.
 

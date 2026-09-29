@@ -1,0 +1,528 @@
+name: Reusable - Auto-merge after green
+
+# Merges a pull request automatically once every check on its head commit is green.
+#
+# Why this exists: private repositories on the GitHub Free plan cannot have required status
+# checks, and GitHub's native auto-merge refuses to enable itself without a branch-protection
+# rule to wait on -- so "merge when CI is green" is simply unavailable there. This workflow is
+# the Free-plan substitute: it re-evaluates a PR on every event that can change its state and
+# performs the merge itself through the REST API. It never approves a review, never bypasses a
+# failing check, and never touches branch protection or repository settings.
+#
+# The human still decides, and the workflow checks that they did: with require_human_ready (the
+# default) a PR merges only if its timeline shows a `ready_for_review` event by a person (a User
+# account, not a bot). A PR that was opened non-draft -- Dependabot/Renovate, an agent that
+# skipped --draft, a release PR opened for review -- has no such event and is never merged here.
+# The `no-automerge` label (opt_out_label) holds any PR back for as long as it is present. Agents
+# must never mark a PR ready, never add/remove that label, and never merge: see
+# templates/AGENTS.md -> "Auto-merge after green".
+#
+# Fail closed: every gate reads the GitHub API explicitly and a read that fails (rate limit,
+# missing token permission, 5xx) means "not merged", logged as an error -- never "no checks".
+# A head commit with no check runs, no commit statuses and no workflow runs at all is NOT merged
+# unless allow_no_checks is true, because "no checks" cannot be told apart from "CI has not
+# registered yet / did not run". Callers set allow_no_checks from the repository variable
+# KIT_AUTOMERGE_ALLOW_NO_CHECKS so the refreshed caller file stays free of per-repo values.
+#
+# Events the caller (templates/.github/workflows/auto-merge.yml) forwards, and what each means:
+#   pull_request  (ready_for_review, unlabeled, reopened) -> evaluate that PR. `unlabeled` only
+#                 when the removed label is the opt-out label; adding a label can never make a PR
+#                 mergeable, so `labeled` is not a trigger. Not `synchronize`: a new push is
+#                 always followed by check events anyway.
+#   workflow_run  (completed) -> the repo's own GitHub Actions workflows. Needed because GitHub
+#                 does not fire check_suite/check_run events for check suites that GitHub
+#                 Actions itself created (documented recursion guard), so without this trigger
+#                 the kit's own CI (Node) / PR Policy / verify runs would never wake this up.
+#   check_suite   (completed) -> third-party check apps (Vercel, etc.).
+#   status        -> legacy commit statuses (deployment providers, older CI integrations).
+# The job-level `if` drops events that cannot make any PR mergeable before a runner starts
+# (drafts, unrelated label edits, failed suites/runs, non-success statuses, runs/suites with no
+# associated PR), because on a private repo every run that starts bills at least one minute.
+# For the last three the candidate PRs are the open PRs whose head sha equals the event's sha.
+# Runs started by workflow_run/check_suite/status execute on the default branch, so their own
+# check run appears on the default branch's head commit, not on the PR.
+#
+# Merge token: with the default GITHUB_TOKEN the merge commit does NOT trigger other Actions
+# workflows on the base branch (GitHub suppresses workflow runs for events caused by
+# GITHUB_TOKEN). Webhook-driven integrations -- Vercel, GitHub Apps -- are unaffected. Pass a
+# PAT as the `automerge_token` secret if base-branch workflows (e.g. a push-to-main CI run)
+# must fire after an automatic merge. GitHub also refuses changes to .github/workflows/* from a
+# token without the workflow permission, which GITHUB_TOKEN can never have -- a PR touching
+# workflow files (every github-kit fan-out PR does) is reported as "needs a human merge or a
+# token with the workflow scope" instead of failing red. See README.md -> "Auto-merge after green".
+#
+# Budget and opt-out: the job honours the caller repo's KIT_ACTIONS_PAUSED Actions variable like
+# every other github-kit job, and while the account's Actions budget is exhausted no run starts
+# at all -- so nothing merges until the budget is restored (a human/billing action). The
+# repository variable KIT_AUTOMERGE_DISABLED=true switches auto-merge off for that repo durably
+# (deleting the caller file does not: the updater and fan-out recreate it). Check runs that the
+# pause left `skipped` on the kit's own CI / verify / PR Policy workflows are NOT counted as
+# green: after unpausing, re-run those workflows or push, and their completion re-evaluates.
+
+on:
+  workflow_call:
+    inputs:
+      merge_method:
+        description: "merge, squash or rebase. The owner decision for this kit is a merge commit."
+        type: string
+        default: "merge"
+      opt_out_label:
+        description: "A PR carrying this label (compared case-insensitively) is never merged automatically while the label is present."
+        type: string
+        default: "no-automerge"
+      delete_branch:
+        description: "Delete the head branch after merging. Only same-repo head branches matching delete_branch_prefixes are deleted, never a long-lived branch or one another open PR uses; an already-deleted branch (422) is ignored."
+        type: boolean
+        default: true
+      delete_branch_prefixes:
+        description: "Comma-separated head-branch prefixes that may be deleted after merging (the kit's agent branch prefixes)."
+        type: string
+        default: "agent/,claude/,codex/,copilot/,cursor/,gemini/"
+      skip_head_branches:
+        description: "Comma-separated head branches whose PRs are never merged automatically (release / promotion PRs between long-lived branches). The repository's default branch is always included."
+        type: string
+        default: "main,master,develop,staging,production"
+      allow_forks:
+        description: "Merge PRs whose head repository differs from the base repository. Off by default: a fork PR is never merged unless this is true."
+        type: boolean
+        default: false
+      allow_no_checks:
+        description: "Merge a ready PR whose head commit has no check runs, no commit statuses and no workflow runs at all. Off by default, because no checks cannot be told apart from checks that have not registered or did not run."
+        type: boolean
+        default: false
+      require_human_ready:
+        description: "Merge only a PR whose timeline shows a ready_for_review event by a User account (not a bot). A PR opened non-draft is then never merged automatically."
+        type: boolean
+        default: true
+      grace_seconds:
+        description: "Seconds to wait before the first evaluation after a PR is marked ready or reopened, so checks about to be queued for the head commit exist before they are counted. Not applied to other events."
+        type: number
+        default: 120
+      require_no_changes_requested:
+        description: "Do not merge while any reviewer's latest review (APPROVED / CHANGES_REQUESTED / DISMISSED considered; plain comments ignored) is CHANGES_REQUESTED."
+        type: boolean
+        default: true
+      comment:
+        description: "After merging, post one short PR comment naming the checks that were green at merge time."
+        type: boolean
+        default: true
+    secrets:
+      automerge_token:
+        description: "Optional PAT used instead of github.token so that workflows on the base branch still trigger after an automatic merge (fine-grained, this repository only: Contents RW, Pull requests RW, Issues R, Checks R, Commit statuses R, Actions R, plus Workflows RW to merge PRs that change .github/workflows). Without it the merge is made with GITHUB_TOKEN, which does not trigger other Actions workflows and cannot merge workflow-file changes."
+        required: false
+
+jobs:
+  auto-merge:
+    # The job name is what identifies this workflow's own check run when the head commit's
+    # check runs are evaluated -- it must be excluded, or a PR could never merge while the
+    # evaluating run is itself still in_progress. Keep this name stable.
+    name: github-kit auto-merge
+    runs-on: ubuntu-latest
+    # KIT_ACTIONS_PAUSED: caller-repo Actions variable that pauses all github-kit jobs so they
+    # consume no Actions minutes (e.g. to keep the Actions budget available for manual GitHub
+    # Copilot coding agent runs). See templates/docs/ai/AGENT_WORKFLOW.md -> "Actions budget and
+    # manual Copilot use". Paused means nothing merges; it never means "merge without checks".
+    # KIT_AUTOMERGE_DISABLED: caller-repo variable, the durable per-repo opt-out.
+    # The rest drops events that cannot make a PR mergeable, so they cost no runner minutes.
+    if: >-
+      vars.KIT_ACTIONS_PAUSED != 'true' &&
+      vars.KIT_AUTOMERGE_DISABLED != 'true' &&
+      (
+        (github.event_name == 'pull_request' &&
+         github.event.pull_request.draft == false &&
+         (github.event.action == 'ready_for_review' ||
+          github.event.action == 'reopened' ||
+          (github.event.action == 'unlabeled' && github.event.label.name == inputs.opt_out_label))) ||
+        (github.event_name == 'workflow_run' &&
+         contains(fromJSON('["success","neutral","skipped"]'), github.event.workflow_run.conclusion) &&
+         github.event.workflow_run.pull_requests[0] != null) ||
+        (github.event_name == 'check_suite' &&
+         contains(fromJSON('["success","neutral","skipped"]'), github.event.check_suite.conclusion) &&
+         github.event.check_suite.pull_requests[0] != null) ||
+        (github.event_name == 'status' && github.event.state == 'success')
+      )
+    # One evaluation per head commit at a time; never cancel a run that may be mid-merge.
+    concurrency:
+      group: github-kit-auto-merge-${{ github.event.pull_request.head.sha || github.event.check_suite.head_sha || github.event.workflow_run.head_sha || github.event.sha || github.sha }}
+      cancel-in-progress: false
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: read      # PR timeline: who marked the PR ready for review
+      checks: read
+      statuses: read
+      actions: read     # workflow runs on the head sha: own runs excluded, others must be green
+    env:
+      GH_TOKEN: ${{ secrets.automerge_token || github.token }}
+      USING_PAT: ${{ secrets.automerge_token != '' }}
+      MERGE_METHOD: ${{ inputs.merge_method }}
+      OPT_OUT_LABEL: ${{ inputs.opt_out_label }}
+      DELETE_BRANCH: ${{ inputs.delete_branch }}
+      DELETE_BRANCH_PREFIXES: ${{ inputs.delete_branch_prefixes }}
+      SKIP_HEAD_BRANCHES: ${{ inputs.skip_head_branches }}
+      ALLOW_FORKS: ${{ inputs.allow_forks }}
+      ALLOW_NO_CHECKS: ${{ inputs.allow_no_checks }}
+      REQUIRE_HUMAN_READY: ${{ inputs.require_human_ready }}
+      GRACE_SECONDS: ${{ inputs.grace_seconds }}
+      REQUIRE_NO_CHANGES_REQUESTED: ${{ inputs.require_no_changes_requested }}
+      POST_COMMENT: ${{ inputs.comment }}
+      OWN_JOB_NAME: github-kit auto-merge
+      EVENT_ACTION: ${{ github.event.action }}
+      EVENT_PR_NUMBER: ${{ github.event.pull_request.number }}
+      EVENT_PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      EVENT_CHECK_SUITE_SHA: ${{ github.event.check_suite.head_sha }}
+      EVENT_WORKFLOW_RUN_SHA: ${{ github.event.workflow_run.head_sha }}
+      EVENT_STATUS_SHA: ${{ github.event.sha }}
+    steps:
+      - name: Resolve candidate PRs for this event
+        id: candidates
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "$GITHUB_EVENT_NAME" in
+            pull_request)
+              sha="$EVENT_PR_HEAD_SHA"
+              prs="$EVENT_PR_NUMBER"
+              case "$EVENT_ACTION" in
+                ready_for_review|reopened)
+                  if [ "${GRACE_SECONDS:-0}" -gt 0 ] 2>/dev/null; then
+                    echo "pull_request/$EVENT_ACTION: sleeping ${GRACE_SECONDS}s so checks queued for $sha exist before the first evaluation."
+                    sleep "$GRACE_SECONDS"
+                  fi
+                  ;;
+              esac
+              ;;
+            check_suite)   sha="$EVENT_CHECK_SUITE_SHA" ;;
+            workflow_run)  sha="$EVENT_WORKFLOW_RUN_SHA" ;;
+            status)        sha="$EVENT_STATUS_SHA" ;;
+            *)
+              echo "Nothing to do: event '$GITHUB_EVENT_NAME' is not one this workflow evaluates."
+              echo "prs=" >> "$GITHUB_OUTPUT"
+              exit 0
+              ;;
+          esac
+          if [ -z "$sha" ]; then
+            echo "Nothing to do: the $GITHUB_EVENT_NAME payload carries no head sha."
+            echo "prs=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ "$GITHUB_EVENT_NAME" != "pull_request" ]; then
+            # Open PRs whose head is exactly this commit. The endpoint also lists PRs that merely
+            # contain the commit, hence the head.sha filter. A failed read is an error, not "none".
+            if ! prs="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${sha}/pulls?per_page=100" --paginate --jq '.[]' \
+                  | jq -r --arg sha "$sha" 'select(.state == "open" and .head.sha == $sha) | .number' \
+                  | sort -u | tr '\n' ' ')"; then
+              echo "::error::Could not list the pull requests for commit $sha - nothing evaluated, nothing merged."
+              exit 1
+            fi
+            prs="${prs% }"
+          fi
+          if [ -z "$prs" ]; then
+            echo "Nothing to do: no open pull request has head commit $sha (event: $GITHUB_EVENT_NAME)."
+          else
+            echo "Candidate PR(s) for head $sha (event: $GITHUB_EVENT_NAME): $prs"
+          fi
+          {
+            echo "sha=$sha"
+            echo "prs=$prs"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Evaluate and merge
+        if: steps.candidates.outputs.prs != ''
+        shell: bash
+        env:
+          HEAD_SHA: ${{ steps.candidates.outputs.sha }}
+          PR_LIST: ${{ steps.candidates.outputs.prs }}
+        run: |
+          set -euo pipefail
+          repo="$GITHUB_REPOSITORY"
+          # GITHUB_WORKFLOW_REF is "<owner>/<repo>/<caller workflow path>@<ref>"; the path is
+          # how runs of the *caller* (the file in the target repo) are recognised below.
+          OWN_WORKFLOW_PATH="${GITHUB_WORKFLOW_REF#"$GITHUB_REPOSITORY/"}"
+          OWN_WORKFLOW_PATH="${OWN_WORKFLOW_PATH%@*}"
+          # Workflows whose only reason to skip a job is KIT_ACTIONS_PAUSED: a skipped check run
+          # in their suites means "paused", i.e. no signal -- never green. Value = job-name suffix
+          # that counts ("" = every job). PR Policy's project-fields job also skips when the
+          # Project gate is off, so only its `policy` job counts.
+          PAUSE_GUARDED='{"CI (Node)":"","CI (Python)":"","Agent Workflow Verify":"","PR Policy":"policy"}'
+
+          log() { printf '%s\n' "$*"; }
+          # Every gate below fails CLOSED: this function is called from an `if`, where bash
+          # ignores `set -e`, so each read is checked explicitly and a failed or malformed read
+          # returns 1 (logged as an error, not merged) instead of reading as "nothing there".
+          read_fail() { log "::error::PR #$1: could not read $2 - not merged (check the token's permissions / API status)."; return 1; }
+          is_uint() { case "$1" in ''|*[!0-9]*) return 1 ;; *) return 0 ;; esac; }
+          # true if $1 is in the comma-separated list $2 (whitespace around entries ignored)
+          in_csv() {
+            local item="$1" entry
+            local IFS=','
+            for entry in $2; do
+              entry="${entry#"${entry%%[![:space:]]*}"}"; entry="${entry%"${entry##*[![:space:]]}"}"
+              [ -n "$entry" ] && [ "$item" = "$entry" ] && return 0
+            done
+            return 1
+          }
+          # true if $1 starts with any prefix in the comma-separated list $2
+          has_csv_prefix() {
+            local item="$1" entry
+            local IFS=','
+            for entry in $2; do
+              entry="${entry#"${entry%%[![:space:]]*}"}"; entry="${entry%"${entry##*[![:space:]]}"}"
+              [ -n "$entry" ] && case "$item" in "$entry"*) return 0 ;; esac
+            done
+            return 1
+          }
+          has_opt_out_label() { # $1 = PR JSON
+            printf '%s' "$1" | jq -e --arg l "$OPT_OUT_LABEL" \
+              'any(.labels[]?; (.name // "" | ascii_downcase) == ($l | ascii_downcase))' >/dev/null
+          }
+
+          evaluate_pr() {
+            local n="$1" pr sha attempt mergeable mergeable_state state draft head_repo base_repo head_ref default_branch
+            # --- PR facts (mergeable is computed lazily; null means "not yet") --------------
+            pr=""
+            for attempt in 1 2 3 4 5 6; do
+              if ! pr="$(gh api "repos/${repo}/pulls/${n}")"; then read_fail "$n" "the pull request"; return 1; fi
+              if ! mergeable="$(printf '%s' "$pr" | jq -er '.mergeable | tostring')"; then read_fail "$n" "the pull request (malformed JSON)"; return 1; fi
+              if [ "$mergeable" != "null" ]; then break; fi
+              if [ "$attempt" -lt 6 ]; then
+                log "PR #$n: mergeable not computed yet (attempt $attempt/6) - retrying in 10s."
+                sleep 10
+              fi
+            done
+            state="$(printf '%s' "$pr" | jq -r '.state')"
+            draft="$(printf '%s' "$pr" | jq -r '.draft')"
+            sha="$(printf '%s' "$pr" | jq -r '.head.sha')"
+            head_repo="$(printf '%s' "$pr" | jq -r '.head.repo.full_name // ""')"
+            base_repo="$(printf '%s' "$pr" | jq -r '.base.repo.full_name')"
+            head_ref="$(printf '%s' "$pr" | jq -r '.head.ref')"
+            default_branch="$(printf '%s' "$pr" | jq -r '.base.repo.default_branch // ""')"
+            mergeable_state="$(printf '%s' "$pr" | jq -r '.mergeable_state')"
+
+            if [ "$state" != "open" ]; then
+              log "PR #$n: state is '$state' - nothing to do."; return 0
+            fi
+            if [ "$draft" != "false" ]; then
+              log "PR #$n: still a draft - a human marks it ready when it should merge."; return 0
+            fi
+            if [ "$sha" != "$HEAD_SHA" ]; then
+              log "PR #$n: head moved to $sha since this event ($HEAD_SHA) - a later event re-evaluates."; return 0
+            fi
+            if has_opt_out_label "$pr"; then
+              log "PR #$n: carries the '$OPT_OUT_LABEL' label - held back."; return 0
+            fi
+            if [ "$head_repo" != "$base_repo" ] && [ "$ALLOW_FORKS" != "true" ]; then
+              log "PR #$n: head repository '$head_repo' differs from '$base_repo' and allow_forks is false - not merged."; return 0
+            fi
+            if { [ -n "$default_branch" ] && [ "$head_ref" = "$default_branch" ]; } || in_csv "$head_ref" "$SKIP_HEAD_BRANCHES"; then
+              log "PR #$n: head branch '$head_ref' is a long-lived branch (default branch or skip_head_branches) - a release/promotion PR is merged by a human, not automatically."; return 0
+            fi
+
+            # --- a person marked it ready (not a bot, not "opened non-draft") ---------------
+            if [ "$REQUIRE_HUMAN_READY" = "true" ]; then
+              local ready_by
+              if ! ready_by="$(gh api "repos/${repo}/issues/${n}/timeline?per_page=100" --paginate \
+                    --jq '.[] | select(.event == "ready_for_review") | {login: (.actor.login // ""), type: (.actor.type // "")}' \
+                    | jq -rs '[ .[] | select(.type == "User") ] | last | .login // ""')"; then
+                read_fail "$n" "the PR timeline (issues: read)"; return 1
+              fi
+              if [ -z "$ready_by" ]; then
+                log "PR #$n: no person ever marked this PR ready for review (it was opened non-draft, or only a bot marked it ready) - not merged. To hand it to auto-merge, convert it to draft and mark it ready again."; return 0
+              fi
+              log "PR #$n: marked ready for review by $ready_by."
+            fi
+
+            if [ "$REQUIRE_NO_CHANGES_REQUESTED" = "true" ]; then
+              # Latest substantive review per reviewer (APPROVED / CHANGES_REQUESTED / DISMISSED);
+              # plain COMMENTED reviews neither request nor clear changes, as on GitHub itself.
+              local blockers
+              if ! blockers="$(gh api "repos/${repo}/pulls/${n}/reviews?per_page=100" --paginate --jq '.[]' \
+                    | jq -rs '[ .[] | select(.state == "APPROVED" or .state == "CHANGES_REQUESTED" or .state == "DISMISSED") ]
+                              | group_by(.user.login) | map(last) | map(select(.state == "CHANGES_REQUESTED") | .user.login) | join(", ")')"; then
+                read_fail "$n" "the reviews"; return 1
+              fi
+              if [ -n "$blockers" ]; then
+                log "PR #$n: changes requested by $blockers - not merged until that review is updated or dismissed."; return 0
+              fi
+            fi
+            if [ "$mergeable" != "true" ]; then
+              log "PR #$n: mergeable is '$mergeable' (mergeable_state: $mergeable_state) - not merged."; return 0
+            fi
+            if [ "$mergeable_state" = "dirty" ]; then
+              log "PR #$n: mergeable_state is 'dirty' (conflicts) - not merged."; return 0
+            fi
+
+            # --- workflow runs on the head commit ------------------------------------------
+            # Own runs (the caller workflow file) are excluded from every gate. Every other
+            # workflow's latest run on this sha must be completed success/neutral/skipped: a run
+            # still queued -- even before its jobs, i.e. its check runs, exist -- means "wait".
+            local wf_runs own_ids_json wf_waiting wf_failing wf_count guarded_suites
+            if ! wf_runs="$(gh api "repos/${repo}/actions/runs?head_sha=${sha}&per_page=100" --paginate --jq '.workflow_runs[]' | jq -cs '.')"; then
+              read_fail "$n" "the workflow runs on $sha (actions: read)"; return 1
+            fi
+            own_ids_json="$(printf '%s' "$wf_runs" | jq -c --arg p "$OWN_WORKFLOW_PATH" --arg id "$GITHUB_RUN_ID" \
+              '[ .[] | select(.path == $p) | "/actions/runs/\(.id)/" ] + [ "/actions/runs/\($id)/" ]')"
+            wf_runs="$(printf '%s' "$wf_runs" | jq -c --arg p "$OWN_WORKFLOW_PATH" --arg id "$GITHUB_RUN_ID" \
+              '[ .[] | select(.path != $p and (.id | tostring) != $id) ] | group_by(.workflow_id) | map(max_by(.created_at))')"
+            wf_count="$(printf '%s' "$wf_runs" | jq 'length')"
+            if ! wf_waiting="$(printf '%s' "$wf_runs" | jq -r '[ .[] | select(.status != "completed") | .name ] | join(", ")')" \
+               || ! wf_failing="$(printf '%s' "$wf_runs" | jq -r '[ .[] | select(.status == "completed" and ((.conclusion // "") | IN("success","neutral","skipped") | not)) | "\(.name) (\(.conclusion // "unknown"))" ] | join(", ")')" \
+               || ! guarded_suites="$(printf '%s' "$wf_runs" | jq -c --argjson g "$PAUSE_GUARDED" \
+                      '[ .[] | select(.name as $w | $g | has($w)) | {suite: .check_suite_id, job: $g[.name]} ]')"; then
+              read_fail "$n" "a well-formed workflow-run summary"; return 1
+            fi
+
+            # --- check runs on the head commit, excluding this workflow's own ---------------
+            # Three independent signals identify "our own" check runs, so a queued evaluation that
+            # the concurrency group cancelled never reads as a failing check: (1) the current run
+            # id in html_url, (2) every run of the caller workflow file on this sha, (3) the stable
+            # job name set above, for the github-actions app.
+            local runs waiting failing paused green_runs run_count
+            if ! runs="$(gh api "repos/${repo}/commits/${sha}/check-runs?per_page=100" --paginate --jq '.check_runs[]' \
+                  | jq -cs --arg own "$OWN_JOB_NAME" --argjson ids "$own_ids_json" '
+                      [ .[] | select(
+                          (((.app.slug // "") == "github-actions") and ((.name // "") | endswith($own)))
+                          or ((.html_url // "") as $u | any($ids[]; . as $frag | $u | contains($frag)))
+                        | not) ]')"; then
+              read_fail "$n" "the check runs on $sha (checks: read)"; return 1
+            fi
+            run_count="$(printf '%s' "$runs" | jq 'length')"
+            if ! waiting="$(printf '%s' "$runs" | jq -r '[ .[] | select(.status != "completed") | .name ] | join(", ")')" \
+               || ! failing="$(printf '%s' "$runs" | jq -r '[ .[] | select(.status == "completed" and ((.conclusion // "") | IN("success","neutral","skipped") | not)) | "\(.name) (\(.conclusion // "unknown"))" ] | join(", ")')" \
+               || ! paused="$(printf '%s' "$runs" | jq -r --argjson gs "$guarded_suites" '
+                      [ .[] | select(.status == "completed" and .conclusion == "skipped") | . as $r
+                        | select(any($gs[]; . as $g | $g.suite == ($r.check_suite.id // -1) and (($r.name // "") | endswith($g.job))))
+                        | .name ] | join(", ")')" \
+               || ! green_runs="$(printf '%s' "$runs" | jq -r '[ .[] | select(.status == "completed") | .name ] | unique | join(", ")')"; then
+              read_fail "$n" "a well-formed check-run summary"; return 1
+            fi
+
+            # --- combined commit status ----------------------------------------------------
+            local combined status_state status_count green_statuses
+            if ! combined="$(gh api "repos/${repo}/commits/${sha}/status")"; then
+              read_fail "$n" "the combined commit status on $sha (statuses: read)"; return 1
+            fi
+            status_state="$(printf '%s' "$combined" | jq -r '.state // ""')"
+            status_count="$(printf '%s' "$combined" | jq -r '.total_count // ""')"
+            green_statuses="$(printf '%s' "$combined" | jq -r '[ .statuses[]? | select(.state == "success") | .context ] | unique | join(", ")')"
+            if ! is_uint "$run_count" || ! is_uint "$status_count" || ! is_uint "$wf_count" || [ -z "$status_state" ]; then
+              read_fail "$n" "a well-formed check/status/workflow-run summary (runs='$run_count' statuses='$status_count' workflows='$wf_count' state='$status_state')"; return 1
+            fi
+
+            if [ -n "$failing" ]; then
+              log "PR #$n: not merged - failing check run(s): $failing"; return 0
+            fi
+            if [ -n "$wf_failing" ]; then
+              log "PR #$n: not merged - latest workflow run(s) on $sha did not succeed: $wf_failing"; return 0
+            fi
+            if [ -n "$paused" ]; then
+              log "PR #$n: not merged - check run(s) skipped while KIT_ACTIONS_PAUSED was set count as no signal, never green: $paused. Re-run those workflows (or push a commit); their completion re-evaluates this PR."; return 0
+            fi
+            if [ -n "$waiting" ]; then
+              log "PR #$n: waiting - check run(s) still queued/in progress: $waiting"; return 0
+            fi
+            if [ -n "$wf_waiting" ]; then
+              log "PR #$n: waiting - workflow run(s) not completed yet: $wf_waiting"; return 0
+            fi
+            if [ "$status_count" -gt 0 ]; then
+              case "$status_state" in
+                success) ;;
+                pending)
+                  log "PR #$n: waiting - combined commit status is pending ($status_count status(es))."; return 0 ;;
+                *)
+                  log "PR #$n: not merged - combined commit status is '$status_state': $(printf '%s' "$combined" | jq -r '[ .statuses[]? | select(.state != "success") | "\(.context) (\(.state))" ] | join(", ")')"; return 0 ;;
+              esac
+            fi
+            if [ "$run_count" -eq 0 ] && [ "$status_count" -eq 0 ] && [ "$wf_count" -eq 0 ]; then
+              if [ "$ALLOW_NO_CHECKS" != "true" ]; then
+                log "PR #$n: no check runs, commit statuses or workflow runs on $sha - not merged, because that cannot be told apart from CI that has not run. A human merges it; a repo that genuinely has no CI sets the Actions variable KIT_AUTOMERGE_ALLOW_NO_CHECKS=true."; return 0
+              fi
+              log "PR #$n: no check runs, commit statuses or workflow runs on $sha - allow_no_checks is on, so a ready PR merges as-is (the '$OPT_OUT_LABEL' label is the brake)."
+            fi
+
+            # --- last look right before merging (label race, draft, head) ------------------
+            local fresh
+            if ! fresh="$(gh api "repos/${repo}/pulls/${n}")"; then read_fail "$n" "the pull request (final re-check)"; return 1; fi
+            if [ "$(printf '%s' "$fresh" | jq -r '.state')" != "open" ] \
+               || [ "$(printf '%s' "$fresh" | jq -r '.draft')" != "false" ] \
+               || [ "$(printf '%s' "$fresh" | jq -r '.head.sha')" != "$sha" ]; then
+              log "PR #$n: changed during evaluation (closed, back to draft, or new head) - a later event re-evaluates."; return 0
+            fi
+            if has_opt_out_label "$fresh"; then
+              log "PR #$n: the '$OPT_OUT_LABEL' label was added during evaluation - held back."; return 0
+            fi
+
+            # --- merge --------------------------------------------------------------------
+            local green out
+            if [ -n "$green_runs" ] && [ -n "$green_statuses" ]; then
+              green="$green_runs, $green_statuses"
+            else
+              green="${green_runs}${green_statuses}"
+            fi
+            log "PR #$n: every check on $sha is green (${green:-no checks}) - merging with method '$MERGE_METHOD'."
+            # `sha` makes GitHub refuse (409) if the head moved between evaluation and merge.
+            if out="$(gh api -X PUT "repos/${repo}/pulls/${n}/merge" \
+                        -f merge_method="$MERGE_METHOD" -f sha="$sha" 2>&1)"; then
+              log "PR #$n: merged. $(printf '%s' "$out" | jq -r '.message // ""' 2>/dev/null || true)"
+            else
+              case "$out" in
+                *[Ww]orkflow*)
+                  # GitHub refuses workflow-file changes from a token without the workflow
+                  # permission; GITHUB_TOKEN can never have it. Not a failure of this run.
+                  log "::warning::PR #$n: GitHub refused the merge because the PR changes .github/workflows/* and the merge token lacks the workflow permission - a human merges it, or store an AUTOMERGE_TOKEN with the workflow scope (github-kit docs/OWNER_SETUP.md, Step 4b). Response: $out"
+                  return 0 ;;
+                *"HTTP 405"*|*"HTTP 409"*)
+                  log "PR #$n: merge returned $(printf '%s' "$out" | grep -oE 'HTTP 4[0-9]{2}' | head -n1) (already merged, not mergeable, or base/head moved) - no-op."
+                  return 0 ;;
+                *)
+                  log "::error::PR #$n: merge failed: $out"
+                  return 1 ;;
+              esac
+            fi
+
+            # --- delete the head branch (same-repo agent branches only) --------------------
+            if [ "$DELETE_BRANCH" = "true" ]; then
+              local enc other_prs
+              if [ "$head_repo" != "$base_repo" ]; then
+                log "PR #$n: head branch lives in '$head_repo' - not deleting a fork's branch."
+              elif ! has_csv_prefix "$head_ref" "$DELETE_BRANCH_PREFIXES"; then
+                log "PR #$n: branch '$head_ref' does not start with a delete_branch_prefixes entry ($DELETE_BRANCH_PREFIXES) - kept."
+              elif ! other_prs="$( { gh api -X GET "repos/${repo}/pulls" -f state=open -f base="$head_ref" -f per_page=100 --jq '.[].number' \
+                                    && gh api -X GET "repos/${repo}/pulls" -f state=open -f head="${repo%%/*}:${head_ref}" -f per_page=100 --jq '.[].number'; } \
+                                  | sort -u | tr '\n' ' ')"; then
+                log "::warning::PR #$n: could not check whether other open PRs use '$head_ref' - branch kept."
+              elif [ -n "${other_prs// /}" ]; then
+                log "PR #$n: branch '$head_ref' is still the base or head of open PR(s) ${other_prs% } - kept."
+              else
+                enc="$(jq -rn --arg r "$head_ref" '$r | split("/") | map(@uri) | join("/")')"
+                if out="$(gh api -X DELETE "repos/${repo}/git/refs/heads/${enc}" 2>&1)"; then
+                  log "PR #$n: deleted branch '$head_ref'."
+                elif printf '%s' "$out" | grep -q "HTTP 422"; then
+                  log "PR #$n: branch '$head_ref' already deleted (422) - fine."
+                else
+                  log "::warning::PR #$n: could not delete branch '$head_ref': $out"
+                fi
+              fi
+            fi
+
+            # --- comment ------------------------------------------------------------------
+            if [ "$POST_COMMENT" = "true" ]; then
+              local body token_note
+              if [ "$USING_PAT" = "true" ]; then
+                token_note="Merged with the configured automerge token, so base-branch workflows trigger normally."
+              else
+                token_note="Merged with GITHUB_TOKEN: other Actions workflows on the base branch do not trigger from this merge (webhook integrations are unaffected)."
+              fi
+              body="$(printf 'Auto-merged by github-kit (auto-merge.yml, method: %s) because every check on %s was green: %s.\n\n%s Hold a PR back next time with the "%s" label.' \
+                "$MERGE_METHOD" "${sha:0:7}" "${green:-no checks or statuses were registered for this commit}" "$token_note" "$OPT_OUT_LABEL")"
+              if ! gh api -X POST "repos/${repo}/issues/${n}/comments" -f body="$body" >/dev/null 2>&1; then
+                log "::warning::PR #$n: merged, but the summary comment could not be posted."
+              fi
+            fi
+          }
+
+          rc=0
+          for n in $PR_LIST; do
+            if ! evaluate_pr "$n"; then rc=1; fi
+          done
+          exit "$rc"
