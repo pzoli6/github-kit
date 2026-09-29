@@ -12,6 +12,9 @@ Before doing anything else, read, in order:
    implementation → validation → commit/PR → review/continuation → completion) plus an appendix
    read only when a section's trigger applies.
 
+When reviewing a pull request (Copilot code review), apply [`REVIEW.md`](../REVIEW.md): it is the
+single rulebook every reviewer uses for severity, what to always check, and what to skip.
+
 Follow that workflow exactly:
 
 - Plan first and wait for a human to reply `approve` before branching or

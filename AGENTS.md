@@ -82,12 +82,55 @@ Agents must not push to `main`, merge PRs, modify Actions access settings, or co
 This repo runs no CI on pull requests — its workflows are reusable (`workflow_call`) definitions
 consumed by other repos, plus the fan-out job. A PR here showing **no checks at all is normal and
 expected**: don't fetch check runs, wait, poll, subscribe to PR activity, dispatch a workflow, or
-report "CI didn't run"/"checks are missing"/"the PR is red". Validate locally instead (YAML parses,
-cross-references resolve, phrase lists still satisfied) and report that. This mirrors the rule the
+report "CI didn't run"/"checks are missing"/"the PR is red". Validate locally instead with
+`bash scripts/selfcheck-github-kit.sh` (doctor, actionlint, shellcheck, install/update regression
+test) and report that. The **github-kit selfcheck** workflow runs the same script but only when a
+human dispatches it; never dispatch it yourself. This mirrors the rule the
 kit installs into target repos — `templates/AGENTS.md` → "CI expectations — don't chase checks" —
 so working here dogfoods it.
 
 ## Migration notes
+
+### Kit manifest, `REVIEW.md`, repository tiers, workflow hardening
+
+One manifest, `templates/docs/ai/KIT_MANIFEST.tsv`, now lists every installed file with its
+install/update mode and verify group, plus the required key phrases. The install, update, and
+doctor scripts (bash and PowerShell, sharing `scripts/lib/kit.sh` / `Kit.ps1`), the target repo's
+`verify_agent_workflow.sh`, and the fan-out's staging step all read it. The managed-block text now
+comes from each template's own markers instead of copies inside four scripts.
+
+**Behavior changes:**
+
+- **New installed files:** `REVIEW.md` (mode `block`: a `GITHUB-KIT REVIEW RULES` block plus a
+  repo-owned section) and `docs/ai/KIT_MANIFEST.tsv`. The universal managed block gained a
+  `## Code Review Rules` pointer to `REVIEW.md`, which is the heading Codex code review reads, and
+  `.github/copilot-instructions.md` points there too.
+- **Fix:** `install-github-kit.sh --mode force` / `-Mode force` overwrote a customized
+  `.claude/settings.json`, contradicting its documented create-only rule. It no longer does.
+- **`verify_agent_workflow.sh` needs `docs/ai/KIT_MANIFEST.tsv`.** Both arrive in the same update,
+  so a repo only sees this if someone deletes the manifest; the script then fails and says how to
+  restore it. Its checks are otherwise identical to before (verified line-for-line).
+- **`reusable-agent-workflow-verify.yml` runs the caller repo's own `verify_agent_workflow.sh`**
+  instead of an inline copy. Repos not yet refreshed run their older script, which honors the same
+  `REQUIRE_*` inputs, so their result doesn't change. A repo with no script at all fails, exactly as
+  the inline check did for that missing file.
+- **Tiers (additive):** `update-github-kit.sh --tier 1|2` / `-Tier`. Tier 2 drops the automatic
+  triggers from the refreshed CI callers (`ci-node.yml`, `ci-python.yml`,
+  `agent-workflow-verify.yml`), leaving `workflow_dispatch`. Without the flag each file keeps its
+  current `# github-kit tier: N` line, so a manual update never flips a repo's tier. Default 1,
+  whose triggers are exactly the previous ones (only comment lines were added).
+- **Fan-out:** reads `tier` and `fanout` from `.github/fanout-targets.json`, stages exactly the
+  manifest's paths (so `REVIEW.md` is included), and uses `actions/checkout@v5`.
+- **Security:** `reusable-pr-policy.yml` and `reusable-design-handoff-approval.yml` no longer paste
+  the PR head branch name into shell scripts (including the `git push` in the design gate, which
+  holds `contents:write`); values arrive through `env:`. The fan-out's `only_repo` input does too.
+  No input or output changed.
+- `reusable-design-handoff-approval.yml`'s `node_version` default is now `22` (Node 20 is past
+  end-of-life); callers that pass it explicitly are unaffected.
+
+**What a target repo must do:** nothing. The reusable-workflow changes are live on `@main`; the
+fan-out PR brings the new files. Set Codex automatic review per tier by hand
+(`docs/PR_REVIEW_SETUP.md`).
 
 ### Spec approval by comment (`/approve-spec`)
 

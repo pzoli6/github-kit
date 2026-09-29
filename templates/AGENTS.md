@@ -637,4 +637,9 @@ Before stopping mid-task, losing context, or handing off to another agent, agent
 - `docs/ai/handoffs/issue-<number>.md`
 - Project field: `Last Agent Update` (full mode only)
 - Project field: `Validation` (full mode only)
+
+## Code Review Rules
+
+Every reviewer of a pull request (human, Codex, Claude, Copilot) applies `REVIEW.md` at the repository root: what counts as blocking, what to always check, what to skip, and how the PR's agent handles review-bot findings. Read it in full before reviewing.
+
 <!-- END GITHUB-KIT UNIVERSAL WORKFLOW -->

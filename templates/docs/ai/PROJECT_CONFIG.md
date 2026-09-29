@@ -208,6 +208,7 @@ here **and** the `on:` triggers in `.github/workflows/*.yml` together.
 | CI on production-bound changes | `automatic` |
 | Agents may dispatch CI | `only on explicit human request` |
 | Agents may report CI status | `only for production-bound changes, or on request` |
+| github-kit tier | the `# github-kit tier: N` line in the CI callers (1 = automatic on production-bound changes, 2 = dispatch only), set by the github-kit fan-out |
 
 - **`metered`** means Actions minutes cost real money on this account, so an unnecessary run is a
   real cost. Set it to `free` only for a public repo, where standard-runner minutes are free.

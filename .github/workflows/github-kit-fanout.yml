@@ -60,16 +60,20 @@ jobs:
       matrix: ${{ steps.set.outputs.matrix }}
       count: ${{ steps.set.outputs.count }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - id: set
         shell: bash
+        env:
+          ONLY_REPO: ${{ github.event.inputs.only_repo }}
         run: |
           set -euo pipefail
-          only='${{ github.event.inputs.only_repo }}'
-          if [ -n "$only" ]; then
-            matrix="$(jq -c --arg r "$only" '{include: [.targets[] | select(.repo==$r)]}' .github/fanout-targets.json)"
+          # Registry rows with "fanout": false are tracked for tiering only (the kit isn't installed
+          # there yet), so they never get an update PR. A missing tier means tier 1.
+          targets='[.targets[] | select(.fanout != false) | {repo, base, tier: ((.tier // 1) | tostring)}]'
+          if [ -n "$ONLY_REPO" ]; then
+            matrix="$(jq -c --arg r "$ONLY_REPO" "{include: ($targets | map(select(.repo == \$r)))}" .github/fanout-targets.json)"
           else
-            matrix="$(jq -c '{include: .targets}' .github/fanout-targets.json)"
+            matrix="$(jq -c "{include: $targets}" .github/fanout-targets.json)"
           fi
           count="$(echo "$matrix" | jq '.include | length')"
           echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
@@ -96,12 +100,12 @@ jobs:
           fi
 
       - name: Checkout github-kit (source of truth)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           path: github-kit
 
       - name: Checkout target repo (${{ matrix.repo }})
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           repository: ${{ matrix.repo }}
           ref: ${{ matrix.base }}
@@ -111,9 +115,11 @@ jobs:
 
       - name: Refresh bootstrap files from github-kit@main
         shell: bash
+        env:
+          TARGET_TIER: ${{ matrix.tier }}
         run: |
           set -euo pipefail
-          bash github-kit/scripts/update-github-kit.sh --target target --allow-dirty --ref main
+          bash github-kit/scripts/update-github-kit.sh --target target --allow-dirty --ref main --tier "$TARGET_TIER"
 
       - name: Open draft PR if anything drifted
         env:
@@ -133,12 +139,15 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          # Stage only github-kit-owned paths (the update script only ever writes these). This
-          # honours the "never git add -A" rule while still capturing everything the updater changed.
-          # Skip any path a given target doesn't have, so `git add` never aborts on a missing pathspec.
-          for p in AGENTS.md CLAUDE.md GEMINI.md docs/ai .github .agents .claude .cursor scripts/project scripts/design-handoffs .gitignore; do
-            [ -e "$p" ] && git add -- "$p"
-          done
+          # Stage exactly the github-kit-owned paths: every file row of the kit manifest (the list
+          # the updater itself writes from), plus .gitignore. This honours the "never git add -A"
+          # rule, and a new template can never be forgotten here. Paths a target doesn't have are
+          # skipped, so `git add` never aborts on a missing pathspec.
+          while IFS=$'\t' read -r kind p _rest; do
+            [ "$kind" = "file" ] || continue
+            if [ -e "$p" ]; then git add -- "$p"; fi
+          done < ../github-kit/templates/docs/ai/KIT_MANIFEST.tsv
+          if [ -e .gitignore ]; then git add -- .gitignore; fi
 
           if git diff --cached --quiet; then
             echo "No drift for ${TARGET_REPO} — already in sync with github-kit@main."
@@ -157,12 +166,14 @@ jobs:
           This PR refreshes this repo's github-kit **local bootstrap files** to match
           `pzoli6/github-kit@main`:
 
-          - `AGENTS.md` / `CLAUDE.md` / `GEMINI.md` managed blocks
+          - `AGENTS.md` / `CLAUDE.md` / `GEMINI.md` / `REVIEW.md` managed blocks
           - `.claude` / `.agents` skills and commands, `.cursor` rules, `.github/copilot-instructions.md`
           - `docs/ai/AGENT_WORKFLOW.md`, `docs/ai/HANDOFF_INDEX.md`, `docs/ai/PROJECT_CONFIG.env.example`
           - `scripts/project/*` helper scripts and the reusable-workflow callers
 
-          It does **not** touch `docs/ai/PROJECT_CONFIG.md` or your issue/PR templates.
+          It does **not** touch `docs/ai/PROJECT_CONFIG.md` or your issue/PR templates. The exact
+          file list is `docs/ai/KIT_MANIFEST.tsv`. The CI callers carry this repo's Actions-budget
+          tier from `.github/fanout-targets.json` in github-kit (`# github-kit tier: N`).
 
           Reusable CI workflows already auto-track `@main`; this PR covers the local files that don't.
 

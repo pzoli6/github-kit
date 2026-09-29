@@ -9,6 +9,10 @@ below itself.
 
 - [ ] The PR containing the changes for this release has been reviewed and merged to `main`.
 - [ ] `main` is checked out locally and up to date: `git switch main && git pull`.
+- [ ] `bash scripts/selfcheck-github-kit.sh` passes (doctor, actionlint, shellcheck, JSON, and the
+      install/update regression test with bash/PowerShell parity). With `actionlint`, `shellcheck`,
+      and `pwsh` missing locally, dispatch the "github-kit selfcheck" workflow instead, which has
+      all three.
 - [ ] `bash scripts/doctor-github-kit.sh` passes with no `MISSING`/`FAILED` lines.
 - [ ] `pwsh -File scripts/doctor-github-kit.ps1` (or `powershell -File ...` on Windows) passes with
       no `MISSING`/`FAILED` lines.

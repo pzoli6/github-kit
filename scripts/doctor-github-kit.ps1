@@ -53,50 +53,114 @@ Check-File "scripts/install-github-kit.ps1"
 Check-File "scripts/update-github-kit.sh"
 Check-File "scripts/update-github-kit.ps1"
 
-# --- required templates ------------------------------------------------------
+# --- kit manifest: the single list of installed files ------------------------
+#
+# templates/docs/ai/KIT_MANIFEST.tsv drives install, update, and target-repo verification, so its
+# integrity is checked here: every row points at a real template with a known mode and group,
+# every template is listed, repo-owned files keep a non-overwriting mode, and managed blocks agree.
 
-Check-File "templates/AGENTS.md"
-Check-File "templates/CLAUDE.md"
-Check-File "templates/GEMINI.md"
-Check-File "templates/.github/CODEOWNERS"
-Check-File "templates/.github/copilot-instructions.md"
-Check-File "templates/.github/ISSUE_TEMPLATE/agent_task.yml"
-Check-File "templates/.github/PULL_REQUEST_TEMPLATE.md"
-Check-File "templates/docs/ai/AGENT_WORKFLOW.md"
-Check-File "templates/docs/ai/HANDOFF_INDEX.md"
-Check-File "templates/docs/ai/PROJECT_CONFIG.md"
-Check-File "templates/docs/ai/PROJECT_CONFIG.env.example"
-Check-File "templates/docs/ai/PROJECT_SETUP.md"
-Check-File "templates/docs/ai/handoffs/.gitkeep"
-Check-File "templates/.agents/skills/issue-to-pr-project/SKILL.md"
-Check-File "templates/.claude/skills/issue-to-pr-project/SKILL.md"
-Check-File "templates/.agents/skills/github_kit/SKILL.md"
-Check-File "templates/.claude/skills/github_kit/SKILL.md"
-Check-File "templates/.claude/commands/github_kit.md"
-Check-File "templates/.claude/settings.json"
-Check-File "templates/.cursor/rules/agent-workflow.mdc"
-Check-File "templates/.cursor/rules/git-safety.mdc"
-Check-File "templates/.cursor/rules/project-board.mdc"
-Check-File "templates/.cursor/rules/github-kit-command.mdc"
-Check-File "templates/scripts/project/project_add_item.sh"
-Check-File "templates/scripts/project/project_set_status.sh"
-Check-File "templates/scripts/project/project_set_text.sh"
-Check-File "templates/scripts/project/verify_agent_workflow.sh"
-Check-File "templates/scripts/project/create_standard_labels.sh"
-Check-File "templates/scripts/project/create_agent_issue.sh"
-Check-File "templates/scripts/project/publish_agent_branch.sh"
-Check-File "templates/scripts/project/sync_project_fields.sh"
-Check-File "templates/scripts/project/create_agent_pr.sh"
-Check-File "templates/scripts/project/check_resume_safety.sh"
-Check-File "templates/scripts/project/post_handoff_comment.sh"
-Check-File "templates/scripts/project/setup_github_project.sh"
-Check-File "templates/.github/workflows/project-setup.yml"
-Check-File "templates/scripts/project/cleanup_merged_branches.sh"
-Check-File "templates/.github/workflows/agent-workflow-verify.yml"
-Check-File "templates/.github/workflows/pr-policy.yml"
-Check-File "templates/.github/workflows/ci-node.yml"
-Check-File "templates/.github/workflows/ci-python.yml"
-Check-File "templates/.github/workflows/project-sync.yml"
+$Manifest = "templates/docs/ai/KIT_MANIFEST.tsv"
+Check-File $Manifest
+Check-File "scripts/lib/kit.sh"
+Check-File "scripts/lib/Kit.ps1"
+
+if (Test-Path -LiteralPath $Manifest) {
+    $manifestOk = $true
+    $modes = @{}
+    foreach ($line in Get-Content -LiteralPath $Manifest) {
+        if (-not $line -or $line.StartsWith('#')) { continue }
+        $f = $line -split "`t"
+        if ($f[0] -eq 'phrase') { continue }
+        if ($f[0] -ne 'file') { Write-Host "FAILED  manifest row kind '$($f[0])' is unknown"; $manifestOk = $false; continue }
+        $path = $f[1]; $mode = $f[2]; $group = $f[3]
+        $modes[$path] = $mode
+        Check-File "templates/$path"
+        if ($mode -notin 'block', 'refresh', 'refresh-exec', 'workflow', 'workflow-create', 'workflow-opt', 'create', 'config') {
+            Write-Host "FAILED  manifest mode '$mode' for $path is unknown"; $manifestOk = $false
+        }
+        if ($group -notin 'core', 'claude', 'cursor', 'skills', 'gemini', 'copilot', '-') {
+            Write-Host "FAILED  manifest verify group '$group' for $path is unknown"; $manifestOk = $false
+        }
+        if ($mode -eq 'block' -and (Test-Path -LiteralPath "templates/$path")) {
+            $markers = @(Get-Content -LiteralPath "templates/$path" | Where-Object { $_ -match '^<!-- (BEGIN|END) GITHUB-KIT [A-Z -]+ -->$' }).Count
+            if ($markers -ne 2) {
+                Write-Host "FAILED  templates/$path (mode block) needs exactly one BEGIN and one END GITHUB-KIT marker line"
+                $manifestOk = $false
+            }
+        }
+    }
+
+    # Every template must be installable: a file under templates/ missing from the manifest would
+    # silently never reach a target repo.
+    $templateFiles = @(& git ls-files -- templates) + @(& git ls-files --others --exclude-standard -- templates)
+    foreach ($t in $templateFiles) {
+        if (-not $t) { continue }
+        $rel = $t.Substring("templates/".Length)
+        if (-not $modes.ContainsKey($rel)) {
+            Write-Host "FAILED  $t exists but is not listed in $Manifest"
+            $manifestOk = $false
+        }
+    }
+
+    # Repo-owned files must never be overwritten by an update.
+    $protected = [ordered]@{
+        'docs/ai/PROJECT_CONFIG.md' = 'config'
+        'docs/ai/design-handoffs/DESIGN_SYNC.md' = 'create'
+        '.claude/settings.json' = 'create'
+        '.github/ISSUE_TEMPLATE/agent_task.yml' = 'create'
+        '.github/PULL_REQUEST_TEMPLATE.md' = 'create'
+        '.github/workflows/pr-policy.yml' = 'workflow-create'
+        '.github/workflows/project-setup.yml' = 'workflow-create'
+        '.github/workflows/project-sync.yml' = 'workflow-opt'
+    }
+    foreach ($k in $protected.Keys) {
+        $got = if ($modes.ContainsKey($k)) { $modes[$k] } else { 'none' }
+        if ($got -ne $protected[$k]) {
+            Write-Host "FAILED  $k must be mode '$($protected[$k])' in the manifest (found '$got') -- it holds repo-owned content"
+            $manifestOk = $false
+        }
+    }
+
+    # AGENTS.md, CLAUDE.md, and GEMINI.md carry the same universal block.
+    $blockPattern = '(?ms)^<!-- BEGIN GITHUB-KIT UNIVERSAL WORKFLOW -->$.*?^<!-- END GITHUB-KIT UNIVERSAL WORKFLOW -->$'
+    $blocks = @('AGENTS', 'CLAUDE', 'GEMINI' | ForEach-Object {
+        [regex]::Match((Get-Content -LiteralPath "templates/$_.md" -Raw), $blockPattern).Value
+    } | Sort-Object -Unique)
+    if ($blocks.Count -ne 1) {
+        Write-Host "FAILED  the UNIVERSAL WORKFLOW block differs between templates/AGENTS.md, CLAUDE.md, and GEMINI.md"
+        $manifestOk = $false
+    }
+
+    if ($manifestOk) {
+        Write-Host "OK      manifest: every row valid, every template listed, repo-owned files protected, blocks agree"
+    } else {
+        $script:Missing = 1
+    }
+}
+
+Write-Host ""
+
+# --- every reusable-workflow job honors the KIT_ACTIONS_PAUSED budget switch ------
+
+$pauseOk = $true
+foreach ($wf in Get-ChildItem -Path ".github/workflows" -Filter "reusable-*.yml") {
+    $lines = Get-Content -LiteralPath $wf.FullName
+    $inJobs = $false; $jobs = 0
+    foreach ($l in $lines) {
+        if ($l -match '^jobs:') { $inJobs = $true; continue }
+        if ($inJobs -and $l -match '^  [A-Za-z0-9_-]+:\s*$') { $jobs++ }
+    }
+    $guards = @($lines | Where-Object { $_.Contains("vars.KIT_ACTIONS_PAUSED != 'true'") }).Count
+    if ($guards -lt $jobs) {
+        Write-Host "FAILED  .github/workflows/$($wf.Name) has $jobs job(s) but only $guards KIT_ACTIONS_PAUSED guard(s)"
+        $pauseOk = $false
+    }
+}
+if ($pauseOk) {
+    Write-Host "OK      every reusable-workflow job carries the KIT_ACTIONS_PAUSED guard"
+} else {
+    $script:Missing = 1
+}
 
 Write-Host ""
 
@@ -251,15 +315,6 @@ if ($claudeSettingsOk) {
     $script:Missing = 1
 }
 
-$installSh = Get-Content -LiteralPath "scripts/install-github-kit.sh" -Raw -ErrorAction SilentlyContinue
-$updateSh = Get-Content -LiteralPath "scripts/update-github-kit.sh" -Raw -ErrorAction SilentlyContinue
-if ($installSh -match '\.claude/settings\.json' -and $updateSh -match '\.claude/settings\.json') {
-    Write-Host "OK      installers wire up .claude/settings.json (create-only)"
-} else {
-    Write-Host "MISSING .claude/settings.json wiring in scripts/install-github-kit.sh / update-github-kit.sh"
-    $script:Missing = 1
-}
-
 Write-Host ""
 
 # --- automatic Project setup: the board is bootstrapped by a workflow + script, and the caller ----
@@ -286,15 +341,6 @@ if ($setupScript -match 'REQUIRED_TEXT_FIELDS' -and $setupScript -match 'REQUIRE
     Write-Host "OK      setup_github_project.sh carries the board contract (REQUIRED_TEXT_FIELDS / REQUIRED_STATUSES)"
 } else {
     Write-Host "MISSING REQUIRED_TEXT_FIELDS / REQUIRED_STATUSES contract in templates/scripts/project/setup_github_project.sh"
-    $script:Missing = 1
-}
-
-$updaterSh = Get-Content -LiteralPath "scripts/update-github-kit.sh" -Raw -ErrorAction SilentlyContinue
-$updaterPs = Get-Content -LiteralPath "scripts/update-github-kit.ps1" -Raw -ErrorAction SilentlyContinue
-if ($updaterSh -match 'create_only_workflow "\$TEMPLATES/.github/workflows/project-sync.yml"' -and $updaterPs -match 'CreateOnly-Workflow \(Join-Path \$Templates "\.github/workflows/project-sync\.yml"\)') {
-    Write-Host "OK      updaters preserve project-sync.yml once created (no more TBD reset on refresh)"
-} else {
-    Write-Host "MISSING create-only handling for project-sync.yml in scripts/update-github-kit.sh/.ps1 -- refreshing it resets a configured project_number to TBD"
     $script:Missing = 1
 }
 

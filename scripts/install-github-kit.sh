@@ -17,6 +17,7 @@ MODE="merge"
 ALLOW_DIRTY=0
 INCLUDE_PROJECT_SYNC=0
 WORKFLOW_REF=""
+KIT_TIER=""
 
 usage() {
   cat <<'EOF'
@@ -42,6 +43,11 @@ Usage: install-github-kit.sh [--target <path>] [--mode merge|force] [--allow-dir
                              to deliberately pin a repo to a fixed version (record that choice as
                              `github-kit update mode: pinned` in docs/ai/PROJECT_CONFIG.md).
   --workflow-ref <ref>      Backward-compatible alias for --ref.
+  --tier 1|2                Actions-budget tier for the refreshed caller workflows (CI, verify).
+                             1 = run automatically on production-bound changes (the default);
+                             2 = run only when dispatched by hand. Omitted = keep each caller's
+                             current tier ("# github-kit tier: N" line), or 1 for a new file.
+                             The fan-out passes the tier from .github/fanout-targets.json.
 
   Regardless of mode, this script NEVER overwrites:
     - docs/ai/PROJECT_CONFIG.md (repo-specific, edit it yourself)
@@ -50,7 +56,10 @@ Usage: install-github-kit.sh [--target <path>] [--mode merge|force] [--allow-dir
     - .github/workflows/pr-policy.yml (repo-specific required_base_branch gate), if it already exists
     - .github/ISSUE_TEMPLATE/agent_task.yml or .github/PULL_REQUEST_TEMPLATE.md, if they already
       exist (they may already contain repo-specific customization)
-    - AGENTS.md / CLAUDE.md / GEMINI.md content outside the managed block markers
+    - .github/workflows/project-setup.yml / project-sync.yml, if they already exist
+    - .claude/settings.json (repo-specific Claude Code permissions), if it already exists
+    - AGENTS.md / CLAUDE.md / GEMINI.md / REVIEW.md content outside the managed block markers
+  The full per-file list is templates/docs/ai/KIT_MANIFEST.tsv.
 EOF
   echo "  (current default ref: $DEFAULT_WORKFLOW_REF)"
   exit 1
@@ -75,6 +84,11 @@ while [ "$#" -gt 0 ]; do
     --include-project-sync)
       INCLUDE_PROJECT_SYNC=1
       shift
+      ;;
+    --tier)
+      [ "$#" -ge 2 ] || usage
+      case "$2" in 1|2) KIT_TIER="$2" ;; *) echo "error: --tier must be 1 or 2" >&2; usage ;; esac
+      shift 2
       ;;
     --ref|--workflow-ref)
       [ "$#" -ge 2 ] || usage
@@ -124,270 +138,16 @@ echo
 
 cd "$TARGET"
 
-# --- helpers ---------------------------------------------------------------
+# --- files (every row of templates/docs/ai/KIT_MANIFEST.tsv) ---------------
 
-CREATED_COUNT=0
-UPDATED_COUNT=0
-SKIPPED_COUNT=0
-
-copy_if_missing() {
-  # Copies $1 -> $2. In merge mode, skips if $2 exists. In force mode, overwrites.
-  local src="$1" dst="$2"
-  if [ -e "$dst" ]; then
-    if [ "$MODE" = "force" ]; then
-      mkdir -p "$(dirname "$dst")"
-      cp "$src" "$dst"
-      echo "updated (force): $dst"
-      UPDATED_COUNT=$((UPDATED_COUNT + 1))
-    else
-      echo "skip (exists):   $dst"
-      SKIPPED_COUNT=$((SKIPPED_COUNT + 1))
-    fi
-  else
-    mkdir -p "$(dirname "$dst")"
-    cp "$src" "$dst"
-    echo "created:         $dst"
-    CREATED_COUNT=$((CREATED_COUNT + 1))
-  fi
-}
-
-copy_create_only() {
-  # Copies $1 -> $2 only if $2 doesn't exist. Never overwritten, regardless of mode.
-  local src="$1" dst="$2"
-  if [ -e "$dst" ]; then
-    echo "skip (never overwritten): $dst"
-    SKIPPED_COUNT=$((SKIPPED_COUNT + 1))
-  else
-    mkdir -p "$(dirname "$dst")"
-    cp "$src" "$dst"
-    echo "created:                  $dst"
-    CREATED_COUNT=$((CREATED_COUNT + 1))
-  fi
-}
-
-copy_workflow() {
-  # Copies $1 -> $2. Templates pin caller `uses:` lines to @main (the always-latest channel); if
-  # --ref/--workflow-ref resolved to something else, repoint only that `uses: pzoli6/github-kit/...`
-  # line to the requested ref — never touch unrelated occurrences of the word "main" (e.g. branch
-  # triggers). Same merge/force semantics as copy_if_missing.
-  local src="$1" dst="$2"
-  if [ -e "$dst" ]; then
-    if [ "$MODE" = "force" ]; then
-      mkdir -p "$(dirname "$dst")"
-      sed -E "s#(uses: pzoli6/github-kit/[^@[:space:]]+)@main#\1@$WORKFLOW_REF#" "$src" > "$dst"
-      echo "updated (force): $dst"
-      UPDATED_COUNT=$((UPDATED_COUNT + 1))
-    else
-      echo "skip (exists):   $dst"
-      SKIPPED_COUNT=$((SKIPPED_COUNT + 1))
-    fi
-  else
-    mkdir -p "$(dirname "$dst")"
-    sed -E "s#(uses: pzoli6/github-kit/[^@[:space:]]+)@main#\1@$WORKFLOW_REF#" "$src" > "$dst"
-    echo "created:         $dst"
-    CREATED_COUNT=$((CREATED_COUNT + 1))
-  fi
-}
-
-copy_workflow_create_only() {
-  # Like copy_workflow but NEVER overwrites, even in --mode force. pr-policy.yml carries the
-  # repo-specific required_base_branch gate; clobbering it would reset a repo's base branch and
-  # break its PR checks. The reusable-pr-policy.yml@main logic it calls still auto-tracks @main.
-  local src="$1" dst="$2"
-  if [ -e "$dst" ]; then
-    echo "skip (repo-specific caller, preserved): $dst"
-    SKIPPED_COUNT=$((SKIPPED_COUNT + 1))
-  else
-    mkdir -p "$(dirname "$dst")"
-    sed -E "s#(uses: pzoli6/github-kit/[^@[:space:]]+)@main#\1@$WORKFLOW_REF#" "$src" > "$dst"
-    echo "created:         $dst"
-    CREATED_COUNT=$((CREATED_COUNT + 1))
-  fi
-}
-
-write_managed_block() {
-  cat <<'GKBLOCK'
-<!-- BEGIN GITHUB-KIT UNIVERSAL WORKFLOW -->
-## Universal AI-Agent Workflow
-
-This repository follows the universal issue-to-PR workflow from `pzoli6/github-kit`.
-
-Agents must read:
-- `AGENTS.md`
-- `docs/ai/PROJECT_CONFIG.md`
-- `docs/ai/AGENT_WORKFLOW.md`
-
-Every implementation task must follow:
-User task → plan → human approval → GitHub issue → Project update → agent branch/worktree → implementation → validation → draft PR → handoff → human review.
-
-Required approval phrase:
-```text
-approve
-```
-
-Fast path: `/github_kit <task>` is a pre-approved alternative entry point — the invocation itself is the approval for the described task, scoped to that task only. See `docs/ai/AGENT_WORKFLOW.md` → "Fast-path trigger: /github_kit".
-
-Agents must not push to protected branches, merge PRs, modify secrets, use `git add .`, or claim validation passed unless validation actually ran.
-
-Solo mode: `docs/ai/PROJECT_CONFIG.md` → "Solo mode" (default `auto` — active until a real GitHub Project is configured) collapses the lifecycle to plan → approval → branch/worktree → implementation → validation → draft PR: no issue for pre-approved iterations, no Project-field updates, handoff files only when actually stopping mid-task. Approval gates and git/PR safety rules apply unchanged.
-
-Before stopping mid-task, losing context, or handing off to another agent, agents must update:
-- `docs/ai/handoffs/issue-<number>.md`
-- Project field: `Last Agent Update` (full mode only)
-- Project field: `Validation` (full mode only)
-<!-- END GITHUB-KIT UNIVERSAL WORKFLOW -->
-GKBLOCK
-}
-
-apply_managed_block() {
-  # $1 = target file, $2 = full template to copy when target file doesn't exist at all.
-  local target_file="$1" full_template="$2"
-  local begin='<!-- BEGIN GITHUB-KIT UNIVERSAL WORKFLOW -->'
-  local end='<!-- END GITHUB-KIT UNIVERSAL WORKFLOW -->'
-
-  if [ ! -e "$target_file" ]; then
-    mkdir -p "$(dirname "$target_file")"
-    cp "$full_template" "$target_file"
-    echo "created:                $target_file"
-    return
-  fi
-
-  if grep -qF "$begin" "$target_file"; then
-    local block_tmp
-    block_tmp="$(mktemp)"
-    write_managed_block > "$block_tmp"
-    awk -v begin="$begin" -v end="$end" -v blockfile="$block_tmp" '
-      BEGIN { while ((getline line < blockfile) > 0) block = block line "\n" }
-      $0 == begin { printf "%s", block; skip=1; next }
-      $0 == end { skip=0; next }
-      skip { next }
-      { print }
-    ' "$target_file" > "$target_file.gktmp"
-    mv "$target_file.gktmp" "$target_file"
-    rm -f "$block_tmp"
-    echo "updated managed block:  $target_file"
-  else
-    {
-      cat "$target_file"
-      echo
-      write_managed_block
-    } > "$target_file.gktmp"
-    mv "$target_file.gktmp" "$target_file"
-    echo "appended managed block: $target_file"
-  fi
-}
-
-# --- AGENTS.md / CLAUDE.md (managed block, never overwrite the rest) -------
-
-apply_managed_block "AGENTS.md" "$TEMPLATES/AGENTS.md"
-apply_managed_block "CLAUDE.md" "$TEMPLATES/CLAUDE.md"
-apply_managed_block "GEMINI.md" "$TEMPLATES/GEMINI.md"
-
-# --- docs/ai/ ----------------------------------------------------------
-
-copy_create_only "$TEMPLATES/docs/ai/PROJECT_CONFIG.md" "docs/ai/PROJECT_CONFIG.md"
-copy_if_missing  "$TEMPLATES/docs/ai/PROJECT_CONFIG.env.example" "docs/ai/PROJECT_CONFIG.env.example"
-copy_if_missing  "$TEMPLATES/docs/ai/AGENT_WORKFLOW.md" "docs/ai/AGENT_WORKFLOW.md"
-copy_if_missing  "$TEMPLATES/docs/ai/HANDOFF_INDEX.md" "docs/ai/HANDOFF_INDEX.md"
-copy_if_missing  "$TEMPLATES/docs/ai/PROJECT_SETUP.md" "docs/ai/PROJECT_SETUP.md"
-mkdir -p "docs/ai/handoffs"
-copy_if_missing  "$TEMPLATES/docs/ai/handoffs/.gitkeep" "docs/ai/handoffs/.gitkeep"
-
-# --- .github/ ------------------------------------------------------------
-
-copy_create_only "$TEMPLATES/.github/ISSUE_TEMPLATE/agent_task.yml" ".github/ISSUE_TEMPLATE/agent_task.yml"
-copy_create_only "$TEMPLATES/.github/PULL_REQUEST_TEMPLATE.md" ".github/PULL_REQUEST_TEMPLATE.md"
-copy_if_missing  "$TEMPLATES/.github/copilot-instructions.md" ".github/copilot-instructions.md"
-copy_if_missing  "$TEMPLATES/.github/CODEOWNERS" ".github/CODEOWNERS"
-
-for wf in agent-workflow-verify ci-node ci-python design-handoff-approval; do
-  copy_workflow "$TEMPLATES/.github/workflows/$wf.yml" ".github/workflows/$wf.yml"
-done
-# pr-policy.yml carries the repo-specific required_base_branch gate; never overwrite it (even in
-# --mode force), same as PROJECT_CONFIG.md. The reusable-pr-policy.yml@main logic it calls still
-# auto-tracks. New repos get the template; existing repos keep their base-branch setting.
-copy_workflow_create_only "$TEMPLATES/.github/workflows/pr-policy.yml" ".github/workflows/pr-policy.yml"
-
-if [ "$INCLUDE_PROJECT_SYNC" -eq 1 ]; then
-  # Carries repo-specific inputs (project_owner, project_number) once configured — never
-  # overwrite an existing one, same rationale as pr-policy.yml above.
-  copy_workflow_create_only "$TEMPLATES/.github/workflows/project-sync.yml" ".github/workflows/project-sync.yml"
-else
-  echo "skip (default):  .github/workflows/project-sync.yml (pass --include-project-sync to install it)"
-  SKIPPED_COUNT=$((SKIPPED_COUNT + 1))
-fi
-# project-setup.yml installs unconditionally: without an AGENT_PROJECT_TOKEN secret it skips
-# green with a notice, and with one it bootstraps the Project board automatically — see
-# docs/ai/PROJECT_SETUP.md. Once its config PR pins a project_number into it, it is
-# repo-specific, so it is never overwritten.
-copy_workflow_create_only "$TEMPLATES/.github/workflows/project-setup.yml" ".github/workflows/project-setup.yml"
-
-# --- .agents / .claude / .cursor ------------------------------------------
-
-copy_if_missing "$TEMPLATES/.agents/skills/issue-to-pr-project/SKILL.md" ".agents/skills/issue-to-pr-project/SKILL.md"
-copy_if_missing "$TEMPLATES/.claude/skills/issue-to-pr-project/SKILL.md" ".claude/skills/issue-to-pr-project/SKILL.md"
-copy_if_missing "$TEMPLATES/.agents/skills/github_kit/SKILL.md" ".agents/skills/github_kit/SKILL.md"
-copy_if_missing "$TEMPLATES/.claude/skills/github_kit/SKILL.md" ".claude/skills/github_kit/SKILL.md"
-copy_if_missing "$TEMPLATES/.claude/commands/github_kit.md" ".claude/commands/github_kit.md"
-# Checked-in Claude Code permissions: pre-approves the platform plumbing (Claude Code Remote
-# MCP), read-only GitHub MCP calls, and the kit's own scripts, and hard-denies PR merging via
-# MCP (humans merge). Create-only — a repo's own customizations are never overwritten.
-copy_if_missing "$TEMPLATES/.claude/settings.json" ".claude/settings.json"
-copy_if_missing "$TEMPLATES/.agents/skills/github_kit_update/SKILL.md" ".agents/skills/github_kit_update/SKILL.md"
-copy_if_missing "$TEMPLATES/.claude/skills/github_kit_update/SKILL.md" ".claude/skills/github_kit_update/SKILL.md"
-
-for rule in agent-workflow git-safety project-board github-kit-command; do
-  copy_if_missing "$TEMPLATES/.cursor/rules/$rule.mdc" ".cursor/rules/$rule.mdc"
-done
-
-# Legacy hygiene: only SKILL.md-based skill directories belong under .claude/skills/. Older kit
-# versions/manual copies sometimes left workflow YAMLs or STATUS_BADGES.md there, which clutter
-# the skills listing. Warn — never delete automatically.
-stray_skills="$(find .claude/skills -maxdepth 1 -type f \( -name '*.yml' -o -name '*.yaml' -o -name 'STATUS_BADGES.md' \) 2>/dev/null || true)"
-if [ -n "$stray_skills" ]; then
-  echo "warning: non-skill files found directly under .claude/skills/ — they aren't skills;"
-  echo "move workflow YAMLs to .github/workflows/ (or delete them):"
-  printf '  %s\n' $stray_skills
-fi
-
-# --- docs/ai/design-handoffs/ ------------------------------------------
-
-mkdir -p "docs/ai/design-handoffs"
-copy_if_missing "$TEMPLATES/docs/ai/design-handoffs/README.md" "docs/ai/design-handoffs/README.md"
-copy_if_missing "$TEMPLATES/docs/ai/design-handoffs/_TEMPLATE.md" "docs/ai/design-handoffs/_TEMPLATE.md"
-# DESIGN_SYNC.md is repo state (last-synced commit, round counter, reading list, decision log) —
-# create-only even in --mode force, or a reinstall would reset the sync record and replay guard.
-copy_create_only "$TEMPLATES/docs/ai/design-handoffs/DESIGN_SYNC.md" "docs/ai/design-handoffs/DESIGN_SYNC.md"
-
-# --- scripts/design-handoffs/ ------------------------------------------
-
-for script in stamp verify apply-answers; do
-  copy_if_missing "$TEMPLATES/scripts/design-handoffs/$script.mjs" "scripts/design-handoffs/$script.mjs"
-done
-
-# --- scripts/project/ --------------------------------------------------
-
-for script in project_add_item project_set_status project_set_text verify_agent_workflow create_standard_labels \
-              create_agent_issue publish_agent_branch sync_project_fields create_agent_pr \
-              check_resume_safety post_handoff_comment cleanup_merged_branches setup_github_project; do
-  copy_if_missing "$TEMPLATES/scripts/project/$script.sh" "scripts/project/$script.sh"
-  chmod +x "scripts/project/$script.sh" 2>/dev/null || true
-done
-
-# --- .gitignore -------------------------------------------------------
-
-GITIGNORE_LINE="docs/ai/PROJECT_CONFIG.env"
-if [ -f .gitignore ]; then
-  if ! grep -qxF "$GITIGNORE_LINE" .gitignore; then
-    printf '\n%s\n' "$GITIGNORE_LINE" >> .gitignore
-    echo "updated:         .gitignore (added $GITIGNORE_LINE)"
-  else
-    echo "skip (exists):   .gitignore already ignores $GITIGNORE_LINE"
-  fi
-else
-  printf '%s\n' "$GITIGNORE_LINE" > .gitignore
-  echo "created:         .gitignore"
-fi
+# shellcheck source-path=SCRIPTDIR source=lib/kit.sh
+. "$KIT_ROOT/scripts/lib/kit.sh"
+KIT_OP=install
+KIT_FORCE=$([ "$MODE" = "force" ] && echo true || echo false)
+FORCE_CONFIG=false
+kit_sync_manifest
+kit_warn_stray_skills
+kit_ensure_gitignore
 
 # --- summary --------------------------------------------------------------
 

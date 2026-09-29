@@ -185,8 +185,8 @@ that gap so you never have to run `/github_kit_update` in each repo by hand.
 - triggers on every push to `main` that touches `templates/**` or the install/update scripts, plus
   a weekly cron safety net and manual `workflow_dispatch`;
 - reads the target list from [`.github/fanout-targets.json`](.github/fanout-targets.json) (add a
-  repo by appending one `{ "repo": "...", "base": "..." }` entry — nothing is needed on the target
-  side);
+  repo by appending one `{ "repo": "...", "base": "...", "tier": 1 }` entry — nothing is needed on
+  the target side; see "Repository tiers" below);
 - for each target, refreshes its bootstrap files from `github-kit@main` via `update-github-kit.sh`
   and opens a **draft PR** on the repo's base branch if anything drifted — it never merges, never
   force-pushes, and never touches repo-specific files: `docs/ai/PROJECT_CONFIG.md` or
@@ -207,6 +207,67 @@ with push access to every target. Full instructions, including the least-privile
 
 The mental model is: **you improve `github-kit`, and every repo gets a draft PR** — reusable CI
 logic updates itself with no PR, and local files arrive as reviewable PRs.
+
+## Single source of truth: the kit manifest
+
+[`templates/docs/ai/KIT_MANIFEST.tsv`](templates/docs/ai/KIT_MANIFEST.tsv) lists every file the kit
+installs, how install and update treat it (managed block, refresh, create-once, caller workflow),
+which files `verify_agent_workflow.sh` requires, and the key phrases it checks. Everything that
+used to keep its own copy of those lists now reads the manifest:
+
+| Reader | Uses the manifest for |
+|---|---|
+| `install-github-kit.sh` / `.ps1`, `update-github-kit.sh` / `.ps1` (via `scripts/lib/kit.sh` / `Kit.ps1`) | which files to write and how |
+| `verify_agent_workflow.sh` (installed as `docs/ai/KIT_MANIFEST.tsv` in every repo) | required files and phrases |
+| `reusable-agent-workflow-verify.yml` | runs the repo's own `verify_agent_workflow.sh`, so CI and local checks agree |
+| `github-kit-fanout.yml` | which paths to stage in the update PR |
+| `doctor-github-kit.sh` / `.ps1` | every template is listed, repo-owned files keep a non-overwriting mode, managed blocks agree |
+
+Managed-block text (`AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, `REVIEW.md`) comes from each template's
+own `<!-- BEGIN GITHUB-KIT ... -->` block; the scripts no longer carry a copy.
+
+**Adding a template:** put the file under `templates/`, add one manifest row, run
+`bash scripts/selfcheck-github-kit.sh`.
+
+## Repository tiers
+
+Every repo in `.github/fanout-targets.json` has a `tier` that decides how much of the shared Actions
+budget it may spend automatically:
+
+| Tier | CI and Agent Workflow Verify | Codex automatic review |
+|---|---|---|
+| **1** | run automatically on production-bound PRs and pushes | on |
+| **2** | run only when dispatched by hand | off (`@codex review` on demand) |
+
+The fan-out passes the tier to `update-github-kit.sh --tier`, which writes it into the refreshed CI
+callers as a `# github-kit tier: N` line and keeps or drops the triggers between the
+`# >>> github-kit tier-1 triggers` markers. A later update without `--tier` (for example
+`/github_kit_update`) keeps the tier the file already has. `KIT_ACTIONS_PAUSED=true` still pauses a
+repo completely, whatever its tier.
+
+A registry entry with `"fanout": false` is tracked for tiering but gets no update PRs, for repos
+the kit isn't installed in yet. Install the kit there, then drop that key and add `base`. The
+Codex column is a setting in Codex, not something the kit can write; see
+[docs/PR_REVIEW_SETUP.md](docs/PR_REVIEW_SETUP.md).
+
+## PR review
+
+`REVIEW.md` (installed in every repo, managed block plus a repo-specific section) is the one
+rulebook for human reviewers, Codex, Claude, and Copilot: what is blocking, what to always check,
+what to skip, and how the PR's agent handles bot findings. Each tool's own instruction file points
+to it: the `## Code Review Rules` section of the managed block in `AGENTS.md` (read by Codex) and
+`CLAUDE.md`, and `.github/copilot-instructions.md`. Setup and the per-tier recommendation:
+**[docs/PR_REVIEW_SETUP.md](docs/PR_REVIEW_SETUP.md)**.
+
+## Checking github-kit itself
+
+`bash scripts/selfcheck-github-kit.sh` runs the doctor, actionlint, `shellcheck -S error`, JSON
+checks, and `scripts/test-install-update.sh`, which installs and updates throwaway repos with both
+the bash and PowerShell scripts and asserts the kit's promises (repo-owned files survive, text
+outside managed blocks is untouched, updates are idempotent, tiers round-trip, bash and PowerShell
+produce identical trees). Missing optional tools are skipped locally. The
+**github-kit selfcheck** workflow runs the same script with every tool installed, only when
+dispatched by hand.
 
 ## Fast-path trigger: /github_kit
 

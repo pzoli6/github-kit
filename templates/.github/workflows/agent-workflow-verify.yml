@@ -8,14 +8,22 @@ name: Agent Workflow Verify
 # preview-bound work — only when explicitly dispatched (Actions tab → Run workflow, or
 # `gh workflow run "Agent Workflow Verify" --ref <branch>`) or when a change is production-bound.
 # scripts/project/verify_agent_workflow.sh runs the same checks locally for free.
+#
+# Actions-budget tier, set by the github-kit updater (--tier, or the fan-out's
+# .github/fanout-targets.json). Tier 1 keeps the automatic production-bound triggers between the
+# markers below; tier 2 drops them, so this workflow runs only when dispatched by hand. The updater
+# keeps whatever tier this line says unless told otherwise.
+# github-kit tier: 1
 
 on:
   workflow_dispatch:
+  # >>> github-kit tier-1 triggers
   pull_request:
     # TODO: confirm this matches Production branch in docs/ai/PROJECT_CONFIG.md
     branches: [main]
   push:
     branches: [main]
+  # <<< github-kit tier-1 triggers
 
 jobs:
   verify:
