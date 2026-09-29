@@ -5,7 +5,7 @@ name: github-kit fan-out (propagate bootstrap updates)
 # Reusable CI workflows (reusable-*.yml) already auto-track @main: any repo that calls
 # `uses: pzoli6/github-kit/.github/workflows/reusable-*.yml@main` gets fixes on its next run.
 # But the *local* bootstrap files copied into each repo — AGENTS.md/CLAUDE.md/GEMINI.md managed
-# blocks, skills, Cursor rules, copilot-instructions.md, docs/ai/*, and scripts/project/* — do
+# blocks, skills, Cursor rules, REVIEW.md, docs/ai/*, and scripts/project/* — do
 # NOT auto-track; historically they only refreshed when a human ran /github_kit_update.
 #
 # This workflow makes that automatic. On every push to main that changes template/script content
@@ -72,16 +72,19 @@ jobs:
       matrix: ${{ steps.set.outputs.matrix }}
       count: ${{ steps.set.outputs.count }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - id: set
         shell: bash
+        env:
+          ONLY_REPO: ${{ github.event.inputs.only_repo }}
         run: |
           set -euo pipefail
-          only='${{ github.event.inputs.only_repo }}'
-          if [ -n "$only" ]; then
-            matrix="$(jq -c --arg r "$only" '{include: [.targets[] | select(.repo==$r)]}' .github/fanout-targets.json)"
+          # A missing tier means tier 1; the tier is passed to the updater/installer as --tier.
+          targets='[.targets[] | . + {tier: ((.tier // 1) | tostring)}]'
+          if [ -n "$ONLY_REPO" ]; then
+            matrix="$(jq -c --arg r "$ONLY_REPO" "{include: ($targets | map(select(.repo == \$r)))}" .github/fanout-targets.json)"
           else
-            matrix="$(jq -c '{include: .targets}' .github/fanout-targets.json)"
+            matrix="$(jq -c "{include: $targets}" .github/fanout-targets.json)"
           fi
           count="$(echo "$matrix" | jq '.include | length')"
           echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
@@ -109,7 +112,7 @@ jobs:
           fi
 
       - name: Checkout github-kit (source of truth)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           path: github-kit
 
@@ -137,7 +140,7 @@ jobs:
           echo "base=${TARGET_BASE}" >> "$GITHUB_OUTPUT"
 
       - name: Checkout target repo (${{ matrix.repo }})
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           repository: ${{ matrix.repo }}
           ref: ${{ steps.base.outputs.base }}
@@ -167,16 +170,20 @@ jobs:
       - name: Refresh bootstrap files from github-kit@main
         if: steps.gate.outputs.mode == 'update'
         shell: bash
+        env:
+          TARGET_TIER: ${{ matrix.tier }}
         run: |
           set -euo pipefail
-          bash github-kit/scripts/update-github-kit.sh --target target --allow-dirty --ref main
+          bash github-kit/scripts/update-github-kit.sh --target target --allow-dirty --ref main --tier "$TARGET_TIER"
 
       - name: 'Install github-kit (first install, opted in via "install": true)'
         if: steps.gate.outputs.mode == 'install'
         shell: bash
+        env:
+          TARGET_TIER: ${{ matrix.tier }}
         run: |
           set -euo pipefail
-          bash github-kit/scripts/install-github-kit.sh --target target --mode merge --allow-dirty --ref main
+          bash github-kit/scripts/install-github-kit.sh --target target --mode merge --allow-dirty --ref main --tier "$TARGET_TIER"
 
       - name: Open draft PR if anything drifted
         if: steps.gate.outputs.mode != 'skip'
@@ -198,12 +205,18 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          # Stage only github-kit-owned paths (the update script only ever writes these). This
-          # honours the "never git add -A" rule while still capturing everything the updater changed.
-          # Skip any path a given target doesn't have, so `git add` never aborts on a missing pathspec.
-          for p in AGENTS.md CLAUDE.md GEMINI.md docs/ai .github .agents .claude .cursor scripts/project scripts/design-handoffs .gitignore; do
-            [ -e "$p" ] && git add -- "$p"
-          done
+          # Stage exactly the github-kit-owned paths: every file row of the kit manifest (the list
+          # the updater itself writes from), plus .gitignore. This honours the "never git add -A"
+          # rule, and a new template can never be forgotten here. `git add -A -- <path>` also
+          # stages the deletion of a retired file the updater removed; a path that neither exists
+          # nor is tracked is skipped, so `git add` never aborts on a missing pathspec.
+          while IFS=$'\t' read -r kind p _rest; do
+            [ "$kind" = "file" ] || continue
+            if [ -e "$p" ] || git ls-files --error-unmatch -- "$p" > /dev/null 2>&1; then
+              git add -A -- "$p"
+            fi
+          done < ../github-kit/templates/docs/ai/KIT_MANIFEST.tsv
+          if [ -e .gitignore ]; then git add -- .gitignore; fi
 
           if git diff --cached --quiet; then
             echo "No drift for ${TARGET_REPO} — already in sync with github-kit@main."
@@ -229,8 +242,9 @@ jobs:
           This PR refreshes this repo's github-kit **local bootstrap files** to match
           `pzoli6/github-kit@main`:
 
-          - `AGENTS.md` / `CLAUDE.md` / `GEMINI.md` managed blocks
-          - `.claude` / `.agents` skills and commands, `.cursor` rules, `.github/copilot-instructions.md`
+          - `AGENTS.md` / `CLAUDE.md` / `GEMINI.md` / `REVIEW.md` managed blocks
+          - `.claude` / `.agents` skills and commands, `.cursor` rules
+          - removes retired kit files you never edited (e.g. `.github/copilot-instructions.md`)
           - `docs/ai/AGENT_WORKFLOW.md`, `docs/ai/HANDOFF_INDEX.md`, `docs/ai/PROJECT_CONFIG.env.example`
           - `scripts/project/*` helper scripts and the reusable-workflow callers, including
             `.github/workflows/auto-merge.yml` (merge after green; hold any PR back with the
@@ -255,7 +269,9 @@ jobs:
           else
             {
               echo
-              echo "It does **not** touch \`docs/ai/PROJECT_CONFIG.md\` or your issue/PR templates."
+              echo "It does **not** touch \`docs/ai/PROJECT_CONFIG.md\` or your issue/PR templates. The exact file"
+              echo "list is \`docs/ai/KIT_MANIFEST.tsv\`; the CI callers carry this repo's Actions-budget tier"
+              echo "from github-kit's \`fanout-targets.json\` (\`# github-kit tier: N\`)."
             } >> "$body_file"
           fi
 

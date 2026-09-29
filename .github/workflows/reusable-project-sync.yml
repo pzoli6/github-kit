@@ -36,8 +36,7 @@ jobs:
   sync:
     runs-on: ubuntu-latest
     # KIT_ACTIONS_PAUSED: caller-repo Actions variable that pauses all github-kit jobs so they
-    # consume no Actions minutes (e.g. to keep the Actions budget available for manual GitHub
-    # Copilot coding agent runs). While paused, Status updates are simply skipped — sync them by
+    # consume no Actions minutes. While paused, Status updates are simply skipped — sync them by
     # hand or re-trigger after unpausing. No cancel-in-progress here: each run carries a distinct
     # status change, so superseded runs must still finish.
     if: >-

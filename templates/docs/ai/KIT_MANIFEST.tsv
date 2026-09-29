@@ -1,0 +1,122 @@
+# github-kit manifest: the single source of truth for what the kit installs and what it verifies.
+#
+# Read by: scripts/install-github-kit.{sh,ps1}, scripts/update-github-kit.{sh,ps1},
+# scripts/doctor-github-kit.{sh,ps1} (in github-kit), and scripts/project/verify_agent_workflow.sh
+# (in every installed repo, which also runs in CI via reusable-agent-workflow-verify.yml).
+# Adding a template file means adding one line here, not editing six scripts.
+#
+# Format: TAB-separated, '#' starts a comment line. Two row kinds:
+#
+#   file   <path>   <mode>   <verify>   [<retired blob SHAs, comma-separated>]
+#   phrase <text>
+#
+# <path> is relative to both templates/ (source) and the target repo root (destination).
+#
+# <mode> decides what install and update do when the destination already exists:
+#   block            managed block: only the text between the template's own
+#                    <!-- BEGIN GITHUB-KIT ... --> / <!-- END GITHUB-KIT ... --> lines is kit-owned.
+#                    Missing file: the whole template is copied. Content outside markers is never touched.
+#   refresh          kit-owned: update overwrites; install overwrites only with --mode force.
+#   refresh-exec     same as refresh, then chmod +x.
+#   workflow         caller workflow, same as refresh, with `uses: pzoli6/github-kit/...@main`
+#                    rewritten to the requested --ref; lines between `# >>> github-kit: repo
+#                    workflows >>>` markers are carried over from the existing file.
+#   workflow-create  caller workflow that holds repo-specific inputs: created once, never overwritten.
+#   workflow-opt     like workflow-create, but only installed with --include-project-sync (or when
+#                    already present on update).
+#   create           repo-owned after creation: created once, never overwritten, even with --mode force.
+#   config           like create, except update --force-config resets it to the template.
+#   retired          no longer shipped. Install and update delete the file only when it is byte-for-byte
+#                    a version the kit shipped (git blob SHA listed in the 5th column); an edited copy
+#                    is kept with a warning. The template is gone from templates/.
+#
+# <verify> is the group that makes the file required in verify_agent_workflow.sh:
+#   core (always), claude, cursor, skills, gemini (each toggled by a REQUIRE_* switch),
+#   or - (installed but not required).
+#
+# phrase rows: key phrases that must appear somewhere in the repo's *.md / *.yml / *.yaml files.
+
+# --- agent instruction files (managed blocks) ---------------------------------------------------
+file	AGENTS.md	block	core
+file	CLAUDE.md	block	claude
+file	GEMINI.md	block	gemini
+file	REVIEW.md	block	-
+
+# --- docs/ai ------------------------------------------------------------------------------------
+file	docs/ai/KIT_MANIFEST.tsv	refresh	-
+file	docs/ai/PROJECT_CONFIG.md	config	core
+file	docs/ai/PROJECT_CONFIG.env.example	refresh	-
+file	docs/ai/AGENT_WORKFLOW.md	refresh	core
+file	docs/ai/HANDOFF_INDEX.md	refresh	core
+file	docs/ai/PROJECT_SETUP.md	refresh	-
+file	docs/ai/handoffs/.gitkeep	create	-
+file	docs/ai/design-handoffs/README.md	refresh	-
+file	docs/ai/design-handoffs/_TEMPLATE.md	refresh	-
+file	docs/ai/design-handoffs/DESIGN_SYNC.md	create	-
+
+# --- .github ------------------------------------------------------------------------------------
+file	.github/ISSUE_TEMPLATE/agent_task.yml	create	core
+file	.github/PULL_REQUEST_TEMPLATE.md	create	core
+file	.github/CODEOWNERS	refresh	core
+file	.github/workflows/agent-workflow-verify.yml	workflow	-
+file	.github/workflows/ci-node.yml	workflow	-
+file	.github/workflows/ci-python.yml	workflow	-
+file	.github/workflows/design-handoff-approval.yml	workflow	-
+file	.github/workflows/auto-merge.yml	workflow	-
+file	.github/workflows/pr-policy.yml	workflow-create	-
+file	.github/workflows/project-setup.yml	workflow-create	-
+file	.github/workflows/project-sync.yml	workflow-opt	-
+
+# --- retired: no longer installed; removed from repos where unmodified -----------------------
+# GitHub Copilot adapter, dropped when the kit stopped supporting Copilot (see AGENTS.md migration notes).
+file	.github/copilot-instructions.md	retired	-	0201080ca451ef1995e84ae49e80e714d6f5a185,14a4759ed74d4811a780fd01c403f3fa7ce9a09b,14eaa915b968594da8b966b2601131c0efb823d4,69908148ff9f166fbc3961fdafb2b834729eb9e1,6e8295e0ea268b37e104e762c825092865ac4f55,822ff11b932783236d2756b7d82a3939018c0b12,86c26d5418388d5ed556cdcb1da60982459fff44,912e02144ce942d3fbb4a5c98c5f2f1eb81c7ec3,afd6a7f23c0e714ebfc3e3bcab2df22ba1ef1bed,be27aa49d564b2462e07ccdca9bc9983748a51fa,e5c43d5fd48b0d66044f37051a2fa7ebe4cd54d1
+
+# --- Claude Code / Codex / generic agents / Cursor ----------------------------------------------
+file	.claude/skills/issue-to-pr-project/SKILL.md	refresh	claude
+file	.claude/skills/github_kit/SKILL.md	refresh	claude
+file	.claude/skills/github_kit_update/SKILL.md	refresh	-
+file	.claude/commands/github_kit.md	refresh	claude
+file	.claude/settings.json	create	-
+file	.agents/skills/issue-to-pr-project/SKILL.md	refresh	skills
+file	.agents/skills/github_kit/SKILL.md	refresh	skills
+file	.agents/skills/github_kit_update/SKILL.md	refresh	-
+file	.cursor/rules/agent-workflow.mdc	refresh	cursor
+file	.cursor/rules/git-safety.mdc	refresh	cursor
+file	.cursor/rules/project-board.mdc	refresh	cursor
+file	.cursor/rules/github-kit-command.mdc	refresh	cursor
+
+# --- scripts ------------------------------------------------------------------------------------
+file	scripts/project/project_add_item.sh	refresh-exec	core
+file	scripts/project/project_set_status.sh	refresh-exec	core
+file	scripts/project/project_set_text.sh	refresh-exec	core
+file	scripts/project/verify_agent_workflow.sh	refresh-exec	core
+file	scripts/project/create_standard_labels.sh	refresh-exec	-
+file	scripts/project/create_agent_issue.sh	refresh-exec	core
+file	scripts/project/publish_agent_branch.sh	refresh-exec	core
+file	scripts/project/sync_project_fields.sh	refresh-exec	core
+file	scripts/project/create_agent_pr.sh	refresh-exec	core
+file	scripts/project/check_resume_safety.sh	refresh-exec	core
+file	scripts/project/post_handoff_comment.sh	refresh-exec	core
+file	scripts/project/cleanup_merged_branches.sh	refresh-exec	core
+file	scripts/project/setup_github_project.sh	refresh-exec	-
+file	scripts/design-handoffs/stamp.mjs	refresh	-
+file	scripts/design-handoffs/verify.mjs	refresh	-
+file	scripts/design-handoffs/apply-answers.mjs	refresh	-
+
+# --- key phrases --------------------------------------------------------------------------------
+phrase	approve
+phrase	approve main
+phrase	Production-branch authorization
+phrase	Stop-and-ask gates
+phrase	/github_kit
+phrase	git add .
+phrase	Plan Review
+phrase	Ready
+phrase	In Progress
+phrase	In Review
+phrase	Changes Requested
+phrase	Validation
+phrase	Handoff
+phrase	Last Agent Update
+phrase	Relationships: none declared
+phrase	Notifications: ensured through assignment

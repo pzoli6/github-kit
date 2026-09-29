@@ -40,7 +40,7 @@ gap to fill. See `docs/ai/PROJECT_SETUP.md` for how the board itself gets bootst
 Field vocabularies:
 
 - `Validation`: `Not Run`, `Passed`, `Failed`, `Partial`, `Manual Required`, `Not Applicable`
-- `Agent`: `Codex`, `Claude Code`, `Antigravity`, `Cursor`, `Gemini`, `ChatGPT`, `GitHub Copilot`,
+- `Agent`: `Codex`, `Claude Code`, `Antigravity`, `Cursor`, `Gemini`, `ChatGPT`,
   `Manual`, `Mixed`
 - `Risk`: `Low`, `Medium`, `High`
 

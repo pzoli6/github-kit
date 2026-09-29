@@ -16,7 +16,7 @@
 .PARAMETER Mode
   'merge' (default) copies missing files and never overwrites existing ones.
   'force' also refreshes github-kit-owned boilerplate that's already installed (caller
-  workflows, Cursor rules, skills, CODEOWNERS, copilot-instructions.md, project helper
+  workflows, Cursor rules, skills, CODEOWNERS, REVIEW.md block, project helper
   scripts, docs/ai/AGENT_WORKFLOW.md, docs/ai/HANDOFF_INDEX.md, docs/ai/PROJECT_CONFIG.env.example).
 
 .PARAMETER AllowDirty
@@ -42,6 +42,12 @@
 
 .EXAMPLE
   .\install-github-kit.ps1 -Target C:\repos\my-app -IncludeProjectSync -Ref v0.2.0
+.PARAMETER Tier
+    Actions-budget tier for the refreshed caller workflows (CI, verify): 1 runs them
+    automatically on production-bound changes (default); 2 runs them only when dispatched by
+    hand. Omitted = keep each caller's current tier ("# github-kit tier: N" line), or 1 for a new
+    file. The fan-out passes the tier from .github/fanout-targets.json.
+
 #>
 [CmdletBinding()]
 param(
@@ -51,7 +57,9 @@ param(
     [switch]$AllowDirty,
     [switch]$IncludeProjectSync,
     [string]$Ref,
-    [string]$WorkflowRef
+    [string]$WorkflowRef,
+    [ValidateSet("", "1", "2")]
+    [string]$Tier = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -103,319 +111,17 @@ Write-Host ""
 
 Set-Location -LiteralPath $Target
 
-# --- counters ----------------------------------------------------------
+# --- files (every row of templates/docs/ai/KIT_MANIFEST.tsv) ---------------
 
-$CreatedCount = 0
-$UpdatedCount = 0
-$SkippedCount = 0
-
-# --- helpers -------------------------------------------------------------
-
-function Ensure-ParentDir {
-    param([string]$Path)
-    $dir = Split-Path -Path $Path -Parent
-    if ($dir -and -not (Test-Path -LiteralPath $dir)) {
-        New-Item -ItemType Directory -Force -Path $dir | Out-Null
-    }
-}
-
-function Copy-IfMissing {
-    # Copies $Src -> $Dst. In merge mode, skips if $Dst exists. In force mode, overwrites.
-    param([string]$Src, [string]$Dst)
-    if (Test-Path -LiteralPath $Dst) {
-        if ($Mode -eq "force") {
-            Copy-Item -LiteralPath $Src -Destination $Dst -Force
-            Write-Host "updated (force): $Dst"
-            $script:UpdatedCount++
-        } else {
-            Write-Host "skip (exists):   $Dst"
-            $script:SkippedCount++
-        }
-    } else {
-        Ensure-ParentDir $Dst
-        Copy-Item -LiteralPath $Src -Destination $Dst
-        Write-Host "created:         $Dst"
-        $script:CreatedCount++
-    }
-}
-
-function Copy-CreateOnly {
-    # Copies $Src -> $Dst only if $Dst doesn't exist. Never overwritten, regardless of mode.
-    param([string]$Src, [string]$Dst)
-    if (Test-Path -LiteralPath $Dst) {
-        Write-Host "skip (never overwritten): $Dst"
-        $script:SkippedCount++
-    } else {
-        Ensure-ParentDir $Dst
-        Copy-Item -LiteralPath $Src -Destination $Dst
-        Write-Host "created:                  $Dst"
-        $script:CreatedCount++
-    }
-}
-
-# auto-merge.yml's per-repo list of extra workflow names lives between these two marker lines;
-# -Mode force carries it over from the existing file instead of resetting it (same helper as in
-# update-github-kit.ps1).
-$script:RepoBlockBegin = '# >>> github-kit: repo workflows >>>'
-$script:RepoBlockEnd = '# <<< github-kit: repo workflows <<<'
-
-function Merge-RepoBlock {
-    # Returns $NewContent with the lines between the repo-block markers replaced by the lines
-    # between the same markers in the existing file $OldPath. Returns $NewContent unchanged unless
-    # both carry both markers. Same result as carry_repo_block in install-github-kit.sh.
-    param([string]$OldPath, [string]$NewContent)
-    if (-not (Test-Path -LiteralPath $OldPath)) { return $NewContent }
-    $old = Get-Content -LiteralPath $OldPath -Raw
-    if ($null -eq $old -or $null -eq $NewContent) { return $NewContent }
-    foreach ($marker in @($script:RepoBlockBegin, $script:RepoBlockEnd)) {
-        if (-not $old.Contains($marker) -or -not $NewContent.Contains($marker)) { return $NewContent }
-    }
-    $nl = if ($NewContent.Contains("`r`n")) { "`r`n" } else { "`n" }
-    $keep = New-Object System.Collections.Generic.List[string]
-    $inBlock = $false
-    foreach ($line in ($old -split "`r?`n")) {
-        if ($line.Contains($script:RepoBlockBegin)) { $inBlock = $true; continue }
-        if ($line.Contains($script:RepoBlockEnd)) { $inBlock = $false; continue }
-        if ($inBlock) { $keep.Add($line) }
-    }
-    $out = New-Object System.Collections.Generic.List[string]
-    $skip = $false
-    foreach ($line in ($NewContent -split "`r?`n")) {
-        if ($line.Contains($script:RepoBlockBegin)) { $out.Add($line); $out.AddRange($keep); $skip = $true; continue }
-        if ($line.Contains($script:RepoBlockEnd)) { $skip = $false; $out.Add($line); continue }
-        if (-not $skip) { $out.Add($line) }
-    }
-    return ($out -join $nl)
-}
-
-function Copy-Workflow {
-    # Copies $Src -> $Dst. Templates pin caller `uses:` lines to @main (the always-latest
-    # channel); if -Ref/-WorkflowRef resolved to something else, repoint only that
-    # `uses: pzoli6/github-kit/...` line to the requested ref -- never touch unrelated occurrences
-    # of the word "main" (e.g. branch triggers). Same merge/force semantics as Copy-IfMissing;
-    # -Mode force keeps a marked repo block.
-    param([string]$Src, [string]$Dst)
-    $pattern = '(uses: pzoli6/github-kit/[^@\s]+)@main'
-    if (Test-Path -LiteralPath $Dst) {
-        if ($Mode -eq "force") {
-            Ensure-ParentDir $Dst
-            $content = (Get-Content -LiteralPath $Src -Raw) -replace $pattern, "`$1@$WorkflowRef"
-            # Read the existing file completely before writing it: never pipe into Set-Content here.
-            $content = Merge-RepoBlock -OldPath $Dst -NewContent $content
-            Set-Content -LiteralPath $Dst -Value $content -NoNewline
-            Write-Host "updated (force): $Dst"
-            $script:UpdatedCount++
-        } else {
-            Write-Host "skip (exists):   $Dst"
-            $script:SkippedCount++
-        }
-    } else {
-        Ensure-ParentDir $Dst
-        (Get-Content -LiteralPath $Src -Raw) -replace $pattern, "`$1@$WorkflowRef" | Set-Content -LiteralPath $Dst -NoNewline
-        Write-Host "created:         $Dst"
-        $script:CreatedCount++
-    }
-}
-
-function Copy-WorkflowCreateOnly {
-    # Like Copy-Workflow but NEVER overwrites, even in -Mode force. pr-policy.yml carries the
-    # repo-specific required_base_branch gate; clobbering it would reset a repo's base branch and
-    # break its PR checks. The reusable-pr-policy.yml@main logic it calls still auto-tracks @main.
-    param([string]$Src, [string]$Dst)
-    if (Test-Path -LiteralPath $Dst) {
-        Write-Host "skip (repo-specific caller, preserved): $Dst"
-        $script:SkippedCount++
-        return
-    }
-    Ensure-ParentDir $Dst
-    $pattern = '(uses: pzoli6/github-kit/[^@\s]+)@main'
-    (Get-Content -LiteralPath $Src -Raw) -replace $pattern, "`$1@$WorkflowRef" | Set-Content -LiteralPath $Dst -NoNewline
-    Write-Host "created:         $Dst"
-    $script:CreatedCount++
-}
-
-function Get-ManagedBlockText {
-    $block = @'
-<!-- BEGIN GITHUB-KIT UNIVERSAL WORKFLOW -->
-## Universal AI-Agent Workflow
-
-This repository follows the universal issue-to-PR workflow from `pzoli6/github-kit`.
-
-Agents must read:
-- `AGENTS.md`
-- `docs/ai/PROJECT_CONFIG.md`
-- `docs/ai/AGENT_WORKFLOW.md`
-
-Every implementation task must follow:
-User task → plan → human approval → GitHub issue → Project update → agent branch/worktree → implementation → validation → draft PR → handoff → human review → human marks ready → auto-merge after green.
-
-Required approval phrase:
-```text
-approve
-```
-
-Fast path: `/github_kit <task>` is a pre-approved alternative entry point — the invocation itself is the approval for the described task, scoped to that task only. See `docs/ai/AGENT_WORKFLOW.md` → "Fast-path trigger: /github_kit".
-
-Agents must not push to protected branches, merge PRs, modify secrets, use `git add .`, or claim validation passed unless validation actually ran.
-
-Agents must never mark a PR ready for review (with `.github/workflows/auto-merge.yml` installed, a person marking a draft PR ready is what lets it merge automatically once every check is green), never add or remove the `no-automerge` label, and never enable GitHub's native auto-merge. PRs stay drafts. See `docs/ai/AGENT_WORKFLOW.md` → "Auto-merge after green".
-
-Solo mode: `docs/ai/PROJECT_CONFIG.md` → "Solo mode" (default `auto` — active until a real GitHub Project is configured) collapses the lifecycle to plan → approval → branch/worktree → implementation → validation → draft PR: no issue for pre-approved iterations, no Project-field updates, handoff files only when actually stopping mid-task. Approval gates and git/PR safety rules apply unchanged.
-
-Before stopping mid-task, losing context, or handing off to another agent, agents must update:
-- `docs/ai/handoffs/issue-<number>.md`
-- Project field: `Last Agent Update` (full mode only)
-- Project field: `Validation` (full mode only)
-<!-- END GITHUB-KIT UNIVERSAL WORKFLOW -->
-'@
-    return ($block -replace "`r`n", "`n")
-}
-
-function Apply-ManagedBlock {
-    # $TargetFile = file to update; $FullTemplate = full template to copy when $TargetFile doesn't exist at all.
-    param([string]$TargetFile, [string]$FullTemplate)
-    $beginMarker = '<!-- BEGIN GITHUB-KIT UNIVERSAL WORKFLOW -->'
-    $endMarker = '<!-- END GITHUB-KIT UNIVERSAL WORKFLOW -->'
-
-    if (-not (Test-Path -LiteralPath $TargetFile)) {
-        Ensure-ParentDir $TargetFile
-        Copy-Item -LiteralPath $FullTemplate -Destination $TargetFile
-        Write-Host "created:                $TargetFile"
-        $script:CreatedCount++
-        return
-    }
-
-    $content = Get-Content -LiteralPath $TargetFile -Raw
-    $block = Get-ManagedBlockText
-
-    if ($content.Contains($beginMarker)) {
-        $pattern = "(?ms)^$([regex]::Escape($beginMarker)).*?^$([regex]::Escape($endMarker))\r?\n?"
-        $newContent = [regex]::Replace($content, $pattern, ($block + "`n"))
-        Set-Content -LiteralPath $TargetFile -Value $newContent -NoNewline
-        Write-Host "updated managed block:  $TargetFile"
-        $script:UpdatedCount++
-    } else {
-        $newContent = $content + "`n" + $block + "`n"
-        Set-Content -LiteralPath $TargetFile -Value $newContent -NoNewline
-        Write-Host "appended managed block: $TargetFile"
-        $script:UpdatedCount++
-    }
-}
-
-# --- AGENTS.md / CLAUDE.md (managed block, never overwrite the rest) -------
-
-Apply-ManagedBlock "AGENTS.md" (Join-Path $Templates "AGENTS.md")
-Apply-ManagedBlock "CLAUDE.md" (Join-Path $Templates "CLAUDE.md")
-Apply-ManagedBlock "GEMINI.md" (Join-Path $Templates "GEMINI.md")
-
-# --- docs/ai/ ----------------------------------------------------------
-
-Copy-CreateOnly (Join-Path $Templates "docs/ai/PROJECT_CONFIG.md") "docs/ai/PROJECT_CONFIG.md"
-Copy-IfMissing  (Join-Path $Templates "docs/ai/PROJECT_CONFIG.env.example") "docs/ai/PROJECT_CONFIG.env.example"
-Copy-IfMissing  (Join-Path $Templates "docs/ai/AGENT_WORKFLOW.md") "docs/ai/AGENT_WORKFLOW.md"
-Copy-IfMissing  (Join-Path $Templates "docs/ai/HANDOFF_INDEX.md") "docs/ai/HANDOFF_INDEX.md"
-Copy-IfMissing  (Join-Path $Templates "docs/ai/PROJECT_SETUP.md") "docs/ai/PROJECT_SETUP.md"
-New-Item -ItemType Directory -Force -Path "docs/ai/handoffs" | Out-Null
-Copy-IfMissing  (Join-Path $Templates "docs/ai/handoffs/.gitkeep") "docs/ai/handoffs/.gitkeep"
-
-# --- .github/ ------------------------------------------------------------
-
-Copy-CreateOnly (Join-Path $Templates ".github/ISSUE_TEMPLATE/agent_task.yml") ".github/ISSUE_TEMPLATE/agent_task.yml"
-Copy-CreateOnly (Join-Path $Templates ".github/PULL_REQUEST_TEMPLATE.md") ".github/PULL_REQUEST_TEMPLATE.md"
-Copy-IfMissing  (Join-Path $Templates ".github/copilot-instructions.md") ".github/copilot-instructions.md"
-Copy-IfMissing  (Join-Path $Templates ".github/CODEOWNERS") ".github/CODEOWNERS"
-
-# auto-merge.yml carries no repo-specific values (its rules live in reusable-auto-merge.yml@main),
-# so it is github-kit-owned boilerplate refreshed like ci-node.yml -- not create-only.
-foreach ($wf in @("agent-workflow-verify", "ci-node", "ci-python", "design-handoff-approval", "auto-merge")) {
-    Copy-Workflow (Join-Path $Templates ".github/workflows/$wf.yml") ".github/workflows/$wf.yml"
-}
-# pr-policy.yml holds this repo's base-branch gate — never overwrite it (even in -Mode force).
-Copy-WorkflowCreateOnly (Join-Path $Templates ".github/workflows/pr-policy.yml") ".github/workflows/pr-policy.yml"
-
-if ($IncludeProjectSync) {
-    # Carries repo-specific inputs once configured -- never overwrite an existing one, same
-    # rationale as pr-policy.yml above.
-    Copy-WorkflowCreateOnly (Join-Path $Templates ".github/workflows/project-sync.yml") ".github/workflows/project-sync.yml"
-} else {
-    Write-Host "skip (default):  .github/workflows/project-sync.yml (pass -IncludeProjectSync to install it)"
-    $SkippedCount++
-}
-
-# project-setup.yml installs unconditionally: without an AGENT_PROJECT_TOKEN secret it skips
-# green with a notice, and with one it bootstraps the Project board automatically -- see
-# docs/ai/PROJECT_SETUP.md. Preserved once created (its config PR pins a project_number into it).
-Copy-WorkflowCreateOnly (Join-Path $Templates ".github/workflows/project-setup.yml") ".github/workflows/project-setup.yml"
-
-# --- .agents / .claude / .cursor ------------------------------------------
-
-Copy-IfMissing (Join-Path $Templates ".agents/skills/issue-to-pr-project/SKILL.md") ".agents/skills/issue-to-pr-project/SKILL.md"
-Copy-IfMissing (Join-Path $Templates ".claude/skills/issue-to-pr-project/SKILL.md") ".claude/skills/issue-to-pr-project/SKILL.md"
-Copy-IfMissing (Join-Path $Templates ".agents/skills/github_kit/SKILL.md") ".agents/skills/github_kit/SKILL.md"
-Copy-IfMissing (Join-Path $Templates ".claude/skills/github_kit/SKILL.md") ".claude/skills/github_kit/SKILL.md"
-Copy-IfMissing (Join-Path $Templates ".claude/commands/github_kit.md") ".claude/commands/github_kit.md"
-# Checked-in Claude Code permissions -- create-only, a repo's customizations are never overwritten.
-Copy-IfMissing (Join-Path $Templates ".claude/settings.json") ".claude/settings.json"
-Copy-IfMissing (Join-Path $Templates ".agents/skills/github_kit_update/SKILL.md") ".agents/skills/github_kit_update/SKILL.md"
-Copy-IfMissing (Join-Path $Templates ".claude/skills/github_kit_update/SKILL.md") ".claude/skills/github_kit_update/SKILL.md"
-
-foreach ($rule in @("agent-workflow", "git-safety", "project-board", "github-kit-command")) {
-    Copy-IfMissing (Join-Path $Templates ".cursor/rules/$rule.mdc") ".cursor/rules/$rule.mdc"
-}
-
-
-# Legacy hygiene: only SKILL.md-based skill directories belong under .claude/skills/. Older kit
-# versions/manual copies sometimes left workflow YAMLs or STATUS_BADGES.md there, which clutter
-# the skills listing. Warn -- never delete automatically.
-if (Test-Path -LiteralPath ".claude/skills") {
-    $straySkills = Get-ChildItem -LiteralPath ".claude/skills" -File |
-        Where-Object { $_.Extension -in @(".yml", ".yaml") -or $_.Name -eq "STATUS_BADGES.md" }
-    if ($straySkills) {
-        Write-Host "warning: non-skill files found directly under .claude/skills/ -- they aren't skills;"
-        Write-Host "move workflow YAMLs to .github/workflows/ (or delete them):"
-        foreach ($f in $straySkills) { Write-Host "  .claude/skills/$($f.Name)" }
-    }
-}
-
-# --- docs/ai/design-handoffs/ ------------------------------------------
-
-New-Item -ItemType Directory -Force "docs/ai/design-handoffs" | Out-Null
-Copy-IfMissing (Join-Path $Templates "docs/ai/design-handoffs/README.md") "docs/ai/design-handoffs/README.md"
-Copy-IfMissing (Join-Path $Templates "docs/ai/design-handoffs/_TEMPLATE.md") "docs/ai/design-handoffs/_TEMPLATE.md"
-# DESIGN_SYNC.md is repo state (last-synced commit, round counter, reading list, decision log) —
-# create-only even in -Mode force, or a reinstall would reset the sync record and replay guard.
-Copy-CreateOnly (Join-Path $Templates "docs/ai/design-handoffs/DESIGN_SYNC.md") "docs/ai/design-handoffs/DESIGN_SYNC.md"
-
-# --- scripts/design-handoffs/ ------------------------------------------
-
-foreach ($script in @("stamp", "verify", "apply-answers")) {
-    Copy-IfMissing (Join-Path $Templates "scripts/design-handoffs/$script.mjs") "scripts/design-handoffs/$script.mjs"
-}
-
-# --- scripts/project/ --------------------------------------------------
-
-foreach ($script in @("project_add_item", "project_set_status", "project_set_text", "verify_agent_workflow", "create_standard_labels", "create_agent_issue", "publish_agent_branch", "sync_project_fields", "create_agent_pr", "check_resume_safety", "post_handoff_comment", "cleanup_merged_branches", "setup_github_project")) {
-    Copy-IfMissing (Join-Path $Templates "scripts/project/$script.sh") "scripts/project/$script.sh"
-}
-
-# --- .gitignore -------------------------------------------------------
-
-$GitignoreLine = "docs/ai/PROJECT_CONFIG.env"
-if (Test-Path -LiteralPath ".gitignore" -PathType Leaf) {
-    $existingLines = Get-Content -LiteralPath ".gitignore"
-    if ($existingLines -notcontains $GitignoreLine) {
-        Add-Content -LiteralPath ".gitignore" -Value "`n$GitignoreLine"
-        Write-Host "updated:         .gitignore (added $GitignoreLine)"
-        $UpdatedCount++
-    } else {
-        Write-Host "skip (exists):   .gitignore already ignores $GitignoreLine"
-        $SkippedCount++
-    }
-} else {
-    Set-Content -LiteralPath ".gitignore" -Value $GitignoreLine
-    Write-Host "created:         .gitignore"
-    $CreatedCount++
-}
+. (Join-Path $KitRoot "scripts/lib/Kit.ps1")
+$KitOp = "install"
+$KitForce = ($Mode -eq "force")
+$KitForceConfig = $false
+$KitIncludeSync = [bool]$IncludeProjectSync
+$KitTier = $Tier
+Sync-KitManifest
+Write-KitStraySkillWarning
+Set-KitGitignore
 
 # --- summary --------------------------------------------------------------
 

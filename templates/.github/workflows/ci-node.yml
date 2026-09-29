@@ -1,8 +1,7 @@
 name: CI (Node)
 
 # Paused (consuming no Actions minutes) while the repository Actions variable KIT_ACTIONS_PAUSED
-# is 'true' — e.g. to keep the Actions budget free for manual GitHub Copilot coding agent runs.
-# See docs/ai/AGENT_WORKFLOW.md → "Actions budget and manual Copilot use".
+# is 'true'. See docs/ai/AGENT_WORKFLOW.md → "Actions budget".
 #
 # Budget-first triggers: CI does NOT run automatically on preview-bound work (PRs into the base
 # branch, pushes to it). It runs only when explicitly dispatched — by a human, or by an AI agent
@@ -10,14 +9,22 @@ name: CI (Node)
 #   gh workflow run "CI (Node)" --ref <branch>
 # ) — or when a change is production-bound (PR targeting the production branch, push to it).
 # Agents validate locally per docs/ai/PROJECT_CONFIG.md → "Validation commands" either way.
+#
+# Actions-budget tier, set by the github-kit updater (--tier, or the fan-out's
+# .github/fanout-targets.json). Tier 1 keeps the automatic production-bound triggers between the
+# markers below; tier 2 drops them, so this workflow runs only when dispatched by hand. The updater
+# keeps whatever tier this line says unless told otherwise.
+# github-kit tier: 1
 
 on:
   workflow_dispatch:
+  # >>> github-kit tier-1 triggers
   pull_request:
     # TODO: confirm this matches Production branch in docs/ai/PROJECT_CONFIG.md
     branches: [main]
   push:
     branches: [main]
+  # <<< github-kit tier-1 triggers
 
 jobs:
   ci:

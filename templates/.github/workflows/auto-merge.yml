@@ -33,9 +33,8 @@ name: Auto-merge after green
 # checks, and native auto-merge refuses to enable without them. See README.md in github-kit
 # -> "Auto-merge after green" for the full decision rules and the token caveats below.
 #
-# Paused (consuming no Actions minutes) while KIT_ACTIONS_PAUSED is 'true' -- e.g. to keep the
-# Actions budget free for manual GitHub Copilot coding agent runs. See docs/ai/AGENT_WORKFLOW.md
-# -> "Actions budget and manual Copilot use". While the account's Actions budget is exhausted
+# Paused (consuming no Actions minutes) while KIT_ACTIONS_PAUSED is 'true'. See
+# docs/ai/AGENT_WORKFLOW.md -> "Actions budget". While the account's Actions budget is exhausted
 # nothing merges at all, because no run starts. Checks the pause left `skipped` never count as
 # green: after unpausing, re-run the skipped workflows (or push) to get a merge.
 #

@@ -53,51 +53,126 @@ Check-File "scripts/install-github-kit.ps1"
 Check-File "scripts/update-github-kit.sh"
 Check-File "scripts/update-github-kit.ps1"
 
-# --- required templates ------------------------------------------------------
+# --- kit manifest: the single list of installed files ------------------------
+#
+# templates/docs/ai/KIT_MANIFEST.tsv drives install, update, and target-repo verification, so its
+# integrity is checked here: every row points at a real template with a known mode and group,
+# every template is listed, repo-owned files keep a non-overwriting mode, and managed blocks agree.
 
-Check-File "templates/AGENTS.md"
-Check-File "templates/CLAUDE.md"
-Check-File "templates/GEMINI.md"
-Check-File "templates/.github/CODEOWNERS"
-Check-File "templates/.github/copilot-instructions.md"
-Check-File "templates/.github/ISSUE_TEMPLATE/agent_task.yml"
-Check-File "templates/.github/PULL_REQUEST_TEMPLATE.md"
-Check-File "templates/docs/ai/AGENT_WORKFLOW.md"
-Check-File "templates/docs/ai/HANDOFF_INDEX.md"
-Check-File "templates/docs/ai/PROJECT_CONFIG.md"
-Check-File "templates/docs/ai/PROJECT_CONFIG.env.example"
-Check-File "templates/docs/ai/PROJECT_SETUP.md"
-Check-File "templates/docs/ai/handoffs/.gitkeep"
-Check-File "templates/.agents/skills/issue-to-pr-project/SKILL.md"
-Check-File "templates/.claude/skills/issue-to-pr-project/SKILL.md"
-Check-File "templates/.agents/skills/github_kit/SKILL.md"
-Check-File "templates/.claude/skills/github_kit/SKILL.md"
-Check-File "templates/.claude/commands/github_kit.md"
-Check-File "templates/.claude/settings.json"
-Check-File "templates/.cursor/rules/agent-workflow.mdc"
-Check-File "templates/.cursor/rules/git-safety.mdc"
-Check-File "templates/.cursor/rules/project-board.mdc"
-Check-File "templates/.cursor/rules/github-kit-command.mdc"
-Check-File "templates/scripts/project/project_add_item.sh"
-Check-File "templates/scripts/project/project_set_status.sh"
-Check-File "templates/scripts/project/project_set_text.sh"
-Check-File "templates/scripts/project/verify_agent_workflow.sh"
-Check-File "templates/scripts/project/create_standard_labels.sh"
-Check-File "templates/scripts/project/create_agent_issue.sh"
-Check-File "templates/scripts/project/publish_agent_branch.sh"
-Check-File "templates/scripts/project/sync_project_fields.sh"
-Check-File "templates/scripts/project/create_agent_pr.sh"
-Check-File "templates/scripts/project/check_resume_safety.sh"
-Check-File "templates/scripts/project/post_handoff_comment.sh"
-Check-File "templates/scripts/project/setup_github_project.sh"
-Check-File "templates/.github/workflows/project-setup.yml"
-Check-File "templates/scripts/project/cleanup_merged_branches.sh"
-Check-File "templates/.github/workflows/agent-workflow-verify.yml"
-Check-File "templates/.github/workflows/pr-policy.yml"
-Check-File "templates/.github/workflows/ci-node.yml"
-Check-File "templates/.github/workflows/ci-python.yml"
-Check-File "templates/.github/workflows/project-sync.yml"
-Check-File "templates/.github/workflows/auto-merge.yml"
+$Manifest = "templates/docs/ai/KIT_MANIFEST.tsv"
+Check-File $Manifest
+Check-File "scripts/lib/kit.sh"
+Check-File "scripts/lib/Kit.ps1"
+
+if (Test-Path -LiteralPath $Manifest) {
+    $manifestOk = $true
+    $modes = @{}
+    foreach ($line in Get-Content -LiteralPath $Manifest) {
+        if (-not $line -or $line.StartsWith('#')) { continue }
+        $f = $line -split "`t"
+        if ($f[0] -eq 'phrase') { continue }
+        if ($f[0] -ne 'file') { Write-Host "FAILED  manifest row kind '$($f[0])' is unknown"; $manifestOk = $false; continue }
+        $path = $f[1]; $mode = $f[2]; $group = $f[3]
+        if ($mode -eq 'retired') {
+            # A retired file must be gone from templates/ and carry the blob SHAs of every shipped
+            # version, or the updater could never tell an untouched copy from an edited one.
+            if (Test-Path -LiteralPath "templates/$path") {
+                Write-Host "FAILED  templates/$path is marked retired but still exists"; $manifestOk = $false
+            }
+            $shas = if ($f.Count -gt 4) { $f[4] } else { "" }
+            if ($shas -notmatch '^[0-9a-f]{40}(,[0-9a-f]{40})*$') {
+                Write-Host "FAILED  retired $path needs a 5th column of comma-separated 40-hex blob SHAs"; $manifestOk = $false
+            }
+            continue
+        }
+        $modes[$path] = $mode
+        Check-File "templates/$path"
+        if ($mode -notin 'block', 'refresh', 'refresh-exec', 'workflow', 'workflow-create', 'workflow-opt', 'create', 'config') {
+            Write-Host "FAILED  manifest mode '$mode' for $path is unknown"; $manifestOk = $false
+        }
+        if ($group -notin 'core', 'claude', 'cursor', 'skills', 'gemini', '-') {
+            Write-Host "FAILED  manifest verify group '$group' for $path is unknown"; $manifestOk = $false
+        }
+        if ($mode -eq 'block' -and (Test-Path -LiteralPath "templates/$path")) {
+            $markers = @(Get-Content -LiteralPath "templates/$path" | Where-Object { $_ -match '^<!-- (BEGIN|END) GITHUB-KIT [A-Z -]+ -->$' }).Count
+            if ($markers -ne 2) {
+                Write-Host "FAILED  templates/$path (mode block) needs exactly one BEGIN and one END GITHUB-KIT marker line"
+                $manifestOk = $false
+            }
+        }
+    }
+
+    # Every template must be installable: a file under templates/ missing from the manifest would
+    # silently never reach a target repo.
+    $templateFiles = @(& git ls-files -- templates) + @(& git ls-files --others --exclude-standard -- templates)
+    foreach ($t in $templateFiles) {
+        if (-not $t) { continue }
+        $rel = $t.Substring("templates/".Length)
+        if (-not $modes.ContainsKey($rel)) {
+            Write-Host "FAILED  $t exists but is not listed in $Manifest"
+            $manifestOk = $false
+        }
+    }
+
+    # Repo-owned files must never be overwritten by an update.
+    $protected = [ordered]@{
+        'docs/ai/PROJECT_CONFIG.md' = 'config'
+        'docs/ai/design-handoffs/DESIGN_SYNC.md' = 'create'
+        '.claude/settings.json' = 'create'
+        '.github/ISSUE_TEMPLATE/agent_task.yml' = 'create'
+        '.github/PULL_REQUEST_TEMPLATE.md' = 'create'
+        '.github/workflows/pr-policy.yml' = 'workflow-create'
+        '.github/workflows/project-setup.yml' = 'workflow-create'
+        '.github/workflows/project-sync.yml' = 'workflow-opt'
+    }
+    foreach ($k in $protected.Keys) {
+        $got = if ($modes.ContainsKey($k)) { $modes[$k] } else { 'none' }
+        if ($got -ne $protected[$k]) {
+            Write-Host "FAILED  $k must be mode '$($protected[$k])' in the manifest (found '$got') -- it holds repo-owned content"
+            $manifestOk = $false
+        }
+    }
+
+    # AGENTS.md, CLAUDE.md, and GEMINI.md carry the same universal block.
+    $blockPattern = '(?ms)^<!-- BEGIN GITHUB-KIT UNIVERSAL WORKFLOW -->$.*?^<!-- END GITHUB-KIT UNIVERSAL WORKFLOW -->$'
+    $blocks = @('AGENTS', 'CLAUDE', 'GEMINI' | ForEach-Object {
+        [regex]::Match((Get-Content -LiteralPath "templates/$_.md" -Raw), $blockPattern).Value
+    } | Sort-Object -Unique)
+    if ($blocks.Count -ne 1) {
+        Write-Host "FAILED  the UNIVERSAL WORKFLOW block differs between templates/AGENTS.md, CLAUDE.md, and GEMINI.md"
+        $manifestOk = $false
+    }
+
+    if ($manifestOk) {
+        Write-Host "OK      manifest: every row valid, every template listed, repo-owned files protected, blocks agree"
+    } else {
+        $script:Missing = 1
+    }
+}
+
+Write-Host ""
+
+# --- every reusable-workflow job honors the KIT_ACTIONS_PAUSED budget switch ------
+
+$pauseOk = $true
+foreach ($wf in Get-ChildItem -Path ".github/workflows" -Filter "reusable-*.yml") {
+    $lines = Get-Content -LiteralPath $wf.FullName
+    $inJobs = $false; $jobs = 0
+    foreach ($l in $lines) {
+        if ($l -match '^jobs:') { $inJobs = $true; continue }
+        if ($inJobs -and $l -match '^  [A-Za-z0-9_-]+:\s*$') { $jobs++ }
+    }
+    $guards = @($lines | Where-Object { $_.Contains("vars.KIT_ACTIONS_PAUSED != 'true'") }).Count
+    if ($guards -lt $jobs) {
+        Write-Host "FAILED  .github/workflows/$($wf.Name) has $jobs job(s) but only $guards KIT_ACTIONS_PAUSED guard(s)"
+        $pauseOk = $false
+    }
+}
+if ($pauseOk) {
+    Write-Host "OK      every reusable-workflow job carries the KIT_ACTIONS_PAUSED guard"
+} else {
+    $script:Missing = 1
+}
 
 Write-Host ""
 
@@ -252,15 +327,6 @@ if ($claudeSettingsOk) {
     $script:Missing = 1
 }
 
-$installSh = Get-Content -LiteralPath "scripts/install-github-kit.sh" -Raw -ErrorAction SilentlyContinue
-$updateSh = Get-Content -LiteralPath "scripts/update-github-kit.sh" -Raw -ErrorAction SilentlyContinue
-if ($installSh -match '\.claude/settings\.json' -and $updateSh -match '\.claude/settings\.json') {
-    Write-Host "OK      installers wire up .claude/settings.json (create-only)"
-} else {
-    Write-Host "MISSING .claude/settings.json wiring in scripts/install-github-kit.sh / update-github-kit.sh"
-    $script:Missing = 1
-}
-
 Write-Host ""
 
 # --- automatic Project setup: the board is bootstrapped by a workflow + script, and the caller ----
@@ -287,15 +353,6 @@ if ($setupScript -match 'REQUIRED_TEXT_FIELDS' -and $setupScript -match 'REQUIRE
     Write-Host "OK      setup_github_project.sh carries the board contract (REQUIRED_TEXT_FIELDS / REQUIRED_STATUSES)"
 } else {
     Write-Host "MISSING REQUIRED_TEXT_FIELDS / REQUIRED_STATUSES contract in templates/scripts/project/setup_github_project.sh"
-    $script:Missing = 1
-}
-
-$updaterSh = Get-Content -LiteralPath "scripts/update-github-kit.sh" -Raw -ErrorAction SilentlyContinue
-$updaterPs = Get-Content -LiteralPath "scripts/update-github-kit.ps1" -Raw -ErrorAction SilentlyContinue
-if ($updaterSh -match 'create_only_workflow "\$TEMPLATES/.github/workflows/project-sync.yml"' -and $updaterPs -match 'CreateOnly-Workflow \(Join-Path \$Templates "\.github/workflows/project-sync\.yml"\)') {
-    Write-Host "OK      updaters preserve project-sync.yml once created (no more TBD reset on refresh)"
-} else {
-    Write-Host "MISSING create-only handling for project-sync.yml in scripts/update-github-kit.sh/.ps1 -- refreshing it resets a configured project_number to TBD"
     $script:Missing = 1
 }
 
@@ -363,17 +420,14 @@ if ($callerAutoMerge -match [regex]::Escape('reusable-auto-merge.yml@main') -and
     $script:Missing = 1
 }
 
-# The caller carries no repo-specific values, so every installer/updater refreshes it (not
-# create-only) -- the same list that carries ci-node.
-$installShAm = Get-Content -LiteralPath "scripts/install-github-kit.sh" -Raw -ErrorAction SilentlyContinue
-$updateShAm = Get-Content -LiteralPath "scripts/update-github-kit.sh" -Raw -ErrorAction SilentlyContinue
-$installPsAm = Get-Content -LiteralPath "scripts/install-github-kit.ps1" -Raw -ErrorAction SilentlyContinue
-$updatePsAm = Get-Content -LiteralPath "scripts/update-github-kit.ps1" -Raw -ErrorAction SilentlyContinue
-if ($installShAm -match 'design-handoff-approval auto-merge' -and $updateShAm -match 'design-handoff-approval auto-merge' -and
-    $installPsAm -match [regex]::Escape('"design-handoff-approval", "auto-merge"') -and $updatePsAm -match [regex]::Escape('"design-handoff-approval", "auto-merge"')) {
-    Write-Host "OK      install/update scripts (.sh and .ps1) refresh auto-merge.yml alongside ci-node.yml"
+# The caller carries no repo-specific values, so it is a refreshed `workflow` row in the manifest
+# (the same mode as ci-node.yml), which install, update and the fan-out all read.
+$amRow = Get-Content -LiteralPath "templates/docs/ai/KIT_MANIFEST.tsv" -ErrorAction SilentlyContinue |
+    Where-Object { $_ -eq "file`t.github/workflows/auto-merge.yml`tworkflow`t-" }
+if ($amRow) {
+    Write-Host "OK      manifest refreshes auto-merge.yml as a caller workflow alongside ci-node.yml"
 } else {
-    Write-Host "MISSING auto-merge in the caller-workflow refresh list of scripts/{install,update}-github-kit.{sh,ps1}"
+    Write-Host "MISSING .github/workflows/auto-merge.yml row with mode workflow in templates/docs/ai/KIT_MANIFEST.tsv"
     $script:Missing = 1
 }
 
@@ -382,13 +436,14 @@ if ($installShAm -match 'design-handoff-approval auto-merge' -and $updateShAm -m
 $repoBlockBegin = '# >>> github-kit: repo workflows >>>'
 $repoBlockEnd = '# <<< github-kit: repo workflows <<<'
 $repoBlockDecl = "'" + $repoBlockBegin + "'"
+$libSh = Get-Content -LiteralPath "scripts/lib/kit.sh" -Raw -ErrorAction SilentlyContinue
+$libPs = Get-Content -LiteralPath "scripts/lib/Kit.ps1" -Raw -ErrorAction SilentlyContinue
 if ($callerAutoMerge -and $callerAutoMerge.Contains($repoBlockBegin) -and $callerAutoMerge.Contains($repoBlockEnd) -and $callerAutoMerge.Contains('- "CI"') -and
-    $installShAm -and $installShAm.Contains('carry_repo_block "') -and $updateShAm -and $updateShAm.Contains('carry_repo_block "') -and
-    $installPsAm -and $installPsAm.Contains('Merge-RepoBlock -OldPath') -and $updatePsAm -and $updatePsAm.Contains('Merge-RepoBlock -OldPath') -and
-    $installShAm.Contains($repoBlockDecl) -and $updateShAm.Contains($repoBlockDecl) -and $installPsAm.Contains($repoBlockDecl) -and $updatePsAm.Contains($repoBlockDecl)) {
-    Write-Host "OK      auto-merge.yml carries the repo-workflows block and all four install/update scripts keep it on refresh"
+    $libSh -and $libSh.Contains('kit_carry_repo_block "') -and $libPs -and $libPs.Contains('Merge-KitRepoBlock -OldPath') -and
+    $libSh.Contains($repoBlockDecl) -and $libPs.Contains($repoBlockDecl)) {
+    Write-Host "OK      auto-merge.yml carries the repo-workflows block and both install/update libraries keep it on refresh"
 } else {
-    Write-Host "MISSING repo-workflows markers in templates/.github/workflows/auto-merge.yml, or carry_repo_block / Merge-RepoBlock in scripts/{install,update}-github-kit.{sh,ps1}"
+    Write-Host "MISSING repo-workflows markers in templates/.github/workflows/auto-merge.yml, or kit_carry_repo_block / Merge-KitRepoBlock in scripts/lib/{kit.sh,Kit.ps1}"
     $script:Missing = 1
 }
 
@@ -405,8 +460,8 @@ if ($agentsTemplate -match [regex]::Escape('Auto-merge after green') -and $proje
 # The no-mark-ready rule must live inside the managed block: it is the only part of AGENTS.md /
 # CLAUDE.md / GEMINI.md that the updater (and so the fan-out) refreshes in existing repos.
 $amBlockOk = $true
-foreach ($f in @("scripts/install-github-kit.sh", "scripts/update-github-kit.sh", "scripts/install-github-kit.ps1", "scripts/update-github-kit.ps1",
-                 "templates/AGENTS.md", "templates/CLAUDE.md", "templates/GEMINI.md")) {
+# The install/update scripts take the block from these templates, so the templates are the copies.
+foreach ($f in @("templates/AGENTS.md", "templates/CLAUDE.md", "templates/GEMINI.md")) {
     $content = Get-Content -LiteralPath $f -Raw -ErrorAction SilentlyContinue
     # Every BEGIN..END span (templates/AGENTS.md also names both markers inline in its prose).
     $blockMatches = [regex]::Matches([string]$content, '(?s)<!-- BEGIN GITHUB-KIT UNIVERSAL WORKFLOW -->.*?<!-- END GITHUB-KIT UNIVERSAL WORKFLOW -->')
@@ -417,7 +472,7 @@ foreach ($f in @("scripts/install-github-kit.sh", "scripts/update-github-kit.sh"
     }
 }
 if ($amBlockOk) {
-    Write-Host "OK      managed block (7 copies) carries the never-mark-ready / no-automerge rule"
+    Write-Host "OK      managed block (3 template copies) carries the never-mark-ready / no-automerge rule"
 }
 
 Write-Host ""
@@ -442,24 +497,6 @@ if ($callerAgentWorkflowVerify -match 'require_gemini:\s*true') {
 }
 
 Write-Host ""
-
-# --- require_copilot: the Copilot adapter file must be opt-outable, keeping CI subscription-free --
-# (the adapter file is inert text; repos without a Copilot subscription may drop it) ---------------
-
-if ($reusableAgentWorkflowVerify -match 'require_copilot') {
-    Write-Host "OK      reusable-agent-workflow-verify.yml has the require_copilot input"
-} else {
-    Write-Host "MISSING require_copilot input in .github/workflows/reusable-agent-workflow-verify.yml"
-    $script:Missing = 1
-}
-
-$verifyScript = Get-Content -LiteralPath "templates/scripts/project/verify_agent_workflow.sh" -Raw -ErrorAction SilentlyContinue
-if ($verifyScript -match 'REQUIRE_COPILOT') {
-    Write-Host "OK      templates/scripts/project/verify_agent_workflow.sh honours REQUIRE_COPILOT"
-} else {
-    Write-Host "MISSING REQUIRE_COPILOT gating in templates/scripts/project/verify_agent_workflow.sh"
-    $script:Missing = 1
-}
 
 Write-Host ""
 

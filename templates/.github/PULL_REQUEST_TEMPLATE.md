@@ -12,7 +12,7 @@ Closes #
 
 ## Project metadata
 
-- **Agent:** <!-- Codex / Claude Code / Antigravity / Cursor / Gemini / ChatGPT / GitHub Copilot / Manual / Mixed -->
+- **Agent:** <!-- Codex / Claude Code / Antigravity / Cursor / Gemini / ChatGPT / Manual / Mixed -->
 - **Area:** <!-- e.g. backend, frontend, infra, docs -->
 - **Risk:** <!-- Low / Medium / High -->
 - **Base Branch:** <!-- e.g. develop -->

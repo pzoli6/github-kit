@@ -77,7 +77,7 @@ on:
       delete_branch_prefixes:
         description: "Comma-separated head-branch prefixes that may be deleted after merging (the kit's agent branch prefixes)."
         type: string
-        default: "agent/,claude/,codex/,copilot/,cursor/,gemini/"
+        default: "agent/,claude/,codex/,cursor/,gemini/"
       skip_head_branches:
         description: "Comma-separated head branches whose PRs are never merged automatically (release / promotion PRs between long-lived branches). The repository's default branch is always included."
         type: string
@@ -119,9 +119,8 @@ jobs:
     name: github-kit auto-merge
     runs-on: ubuntu-latest
     # KIT_ACTIONS_PAUSED: caller-repo Actions variable that pauses all github-kit jobs so they
-    # consume no Actions minutes (e.g. to keep the Actions budget available for manual GitHub
-    # Copilot coding agent runs). See templates/docs/ai/AGENT_WORKFLOW.md -> "Actions budget and
-    # manual Copilot use". Paused means nothing merges; it never means "merge without checks".
+    # consume no Actions minutes. See templates/docs/ai/AGENT_WORKFLOW.md -> "Actions budget".
+    # Paused means nothing merges; it never means "merge without checks".
     # KIT_AUTOMERGE_DISABLED: caller-repo variable, the durable per-repo opt-out.
     # The rest drops events that cannot make a PR mergeable, so they cost no runner minutes.
     if: >-

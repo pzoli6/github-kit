@@ -1,10 +1,10 @@
 # AGENTS.md — Universal AI-Agent Workflow
 
 This file is tool-agnostic and applies to every AI coding agent working in this repository —
-ChatGPT Codex, Claude Code, GitHub Copilot coding agent, Cursor agents, Antigravity, Gemini CLI,
-ChatGPT with repo context, and any future agent — as well as to manual human development.
-Tool-specific adapters (`CLAUDE.md`, `GEMINI.md`, `.github/copilot-instructions.md`,
-`.cursor/rules/*.mdc`) all point back to this file; if anything here conflicts with a tool-specific
+ChatGPT Codex, Claude Code, Cursor agents, Antigravity, Gemini CLI, ChatGPT with repo context,
+and any future agent — as well as to manual human development.
+Tool-specific adapters (`CLAUDE.md`, `GEMINI.md`, `.cursor/rules/*.mdc`) all point back to this
+file; if anything here conflicts with a tool-specific
 adapter, this file wins.
 
 This file is installed once by `github-kit`'s installer and is then **yours** — edit it freely for
@@ -292,7 +292,7 @@ if a repo doesn't add them to its board, nothing in this workflow misses them.
 Field value vocabularies:
 
 - **Validation**: `Not Run`, `Passed`, `Failed`, `Partial`, `Manual Required`, `Not Applicable`
-- **Agent**: `Codex`, `Claude Code`, `Antigravity`, `Cursor`, `Gemini`, `ChatGPT`, `GitHub Copilot`, `Manual`, `Mixed`
+- **Agent**: `Codex`, `Claude Code`, `Antigravity`, `Cursor`, `Gemini`, `ChatGPT`, `Manual`, `Mixed`
 - **Risk**: `Low`, `Medium`, `High`
 
 Don't set these fields by editing the Project UI by hand or calling `project_set_*.sh` piecemeal —
@@ -398,20 +398,15 @@ issue; the remote branch (and whether GitHub auto-deletes it on merge) is untouc
 ## Free-tier limitations and branch protection
 
 - Nothing in this workflow or its CI requires a paid subscription: plain GitHub Actions, the free
-  `gh` CLI, and GitHub Projects (v2) cover all of it. No CI step invokes GitHub Copilot, GitHub
-  Advanced Security/CodeQL, or a paid Marketplace app — review is human review — and agents must
-  not add a dependency that changes that. Tool adapter files (like
-  `.github/copilot-instructions.md`) are inert instruction text: free to keep whether or not the
-  matching tool is subscribed to, and never invoked by CI. See `docs/ai/AGENT_WORKFLOW.md` →
-  "Free-tier limitations".
-- The reverse also holds: a human using a subscription tool *manually* — assigning the GitHub
-  Copilot coding agent to an issue, asking `@copilot` to resolve a PR's merge conflicts, or
-  requesting a Copilot code review — is always their call and outside this workflow's approval
-  gates. Copilot coding agent runs execute on GitHub Actions and share the account's Actions
-  budget with this repo's CI; if GitHub reports the Actions budget blocks such a run, see
-  `docs/ai/AGENT_WORKFLOW.md` → "Actions budget and manual Copilot use" (raise the budget — a
-  human/billing action; pause the kit's workflows via the `KIT_ACTIONS_PAUSED` repository
-  variable — also a human action; or resolve conflicts locally, which needs no Actions at all).
+  `gh` CLI, and GitHub Projects (v2) cover all of it. No CI step invokes a paid AI service, GitHub
+  Advanced Security/CodeQL, or a paid Marketplace app — review is human review, optionally helped
+  by AI reviewers the owner runs outside CI (`REVIEW.md`) — and agents must not add a dependency
+  that changes that. Tool adapter files are inert instruction text, never invoked by CI. See
+  `docs/ai/AGENT_WORKFLOW.md` → "Free-tier limitations".
+- Every repo on the account shares one Actions budget. If GitHub reports the budget blocks a run,
+  see `docs/ai/AGENT_WORKFLOW.md` → "Actions budget" (raise the budget — a human/billing action;
+  pause the kit's workflows via the `KIT_ACTIONS_PAUSED` repository variable — also a human
+  action; or resolve conflicts locally, which needs no Actions at all).
 - Private repositories on the GitHub Free plan cannot enforce branch protection rulesets (no
   required reviews, no required status checks enforced at the platform level) — this is a
   platform limitation, not a misconfiguration. Don't treat a missing/unenforceable ruleset as
@@ -525,7 +520,7 @@ controlled pause, not an abandoned task:
   changes (a PR targeting the production branch, or a push to it) or an explicit dispatch. Never
   dispatch a CI workflow (`gh workflow run ...` or the Actions tab) on your own initiative; do it
   only when the human explicitly asks for a CI run. See `docs/ai/AGENT_WORKFLOW.md` → "Actions
-  budget and manual Copilot use".
+  budget".
 
 ## CI expectations — don't chase checks
 
@@ -708,4 +703,9 @@ Before stopping mid-task, losing context, or handing off to another agent, agent
 - `docs/ai/handoffs/issue-<number>.md`
 - Project field: `Last Agent Update` (full mode only)
 - Project field: `Validation` (full mode only)
+
+## Code Review Rules
+
+Every reviewer of a pull request (human, Codex, Claude) applies `REVIEW.md` at the repository root: what counts as blocking, what to always check, what to skip, and how the PR's agent handles review-bot findings. Read it in full before reviewing.
+
 <!-- END GITHUB-KIT UNIVERSAL WORKFLOW -->

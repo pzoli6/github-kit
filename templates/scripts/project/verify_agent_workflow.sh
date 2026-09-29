@@ -1,18 +1,19 @@
 #!/usr/bin/env bash
 # Verify this repo has the files and key phrases the github-kit agent workflow requires.
-# Mirrors .github/workflows/reusable-agent-workflow-verify.yml for local/offline use.
+# The required files and phrases come from docs/ai/KIT_MANIFEST.tsv (installed by github-kit);
+# .github/workflows/reusable-agent-workflow-verify.yml runs this same script in CI.
 set -uo pipefail
 
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
-cd "$REPO_ROOT"
+cd "$REPO_ROOT" || exit 1
+MANIFEST="docs/ai/KIT_MANIFEST.tsv"
 
 REQUIRE_CLAUDE="${REQUIRE_CLAUDE:-true}"
 REQUIRE_CURSOR="${REQUIRE_CURSOR:-true}"
 REQUIRE_SKILLS="${REQUIRE_SKILLS:-true}"
 REQUIRE_GEMINI="${REQUIRE_GEMINI:-false}"
-# The Copilot adapter file is inert text (no subscription needed to keep it); repos that don't
-# use Copilot may delete it and run with REQUIRE_COPILOT=false.
-REQUIRE_COPILOT="${REQUIRE_COPILOT:-true}"
+# REQUIRE_COPILOT is still accepted (older callers pass it) but no longer does anything: the kit
+# stopped shipping the Copilot adapter file.
 
 missing=0
 
@@ -39,68 +40,41 @@ check_phrase() {
   fi
 }
 
-check_file "AGENTS.md"
-check_file "docs/ai/PROJECT_CONFIG.md"
-check_file "docs/ai/AGENT_WORKFLOW.md"
-check_file "docs/ai/HANDOFF_INDEX.md"
-check_file ".github/PULL_REQUEST_TEMPLATE.md"
-check_file ".github/ISSUE_TEMPLATE/agent_task.yml"
-check_file ".github/CODEOWNERS"
-check_file "scripts/project/project_add_item.sh"
-check_file "scripts/project/project_set_status.sh"
-check_file "scripts/project/project_set_text.sh"
-check_file "scripts/project/verify_agent_workflow.sh"
-check_file "scripts/project/create_agent_issue.sh"
-check_file "scripts/project/publish_agent_branch.sh"
-check_file "scripts/project/sync_project_fields.sh"
-check_file "scripts/project/create_agent_pr.sh"
-check_file "scripts/project/check_resume_safety.sh"
-check_file "scripts/project/post_handoff_comment.sh"
-check_file "scripts/project/cleanup_merged_branches.sh"
-
-if [ "$REQUIRE_CLAUDE" = "true" ]; then
-  check_file "CLAUDE.md"
-  check_file ".claude/skills/issue-to-pr-project/SKILL.md"
-  check_file ".claude/skills/github_kit/SKILL.md"
-  check_file ".claude/commands/github_kit.md"
+if [ ! -f "$MANIFEST" ]; then
+  echo "MISSING file: $MANIFEST (run /github_kit_update or scripts/update-github-kit.sh to install it)"
+  echo
+  echo "Agent workflow verification FAILED — see MISSING items above."
+  exit 1
 fi
 
-if [ "$REQUIRE_CURSOR" = "true" ]; then
-  check_file ".cursor/rules/agent-workflow.mdc"
-  check_file ".cursor/rules/git-safety.mdc"
-  check_file ".cursor/rules/project-board.mdc"
-  check_file ".cursor/rules/github-kit-command.mdc"
-fi
+# Each file row names a group; REQUIRE_<GROUP>=false switches a whole group off. "core" is always
+# required and "-" never is.
+group_required() {
+  case "$1" in
+    core) return 0 ;;
+    claude) [ "$REQUIRE_CLAUDE" = "true" ] ;;
+    cursor) [ "$REQUIRE_CURSOR" = "true" ] ;;
+    skills) [ "$REQUIRE_SKILLS" = "true" ] ;;
+    gemini) [ "$REQUIRE_GEMINI" = "true" ] ;;
+    *) return 1 ;;
+  esac
+}
 
-if [ "$REQUIRE_SKILLS" = "true" ]; then
-  check_file ".agents/skills/issue-to-pr-project/SKILL.md"
-  check_file ".agents/skills/github_kit/SKILL.md"
-fi
+# A Windows checkout may hand the manifest over with CRLF line ends; strip the \r from the last
+# field so "core\r" is still read as "core".
+while IFS=$'\t' read -r kind path _mode group; do
+  group="${group%$'\r'}"
+  [ "$kind" = "file" ] || continue
+  if group_required "$group"; then
+    check_file "$path"
+  fi
+done < "$MANIFEST"
 
-if [ "$REQUIRE_GEMINI" = "true" ]; then
-  check_file "GEMINI.md"
-fi
-
-if [ "$REQUIRE_COPILOT" = "true" ]; then
-  check_file ".github/copilot-instructions.md"
-fi
-
-check_phrase "approve"
-check_phrase "approve main"
-check_phrase "Production-branch authorization"
-check_phrase "Stop-and-ask gates"
-check_phrase "/github_kit"
-check_phrase "git add ."
-check_phrase "Plan Review"
-check_phrase "Ready"
-check_phrase "In Progress"
-check_phrase "In Review"
-check_phrase "Changes Requested"
-check_phrase "Validation"
-check_phrase "Handoff"
-check_phrase "Last Agent Update"
-check_phrase "Relationships: none declared"
-check_phrase "Notifications: ensured through assignment"
+while IFS=$'\t' read -r kind phrase _rest; do
+  phrase="${phrase%$'\r'}"
+  [ "$kind" = "phrase" ] || continue
+  check_phrase "$phrase"
+done < "$MANIFEST"
 
 # --- github-kit ref: this repo may auto-track @main (default) or deliberately pin via
 # docs/ai/PROJECT_CONFIG.md's "github-kit ref" key. Either is fine; what matters is that the
@@ -119,8 +93,10 @@ fi
 EXPECTED_REF="${PROJECT_REF:-main}"
 
 ref_ok=1
-for wf in .github/workflows/agent-workflow-verify.yml .github/workflows/pr-policy.yml \
-          .github/workflows/ci-node.yml .github/workflows/ci-python.yml; do
+# Callers the updater refreshes (mode "workflow") always carry the current ref; pr-policy.yml is
+# created once but is checked too, since a pinned repo must repoint it by hand.
+callers="$(awk -F'\t' '{ sub(/\r$/, "") } $1 == "file" && $3 == "workflow" { print $2 }' "$MANIFEST")"
+for wf in $callers .github/workflows/pr-policy.yml; do
   [ -e "$wf" ] || continue
   if ! grep -Eq "uses: pzoli6/github-kit/.*@${EXPECTED_REF}([[:space:]]|\$)" "$wf"; then
     echo "MISMATCH workflow ref in $wf (expected @$EXPECTED_REF per docs/ai/PROJECT_CONFIG.md \"github-kit ref\")"

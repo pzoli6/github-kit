@@ -112,7 +112,7 @@ table documents what's expected, it isn't read directly by scripts.
 
 `Default reviewer` and `Default milestone` are `TBD` until this repo configures them — leave the
 matching env var blank rather than guessing a real username or milestone title. `Default reviewer`
-must name a human or team — never a paid review bot (e.g. GitHub Copilot code review): the kit's
+must name a human or team — never a paid review bot: the kit's
 workflow runs without any paid subscription, and a reviewer default must not quietly break that
 (see `AGENT_WORKFLOW.md` → "Free-tier limitations").
 `create_agent_issue.sh`/`create_agent_pr.sh` skip a flag entirely when its value is empty or `TBD`;
@@ -221,6 +221,7 @@ here **and** the `on:` triggers in `.github/workflows/*.yml` together.
 | CI on production-bound changes | `automatic` |
 | Agents may dispatch CI | `only on explicit human request` |
 | Agents may report CI status | `only for production-bound changes, or on request` |
+| github-kit tier | the `# github-kit tier: N` line in the CI callers (1 = automatic on production-bound changes, 2 = dispatch only), set by the github-kit fan-out |
 | Merge after green | `automatic` (`auto-merge.yml`; needs at least one check unless `KIT_AUTOMERGE_ALLOW_NO_CHECKS`; nothing merges while paused or over budget) |
 
 - **`metered`** means Actions minutes cost real money on this account, so an unnecessary run is a
@@ -234,10 +235,10 @@ here **and** the `on:` triggers in `.github/workflows/*.yml` together.
   gh workflow run "CI (Node)" --ref <branch>     # or "CI (Python)" / "Agent Workflow Verify"
   ```
 
-- To pause **every** kit workflow at once — e.g. to reserve the remaining budget for GitHub
-  Copilot coding agent sessions, which also consume Actions minutes — set the repository Actions
-  variable `KIT_ACTIONS_PAUSED` to `true` (Settings → Secrets and variables → Actions →
-  Variables). See `docs/ai/AGENT_WORKFLOW.md` → "Actions budget and manual Copilot use".
+- To pause **every** kit workflow at once — e.g. to keep the account's shared Actions budget for
+  other repos — set the repository Actions variable `KIT_ACTIONS_PAUSED` to `true` (Settings →
+  Secrets and variables → Actions → Variables). See `docs/ai/AGENT_WORKFLOW.md` → "Actions
+  budget".
 
 ## Validation commands
 

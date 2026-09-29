@@ -1,0 +1,39 @@
+name: github-kit selfcheck
+
+# Runs scripts/selfcheck-github-kit.sh on a runner that has every optional tool installed
+# (actionlint, shellcheck, pwsh). Tier 2 by design: it runs only when dispatched by hand
+# (Actions tab -> Run workflow, or `gh workflow run "github-kit selfcheck" --ref <branch>`), never
+# automatically on PRs, so it costs no Actions minutes unless you ask for it. The same script runs
+# locally for free: `bash scripts/selfcheck-github-kit.sh`.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: github-kit-selfcheck-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  selfcheck:
+    runs-on: ubuntu-latest
+    if: vars.KIT_ACTIONS_PAUSED != 'true'
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+
+      # ubuntu-latest ships shellcheck and pwsh; actionlint is fetched at a pinned version.
+      - name: Install actionlint
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -sSfL -o "$RUNNER_TEMP/actionlint.tgz" \
+            https://github.com/rhysd/actionlint/releases/download/v1.7.7/actionlint_1.7.7_linux_amd64.tar.gz
+          tar -xzf "$RUNNER_TEMP/actionlint.tgz" -C "$RUNNER_TEMP" actionlint
+          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+
+      - name: Run selfcheck
+        shell: bash
+        run: bash scripts/selfcheck-github-kit.sh

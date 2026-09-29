@@ -44,51 +44,110 @@ check_file "scripts/install-github-kit.ps1"
 check_file "scripts/update-github-kit.sh"
 check_file "scripts/update-github-kit.ps1"
 
-# --- required templates ------------------------------------------------------
+# --- kit manifest: the single list of installed files ------------------------
+#
+# templates/docs/ai/KIT_MANIFEST.tsv drives install, update, and target-repo verification, so its
+# integrity is checked here: every row points at a real template with a known mode and group,
+# every template is listed, repo-owned files keep a non-overwriting mode, and managed blocks agree.
 
-check_file "templates/AGENTS.md"
-check_file "templates/CLAUDE.md"
-check_file "templates/GEMINI.md"
-check_file "templates/.github/CODEOWNERS"
-check_file "templates/.github/copilot-instructions.md"
-check_file "templates/.github/ISSUE_TEMPLATE/agent_task.yml"
-check_file "templates/.github/PULL_REQUEST_TEMPLATE.md"
-check_file "templates/docs/ai/AGENT_WORKFLOW.md"
-check_file "templates/docs/ai/HANDOFF_INDEX.md"
-check_file "templates/docs/ai/PROJECT_CONFIG.md"
-check_file "templates/docs/ai/PROJECT_CONFIG.env.example"
-check_file "templates/docs/ai/PROJECT_SETUP.md"
-check_file "templates/docs/ai/handoffs/.gitkeep"
-check_file "templates/.agents/skills/issue-to-pr-project/SKILL.md"
-check_file "templates/.claude/skills/issue-to-pr-project/SKILL.md"
-check_file "templates/.agents/skills/github_kit/SKILL.md"
-check_file "templates/.claude/skills/github_kit/SKILL.md"
-check_file "templates/.claude/commands/github_kit.md"
-check_file "templates/.claude/settings.json"
-check_file "templates/.cursor/rules/agent-workflow.mdc"
-check_file "templates/.cursor/rules/git-safety.mdc"
-check_file "templates/.cursor/rules/project-board.mdc"
-check_file "templates/.cursor/rules/github-kit-command.mdc"
-check_file "templates/scripts/project/project_add_item.sh"
-check_file "templates/scripts/project/project_set_status.sh"
-check_file "templates/scripts/project/project_set_text.sh"
-check_file "templates/scripts/project/verify_agent_workflow.sh"
-check_file "templates/scripts/project/create_standard_labels.sh"
-check_file "templates/scripts/project/create_agent_issue.sh"
-check_file "templates/scripts/project/publish_agent_branch.sh"
-check_file "templates/scripts/project/sync_project_fields.sh"
-check_file "templates/scripts/project/create_agent_pr.sh"
-check_file "templates/scripts/project/check_resume_safety.sh"
-check_file "templates/scripts/project/post_handoff_comment.sh"
-check_file "templates/scripts/project/setup_github_project.sh"
-check_file "templates/.github/workflows/project-setup.yml"
-check_file "templates/scripts/project/cleanup_merged_branches.sh"
-check_file "templates/.github/workflows/agent-workflow-verify.yml"
-check_file "templates/.github/workflows/pr-policy.yml"
-check_file "templates/.github/workflows/ci-node.yml"
-check_file "templates/.github/workflows/ci-python.yml"
-check_file "templates/.github/workflows/project-sync.yml"
-check_file "templates/.github/workflows/auto-merge.yml"
+MANIFEST="templates/docs/ai/KIT_MANIFEST.tsv"
+check_file "$MANIFEST"
+check_file "scripts/lib/kit.sh"
+check_file "scripts/lib/Kit.ps1"
+
+if [ -f "$MANIFEST" ]; then
+  manifest_ok=1
+  listed="$(mktemp)"
+  while IFS=$'\t' read -r kind path mode group retired; do
+    group="${group%$'\r'}"
+    retired="${retired%$'\r'}"
+    case "$kind" in ''|'#'*|phrase) continue ;; file) ;; *)
+      echo "FAILED  manifest row kind '$kind' is unknown"; manifest_ok=0; continue ;;
+    esac
+    if [ "$mode" = "retired" ]; then
+      # A retired file must be gone from templates/ and carry the blob SHAs of every shipped version,
+      # or the updater could never tell an untouched copy from an edited one.
+      if [ -e "templates/$path" ]; then
+        echo "FAILED  templates/$path is marked retired but still exists"; manifest_ok=0
+      fi
+      if ! printf '%s' "$retired" | grep -Eq '^[0-9a-f]{40}(,[0-9a-f]{40})*$'; then
+        echo "FAILED  retired $path needs a 5th column of comma-separated 40-hex blob SHAs"; manifest_ok=0
+      fi
+      continue
+    fi
+    echo "$path" >> "$listed"
+    check_file "templates/$path"
+    case "$mode" in block|refresh|refresh-exec|workflow|workflow-create|workflow-opt|create|config) ;; *)
+      echo "FAILED  manifest mode '$mode' for $path is unknown"; manifest_ok=0 ;;
+    esac
+    case "$group" in core|claude|cursor|skills|gemini|-) ;; *)
+      echo "FAILED  manifest verify group '$group' for $path is unknown"; manifest_ok=0 ;;
+    esac
+    if [ "$mode" = "block" ] && [ "$(grep -cE '^<!-- (BEGIN|END) GITHUB-KIT [A-Z -]+ -->$' "templates/$path")" != 2 ]; then
+      echo "FAILED  templates/$path (mode block) needs exactly one BEGIN and one END GITHUB-KIT marker line"
+      manifest_ok=0
+    fi
+  done < "$MANIFEST"
+
+  # Every template must be installable: a file under templates/ missing from the manifest would
+  # silently never reach a target repo.
+  while IFS= read -r f; do
+    rel="${f#templates/}"
+    if ! grep -qxF "$rel" "$listed"; then
+      echo "FAILED  $f exists but is not listed in $MANIFEST"
+      manifest_ok=0
+    fi
+  done < <(git ls-files -- templates; git ls-files --others --exclude-standard -- templates)
+  rm -f "$listed"
+
+  # Repo-owned files must never be overwritten by an update (each once lost user data or config:
+  # project-sync.yml's project_number, pr-policy.yml's base branch, customized settings.json).
+  for pair in docs/ai/PROJECT_CONFIG.md:config docs/ai/design-handoffs/DESIGN_SYNC.md:create \
+              .claude/settings.json:create .github/ISSUE_TEMPLATE/agent_task.yml:create \
+              .github/PULL_REQUEST_TEMPLATE.md:create .github/workflows/pr-policy.yml:workflow-create \
+              .github/workflows/project-setup.yml:workflow-create .github/workflows/project-sync.yml:workflow-opt; do
+    want_path="${pair%%:*}" want_mode="${pair##*:}"
+    got="$(awk -F'\t' -v p="$want_path" '$1 == "file" && $2 == p { print $3 }' "$MANIFEST")"
+    if [ "$got" != "$want_mode" ]; then
+      echo "FAILED  $want_path must be mode '$want_mode' in the manifest (found '${got:-none}') — it holds repo-owned content"
+      manifest_ok=0
+    fi
+  done
+
+  # AGENTS.md, CLAUDE.md, and GEMINI.md carry the same universal block.
+  blocks="$(for f in AGENTS CLAUDE GEMINI; do
+    awk '/^<!-- BEGIN GITHUB-KIT UNIVERSAL WORKFLOW -->$/{p=1} p{print} /^<!-- END GITHUB-KIT UNIVERSAL WORKFLOW -->$/{p=0}' "templates/$f.md" | cksum
+  done | sort -u | wc -l)"
+  if [ "$blocks" -ne 1 ]; then
+    echo "FAILED  the UNIVERSAL WORKFLOW block differs between templates/AGENTS.md, CLAUDE.md, and GEMINI.md"
+    manifest_ok=0
+  fi
+
+  if [ "$manifest_ok" -eq 1 ]; then
+    echo "OK      manifest: every row valid, every template listed, repo-owned files protected, blocks agree"
+  else
+    missing=1
+  fi
+fi
+
+echo
+
+# --- every reusable-workflow job honors the KIT_ACTIONS_PAUSED budget switch ------
+
+pause_ok=1
+for f in .github/workflows/reusable-*.yml; do
+  jobs="$(awk '/^jobs:/{j=1; next} j && /^  [A-Za-z0-9_-]+:[[:space:]]*$/{n++} END{print n+0}' "$f")"
+  guards="$(grep -c "vars.KIT_ACTIONS_PAUSED != 'true'" "$f")"
+  if [ "$guards" -lt "$jobs" ]; then
+    echo "FAILED  $f has $jobs job(s) but only $guards KIT_ACTIONS_PAUSED guard(s)"
+    pause_ok=0
+  fi
+done
+if [ "$pause_ok" -eq 1 ]; then
+  echo "OK      every reusable-workflow job carries the KIT_ACTIONS_PAUSED guard"
+else
+  missing=1
+fi
 
 echo
 
@@ -232,13 +291,6 @@ else
   missing=1
 fi
 
-if grep -q '.claude/settings.json' scripts/install-github-kit.sh 2>/dev/null \
-    && grep -q '.claude/settings.json' scripts/update-github-kit.sh 2>/dev/null; then
-  echo "OK      installers wire up .claude/settings.json (create-only)"
-else
-  echo "MISSING .claude/settings.json wiring in scripts/install-github-kit.sh / update-github-kit.sh"
-  missing=1
-fi
 
 echo
 
@@ -268,13 +320,6 @@ else
   missing=1
 fi
 
-if grep -q 'create_only_workflow "$TEMPLATES/.github/workflows/project-sync.yml"' scripts/update-github-kit.sh 2>/dev/null \
-    && grep -q 'CreateOnly-Workflow (Join-Path $Templates ".github/workflows/project-sync.yml")' scripts/update-github-kit.ps1 2>/dev/null; then
-  echo "OK      updaters preserve project-sync.yml once created (no more TBD reset on refresh)"
-else
-  echo "MISSING create-only handling for project-sync.yml in scripts/update-github-kit.sh/.ps1 — refreshing it resets a configured project_number to TBD"
-  missing=1
-fi
 
 echo
 
@@ -345,15 +390,13 @@ else
   missing=1
 fi
 
-# The caller carries no repo-specific values, so every installer/updater refreshes it (not
-# create-only) — the same list that carries ci-node.
-if grep -q 'design-handoff-approval auto-merge' scripts/install-github-kit.sh 2>/dev/null \
-    && grep -q 'design-handoff-approval auto-merge' scripts/update-github-kit.sh 2>/dev/null \
-    && grep -q '"design-handoff-approval", "auto-merge"' scripts/install-github-kit.ps1 2>/dev/null \
-    && grep -q '"design-handoff-approval", "auto-merge"' scripts/update-github-kit.ps1 2>/dev/null; then
-  echo "OK      install/update scripts (.sh and .ps1) refresh auto-merge.yml alongside ci-node.yml"
+# The caller carries no repo-specific values, so it is a refreshed `workflow` row in the manifest
+# (the same mode as ci-node.yml), which install, update and the fan-out all read.
+if awk -F'\t' '$1 == "file" && $2 == ".github/workflows/auto-merge.yml" && $3 == "workflow" { f = 1 } END { exit !f }' \
+    templates/docs/ai/KIT_MANIFEST.tsv 2>/dev/null; then
+  echo "OK      manifest refreshes auto-merge.yml as a caller workflow alongside ci-node.yml"
 else
-  echo "MISSING auto-merge in the caller-workflow refresh list of scripts/{install,update}-github-kit.{sh,ps1}"
+  echo "MISSING .github/workflows/auto-merge.yml row with mode workflow in templates/docs/ai/KIT_MANIFEST.tsv"
   missing=1
 fi
 
@@ -362,17 +405,13 @@ fi
 if grep -Fq '# >>> github-kit: repo workflows >>>' templates/.github/workflows/auto-merge.yml 2>/dev/null \
     && grep -Fq '# <<< github-kit: repo workflows <<<' templates/.github/workflows/auto-merge.yml 2>/dev/null \
     && grep -Fq -- '- "CI"' templates/.github/workflows/auto-merge.yml 2>/dev/null \
-    && grep -Fq 'carry_repo_block "' scripts/install-github-kit.sh 2>/dev/null \
-    && grep -Fq 'carry_repo_block "' scripts/update-github-kit.sh 2>/dev/null \
-    && grep -Fq 'Merge-RepoBlock -OldPath' scripts/install-github-kit.ps1 2>/dev/null \
-    && grep -Fq 'Merge-RepoBlock -OldPath' scripts/update-github-kit.ps1 2>/dev/null \
-    && grep -Fq "'# >>> github-kit: repo workflows >>>'" scripts/install-github-kit.sh 2>/dev/null \
-    && grep -Fq "'# >>> github-kit: repo workflows >>>'" scripts/update-github-kit.sh 2>/dev/null \
-    && grep -Fq "'# >>> github-kit: repo workflows >>>'" scripts/install-github-kit.ps1 2>/dev/null \
-    && grep -Fq "'# >>> github-kit: repo workflows >>>'" scripts/update-github-kit.ps1 2>/dev/null; then
-  echo "OK      auto-merge.yml carries the repo-workflows block and all four install/update scripts keep it on refresh"
+    && grep -Fq 'kit_carry_repo_block "' scripts/lib/kit.sh 2>/dev/null \
+    && grep -Fq 'Merge-KitRepoBlock -OldPath' scripts/lib/Kit.ps1 2>/dev/null \
+    && grep -Fq "'# >>> github-kit: repo workflows >>>'" scripts/lib/kit.sh 2>/dev/null \
+    && grep -Fq "'# >>> github-kit: repo workflows >>>'" scripts/lib/Kit.ps1 2>/dev/null; then
+  echo "OK      auto-merge.yml carries the repo-workflows block and both install/update libraries keep it on refresh"
 else
-  echo "MISSING repo-workflows markers in templates/.github/workflows/auto-merge.yml, or carry_repo_block / Merge-RepoBlock in scripts/{install,update}-github-kit.{sh,ps1}"
+  echo "MISSING repo-workflows markers in templates/.github/workflows/auto-merge.yml, or kit_carry_repo_block / Merge-KitRepoBlock in scripts/lib/{kit.sh,Kit.ps1}"
   missing=1
 fi
 
@@ -388,8 +427,8 @@ fi
 # The no-mark-ready rule must live inside the managed block: it is the only part of AGENTS.md /
 # CLAUDE.md / GEMINI.md that the updater (and so the fan-out) refreshes in existing repos.
 am_block_ok=1
-for f in scripts/install-github-kit.sh scripts/update-github-kit.sh scripts/install-github-kit.ps1 scripts/update-github-kit.ps1 \
-         templates/AGENTS.md templates/CLAUDE.md templates/GEMINI.md; do
+# The install/update scripts take the block from these templates, so the templates are the copies.
+for f in templates/AGENTS.md templates/CLAUDE.md templates/GEMINI.md; do
   if ! awk '/<!-- BEGIN GITHUB-KIT UNIVERSAL WORKFLOW -->/{p=1} p{print} /<!-- END GITHUB-KIT UNIVERSAL WORKFLOW -->/{p=0}' "$f" 2>/dev/null \
       | grep -q 'never mark a PR ready for review.*no-automerge'; then
     echo "MISSING managed-block auto-merge rule (never mark ready / no-automerge) in $f"
@@ -398,7 +437,7 @@ for f in scripts/install-github-kit.sh scripts/update-github-kit.sh scripts/inst
   fi
 done
 if [ "$am_block_ok" = 1 ]; then
-  echo "OK      managed block (7 copies) carries the never-mark-ready / no-automerge rule"
+  echo "OK      managed block (3 template copies) carries the never-mark-ready / no-automerge rule"
 fi
 
 echo
@@ -421,23 +460,6 @@ else
 fi
 
 echo
-
-# --- require_copilot: the Copilot adapter file must be opt-outable, keeping CI subscription-free --
-# (the adapter file is inert text; repos without a Copilot subscription may drop it) --------------
-
-if grep -q 'require_copilot' .github/workflows/reusable-agent-workflow-verify.yml 2>/dev/null; then
-  echo "OK      reusable-agent-workflow-verify.yml has the require_copilot input"
-else
-  echo "MISSING require_copilot input in .github/workflows/reusable-agent-workflow-verify.yml"
-  missing=1
-fi
-
-if grep -q 'REQUIRE_COPILOT' templates/scripts/project/verify_agent_workflow.sh 2>/dev/null; then
-  echo "OK      templates/scripts/project/verify_agent_workflow.sh honours REQUIRE_COPILOT"
-else
-  echo "MISSING REQUIRE_COPILOT gating in templates/scripts/project/verify_agent_workflow.sh"
-  missing=1
-fi
 
 echo
 

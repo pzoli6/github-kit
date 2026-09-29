@@ -9,7 +9,7 @@
 ## What this repo is
 
 `github-kit` is the **canonical source** of the reusable issue-to-PR-to-Project workflow used by
-every other repo that installs it. It is tool-agnostic (Claude Code, Codex, Copilot, Cursor,
+every other repo that installs it. It is tool-agnostic (Claude Code, Codex, Cursor,
 Antigravity, Gemini, ChatGPT, manual dev) and repo-agnostic — nothing repo-specific belongs here. Anything
 that varies per target repo (Project number, base branch, validation commands, forbidden files)
 must live in the target repo's `docs/ai/PROJECT_CONFIG.md`, never hardcoded into a template or
@@ -31,16 +31,13 @@ than a typical app repo:
   note to this file (or a `CHANGELOG.md` if one exists) explaining what changed and what target
   repos need to do. Prefer additive changes (new optional input with a default) over breaking ones.
 - **CI/CD must stay subscription-free.** Nothing under `templates/` or `.github/workflows/` may
-  require a paid plan or subscription to run — no GitHub Copilot invocation or Copilot-review
-  dependency, no GitHub Advanced Security/CodeQL requirement, no paid Marketplace actions, apps,
-  or runners. Adapter files for subscription tools (e.g. the Copilot adapter
-  `templates/.github/copilot-instructions.md`) stay inert payload that CI never invokes, and
-  their presence must be individually opt-outable in verification (`require_copilot`-style
-  inputs), so a repo owner without that subscription loses nothing. The mirror-image rule also
-  holds: the kit must never crowd out a human's *manual* use of a subscription tool — Copilot
-  coding agent runs share the caller account's Actions budget with kit CI, so every reusable
-  workflow job must keep honoring the caller repo's `KIT_ACTIONS_PAUSED` Actions variable
-  (skip = zero minutes) and avoid wasting minutes on superseded PR runs.
+  require a paid plan or subscription to run — no paid AI service or AI-review dependency, no
+  GitHub Advanced Security/CodeQL requirement, no paid Marketplace actions, apps, or runners.
+  Adapter files for AI tools stay inert payload that CI never invokes. The kit does not ship
+  GitHub Copilot support (dropped; see Migration notes), so don't add a Copilot adapter back.
+  Every repo on the account shares one Actions budget with kit CI, so every reusable workflow job
+  must keep honoring the caller repo's `KIT_ACTIONS_PAUSED` Actions variable (skip = zero
+  minutes), respect the repo's tier, and avoid wasting minutes on superseded PR runs.
 - **Managed blocks must preserve target-repo custom content.** Anything `install-github-kit.sh` /
   `update-github-kit.sh` writes into an existing `AGENTS.md`/`CLAUDE.md` must be confined to the
   `<!-- BEGIN GITHUB-KIT UNIVERSAL WORKFLOW -->` / `<!-- END ... -->` markers. Never rewrite content
@@ -82,12 +79,76 @@ Agents must not push to `main`, merge PRs, modify Actions access settings, or co
 This repo runs no CI on pull requests — its workflows are reusable (`workflow_call`) definitions
 consumed by other repos, plus the fan-out job. A PR here showing **no checks at all is normal and
 expected**: don't fetch check runs, wait, poll, subscribe to PR activity, dispatch a workflow, or
-report "CI didn't run"/"checks are missing"/"the PR is red". Validate locally instead (YAML parses,
-cross-references resolve, phrase lists still satisfied) and report that. This mirrors the rule the
+report "CI didn't run"/"checks are missing"/"the PR is red". Validate locally instead with
+`bash scripts/selfcheck-github-kit.sh` (doctor, actionlint, shellcheck, install/update regression
+test) and report that. The **github-kit selfcheck** workflow runs the same script but only when a
+human dispatches it; never dispatch it yourself. This mirrors the rule the
 kit installs into target repos — `templates/AGENTS.md` → "CI expectations — don't chase checks" —
 so working here dogfoods it.
 
 ## Migration notes
+
+### GitHub Copilot support dropped
+
+The kit no longer ships anything for GitHub Copilot. `templates/.github/copilot-instructions.md`
+is gone; its manifest row is now mode `retired`, listing the git blob SHA of every version the
+kit ever shipped. On the next update (fan-out or `/github_kit_update`) each repo's copy is
+**deleted if it is byte-identical to one of those versions** and kept, with a warning, if someone
+edited it. The fan-out stages that deletion in its update PR.
+
+Also removed: `GitHub Copilot` from the `Agent` vocabulary (AGENTS.md, PR/issue templates, Cursor
+board rule), the `agent:copilot` standard label (an existing label in a repo is left alone),
+and all "manual Copilot use" guidance; the `AGENT_WORKFLOW.md` section "Actions budget and manual
+Copilot use" is now "Actions budget".
+
+**Compatibility:** `reusable-agent-workflow-verify.yml` keeps its `require_copilot` input as a
+deprecated no-op (default now `false`), so callers that still pass it keep working, and
+`verify_agent_workflow.sh` accepts and ignores `REQUIRE_COPILOT`. Repos not yet refreshed still run
+their old verify script against their still-present copilot file, so their result doesn't change.
+
+### Kit manifest, `REVIEW.md`, repository tiers, workflow hardening
+
+One manifest, `templates/docs/ai/KIT_MANIFEST.tsv`, now lists every installed file with its
+install/update mode and verify group, plus the required key phrases. The install, update, and
+doctor scripts (bash and PowerShell, sharing `scripts/lib/kit.sh` / `Kit.ps1`), the target repo's
+`verify_agent_workflow.sh`, and the fan-out's staging step all read it. The managed-block text now
+comes from each template's own markers instead of copies inside four scripts.
+
+**Behavior changes:**
+
+- **New installed files:** `REVIEW.md` (mode `block`: a `GITHUB-KIT REVIEW RULES` block plus a
+  repo-owned section) and `docs/ai/KIT_MANIFEST.tsv`. The universal managed block gained a
+  `## Code Review Rules` pointer to `REVIEW.md`, which is the heading Codex code review reads.
+- **Fix:** `install-github-kit.sh --mode force` / `-Mode force` overwrote a customized
+  `.claude/settings.json`, contradicting its documented create-only rule. It no longer does.
+- **`verify_agent_workflow.sh` needs `docs/ai/KIT_MANIFEST.tsv`.** Both arrive in the same update,
+  so a repo only sees this if someone deletes the manifest; the script then fails and says how to
+  restore it. Its checks are otherwise identical to before (verified line-for-line).
+- **`reusable-agent-workflow-verify.yml` runs the caller repo's own `verify_agent_workflow.sh`**
+  instead of an inline copy. Repos not yet refreshed run their older script, which honors the same
+  `REQUIRE_*` inputs, so their result doesn't change. A repo with no script at all fails, exactly as
+  the inline check did for that missing file.
+- **Tiers (additive):** `update-github-kit.sh --tier 1|2` / `-Tier`. Tier 2 drops the automatic
+  triggers from the refreshed CI callers (`ci-node.yml`, `ci-python.yml`,
+  `agent-workflow-verify.yml`), leaving `workflow_dispatch`. Without the flag each file keeps its
+  current `# github-kit tier: N` line, so a manual update never flips a repo's tier. Default 1,
+  whose triggers are exactly the previous ones (only comment lines were added).
+- **Fan-out:** passes each registry entry's `tier` (default 1) to the updater/installer as
+  `--tier`, stages exactly the manifest's paths (so `REVIEW.md` and retired-file deletions are
+  included), and uses `actions/checkout@v5`.
+- **Managed block:** the seven copies the auto-merge change below describes are now three — the
+  scripts no longer carry the block; they read it from `templates/AGENTS.md` / `CLAUDE.md` /
+  `GEMINI.md`. The doctor checks those three.
+- **Security:** `reusable-pr-policy.yml` and `reusable-design-handoff-approval.yml` no longer paste
+  the PR head branch name into shell scripts (including the `git push` in the design gate, which
+  holds `contents:write`); values arrive through `env:`. The fan-out's `only_repo` input does too.
+  No input or output changed.
+- `reusable-design-handoff-approval.yml`'s `node_version` default is now `22` (Node 20 is past
+  end-of-life); callers that pass it explicitly are unaffected.
+
+**What a target repo must do:** nothing. The reusable-workflow changes are live on `@main`; the
+fan-out PR brings the new files. Set Codex automatic review per tier by hand
+(`docs/PR_REVIEW_SETUP.md`).
 
 ### Auto-merge after green (`reusable-auto-merge.yml` + `auto-merge.yml`)
 
@@ -113,8 +174,9 @@ every other kit job. README → "Auto-merge after green".
   `GITHUB_TOKEN`). Its `workflow_run` trigger lists the kit's own workflow names plus `CI`. A
   repo lists its other PR workflows (by `name:`) between the `# >>> github-kit: repo workflows >>>`
   / `# <<< github-kit: repo workflows <<<` marker lines; the updater, the fan-out and
-  `install --mode force` carry those lines over (`carry_repo_block` / `Merge-RepoBlock`), and every
-  other edit to the file is overwritten.
+  `install --mode force` carry those lines over (now `kit_carry_repo_block` / `Merge-KitRepoBlock`
+  in `scripts/lib/`, applied to every `workflow` manifest row), and every other edit to the file is
+  overwritten.
 - The `workflow_run` trigger is there because GitHub does not fire `check_suite` events for
   check suites that GitHub Actions itself created; `check_suite` and `status` cover third-party
   apps and legacy statuses. All three only fire for a workflow file on the **default branch**,

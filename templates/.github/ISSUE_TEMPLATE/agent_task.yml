@@ -54,7 +54,6 @@ body:
         - Cursor
         - Gemini
         - ChatGPT
-        - GitHub Copilot
         - Manual
         - Mixed
     validations:
