@@ -390,6 +390,19 @@ else
   missing=1
 fi
 
+# A ready PR that auto-merge holds back must say why on the PR (sticky status comment), and the
+# per-repo variables it depends on must be applicable from the registry.
+if grep -q 'status_comment:' .github/workflows/reusable-auto-merge.yml 2>/dev/null \
+    && grep -Fq '<!-- github-kit:auto-merge-status -->' .github/workflows/reusable-auto-merge.yml 2>/dev/null \
+    && grep -q 'status_comment: true' templates/.github/workflows/auto-merge.yml 2>/dev/null \
+    && [ -f scripts/apply-repo-variables.sh ] && [ -f scripts/test-auto-merge.sh ] \
+    && jq -e '[.targets[] | (.variables // {}) | to_entries[] | .value | type == "string"] | all' .github/fanout-targets.json >/dev/null 2>&1; then
+  echo "OK      auto-merge explains every hold (status comment); registry variables are strings and applicable"
+else
+  echo "MISSING auto-merge status_comment / marker, the caller's status_comment: true, scripts/apply-repo-variables.sh, scripts/test-auto-merge.sh, or non-string values under \"variables\" in .github/fanout-targets.json"
+  missing=1
+fi
+
 # The caller carries no repo-specific values, so it is a refreshed `workflow` row in the manifest
 # (the same mode as ci-node.yml), which install, update and the fan-out all read.
 if awk -F'\t' '$1 == "file" && $2 == ".github/workflows/auto-merge.yml" && $3 == "workflow" { f = 1 } END { exit !f }' \

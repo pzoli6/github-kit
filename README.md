@@ -118,13 +118,33 @@ run (a commit pushed with `GITHUB_TOKEN` starts no workflows, a `paths` filter c
 Mind what that means with the kit's **budget-first CI triggers**: a PR into the *base* branch
 starts no kit workflow at all (CI and PR Policy run for production-bound PRs), so unless a
 third-party check such as a Vercel preview reports on it, such a PR is **not** merged
-automatically — a human merges it. A repo that genuinely wants "merge when marked ready" without
-checks sets the repository Actions variable **`KIT_AUTOMERGE_ALLOW_NO_CHECKS=true`**; the
-`no-automerge` label is then its only brake.
+automatically — a human merges it. A repo that wants "merge when marked ready" without checks
+sets the repository Actions variable **`KIT_AUTOMERGE_ALLOW_NO_CHECKS=true`**; the
+`no-automerge` label is then its only brake. The registry declares it per repo
+(`"variables"` in `.github/fanout-targets.json`), and you apply it with
+`scripts/apply-repo-variables.sh` (run it with `--dry-run` first; it needs `gh` logged in as the
+repos' admin). Nothing in CI changes repository settings.
+
+**Why hasn't my PR merged?** A ready PR that auto-merge holds back gets **one comment, kept
+current**, that names the reason and the next step, so a held PR is never silent. Merging by
+hand always works: private Free-plan repos have no branch protection that could block it.
+
+| The comment says | Why | What to do |
+|---|---|---|
+| no check ran on this commit | A PR into the working branch starts no kit CI (budget-first) | Merge by hand, or set `KIT_AUTOMERGE_ALLOW_NO_CHECKS=true` for the repo |
+| GitHub refuses to merge changes to `.github/workflows/*` | Every kit update PR changes workflow files; `GITHUB_TOKEN` can't merge those | Merge by hand, or add an `AUTOMERGE_TOKEN` secret |
+| failing check run(s) / workflow run(s) did not succeed | A check failed | Fix and push, or re-run a one-off failure |
+| skipped while `KIT_ACTIONS_PAUSED` was set | Pause leaves no signal, never green | Unpause, then re-run those workflows or push |
+| waiting for check run(s) / workflow run(s) | Checks still running | Nothing; if they never start, the Actions budget is probably used up |
+| changes requested by … | A reviewer asked for changes | Address them; reviewer approves or dismisses |
+| merge conflicts / mergeable … | The branch conflicts with its base | Resolve locally (no Actions minutes) and push |
+| *(no comment at all)* | Still a draft, opened non-draft, a long-lived head branch (release PR), `no-automerge`, `KIT_AUTOMERGE_DISABLED`, or **no run could start** (Actions budget exhausted, `KIT_ACTIONS_PAUSED`) | Mark it ready / merge by hand; check Billing → Budgets |
+
+When the PR merges, that comment becomes the merge summary, so there is still one comment.
 
 The workflow's own check run is excluded from that evaluation (by run id, by the caller
 workflow's runs on the same commit, and by its job name), so it can never wait on itself. After
-a PR is marked ready or reopened it first sleeps `grace_seconds` (default 120) so checks about
+a PR is marked ready or reopened it first sleeps `grace_seconds` (default 30) so checks about
 to be queued for that commit exist before they are counted; other events skip the sleep. It
 never approves reviews, never bypasses anything, and never touches branch protection or
 repository settings. On merge it deletes the head branch only if it is a same-repo branch
@@ -173,9 +193,10 @@ through and the merge is made with it instead. Scopes and steps:
 reusable job drops events that cannot make a PR mergeable before a runner starts (drafts, label
 edits other than removing `no-automerge`, failed workflow runs and suites, non-`success`
 statuses, runs/suites with no associated PR). What remains is roughly one run per successful
-workflow run, third-party check suite and `success` status on a PR head, plus about three
-minutes when a PR is marked ready (the grace sleep) — as an estimate, 3–5 billed minutes for a
-typical PR with a Vercel preview and one CI workflow.
+workflow run, third-party check suite and `success` status on a PR head, plus about one
+minute when a PR is marked ready (the 30-second grace sleep) — as an estimate, 3–5 billed
+minutes for a typical PR with a Vercel preview and one CI workflow. The status comment costs no
+extra runs: it is written by the same evaluation.
 
 **For agents** this changes the wording of the old *human-merges-only* rule to
 *human-approves-only, merge is automated after green* — and adds three hard rules: never mark a
@@ -190,8 +211,9 @@ so for those the instruction is the only guard.
 Inputs (all optional, set in the caller): `merge_method` (`merge`), `opt_out_label`
 (`no-automerge`), `delete_branch` (`true`), `delete_branch_prefixes`, `skip_head_branches`,
 `allow_forks` (`false`), `allow_no_checks` (`false`; the caller passes
-`vars.KIT_AUTOMERGE_ALLOW_NO_CHECKS`), `require_human_ready` (`true`), `grace_seconds` (`120`),
-`require_no_changes_requested` (`true`), `comment` (`true`); secret `automerge_token`.
+`vars.KIT_AUTOMERGE_ALLOW_NO_CHECKS`), `require_human_ready` (`true`), `grace_seconds` (`30`),
+`require_no_changes_requested` (`true`), `comment` (`true`), `status_comment` (`true`); secret
+`automerge_token`.
 The caller needs `contents: write`, `pull-requests: write`, `issues: read`, `checks: read`,
 `statuses: read`, `actions: read`. Because `workflow_run`, `check_suite` and `status` only fire
 for a workflow file on the **default branch**, auto-merge starts working in a repo once its
