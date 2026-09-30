@@ -97,9 +97,13 @@ on:
       grace_seconds:
         description: "Seconds to wait before the first evaluation after a PR is marked ready or reopened, so checks about to be queued for the head commit exist before they are counted. Not applied to other events."
         type: number
-        default: 120
+        default: 30
       require_no_changes_requested:
         description: "Do not merge while any reviewer's latest review (APPROVED / CHANGES_REQUESTED / DISMISSED considered; plain comments ignored) is CHANGES_REQUESTED."
+        type: boolean
+        default: true
+      status_comment:
+        description: "Keep one sticky PR comment that says why a ready PR has not merged yet and what unblocks it (no checks, failing or paused checks, changes requested, conflicts, a workflow-file merge the token cannot make). Edited in place only when its text changes; turned into a short 'merged' note on merge. A ready PR is then never held silently."
         type: boolean
         default: true
       comment:
@@ -165,6 +169,7 @@ jobs:
       GRACE_SECONDS: ${{ inputs.grace_seconds }}
       REQUIRE_NO_CHANGES_REQUESTED: ${{ inputs.require_no_changes_requested }}
       POST_COMMENT: ${{ inputs.comment }}
+      STATUS_COMMENT: ${{ inputs.status_comment }}
       OWN_JOB_NAME: github-kit auto-merge
       EVENT_ACTION: ${{ github.event.action }}
       EVENT_PR_NUMBER: ${{ github.event.pull_request.number }}
@@ -276,6 +281,44 @@ jobs:
               'any(.labels[]?; (.name // "" | ascii_downcase) == ($l | ascii_downcase))' >/dev/null
           }
 
+          # --- sticky status comment -------------------------------------------------------
+          # A ready PR that is held back says so on the PR itself, not only in this run's log: one
+          # comment, found by STATUS_MARKER, edited in place and only when its text changes (so
+          # repeated evaluations of an unchanged PR make no noise). Writing it is best effort and
+          # never fails the run. Drafts, PRs no person marked ready, and read failures get no
+          # comment: those are not "handed over and stuck".
+          STATUS_MARKER='<!-- github-kit:auto-merge-status -->'
+          status_comment_id() { # $1 = PR number; prints the sticky comment id, empty if none
+            gh api "repos/${repo}/issues/$1/comments?per_page=100" --paginate --jq '.[]' 2>/dev/null \
+              | jq -rs --arg m "$STATUS_MARKER" '[ .[] | select((.body // "") | startswith($m)) ] | last | .id // empty'
+          }
+          write_status() { # $1 = PR number, $2 = body (without the marker)
+            [ "$STATUS_COMMENT" = "true" ] || return 0
+            local body id old
+            body="$(printf '%s\n%s' "$STATUS_MARKER" "$2")"
+            if ! id="$(status_comment_id "$1")"; then
+              log "::warning::PR #$1: could not read comments - status comment not written."; return 0
+            fi
+            if [ -z "$id" ]; then
+              gh api -X POST "repos/${repo}/issues/$1/comments" -f body="$body" >/dev/null 2>&1 \
+                || log "::warning::PR #$1: could not post the auto-merge status comment."
+              return 0
+            fi
+            old="$(gh api "repos/${repo}/issues/comments/${id}" --jq '.body' 2>/dev/null || true)"
+            if [ "$old" != "$body" ]; then
+              gh api -X PATCH "repos/${repo}/issues/comments/${id}" -f body="$body" >/dev/null 2>&1 \
+                || log "::warning::PR #$1: could not update the auto-merge status comment."
+            fi
+          }
+          # hold <pr> <reason> <what unblocks it>: log the reason and show it on the PR.
+          hold() {
+            log "PR #$1: $2"
+            # The backticks are Markdown code spans in the comment, not command substitution.
+            # shellcheck disable=SC2016
+            write_status "$1" "$(printf '**Auto-merge is holding this PR** (head `%s`): %s\n\n**To move it forward:** %s\n\n<sub>github-kit auto-merge keeps this comment current. Merging by hand is always possible; the `%s` label holds a PR back.</sub>' \
+              "${HEAD_SHA:0:7}" "$2" "$3" "$OPT_OUT_LABEL")"
+          }
+
           evaluate_pr() {
             local n="$1" pr sha attempt mergeable mergeable_state state draft head_repo base_repo head_ref default_branch
             # --- PR facts (mergeable is computed lazily; null means "not yet") --------------
@@ -341,14 +384,17 @@ jobs:
                 read_fail "$n" "the reviews"; return 1
               fi
               if [ -n "$blockers" ]; then
-                log "PR #$n: changes requested by $blockers - not merged until that review is updated or dismissed."; return 0
+                hold "$n" "changes requested by $blockers - not merged until that review is updated or dismissed." \
+                  "address the review, then have the reviewer approve or dismiss it. The next check, status or label event re-evaluates the PR."; return 0
               fi
             fi
             if [ "$mergeable" != "true" ]; then
-              log "PR #$n: mergeable is '$mergeable' (mergeable_state: $mergeable_state) - not merged."; return 0
+              hold "$n" "GitHub reports mergeable '$mergeable' (mergeable_state: $mergeable_state) - not merged." \
+                "resolve the conflicts or update the branch from its base and push. The new checks re-evaluate it."; return 0
             fi
             if [ "$mergeable_state" = "dirty" ]; then
-              log "PR #$n: mergeable_state is 'dirty' (conflicts) - not merged."; return 0
+              hold "$n" "the branch has merge conflicts (mergeable_state: dirty) - not merged." \
+                "resolve the conflicts locally (no Actions minutes needed) and push. The new checks re-evaluate it."; return 0
             fi
 
             # --- workflow runs on the head commit ------------------------------------------
@@ -409,32 +455,40 @@ jobs:
             fi
 
             if [ -n "$failing" ]; then
-              log "PR #$n: not merged - failing check run(s): $failing"; return 0
+              hold "$n" "failing check run(s): $failing." \
+                "fix the cause and push, or re-run a check that failed for an unrelated reason. A green result re-evaluates the PR."; return 0
             fi
             if [ -n "$wf_failing" ]; then
-              log "PR #$n: not merged - latest workflow run(s) on $sha did not succeed: $wf_failing"; return 0
+              hold "$n" "the latest workflow run(s) on this commit did not succeed: $wf_failing." \
+                "fix the cause and push, or re-run the failed workflow. A green result re-evaluates the PR."; return 0
             fi
             if [ -n "$paused" ]; then
-              log "PR #$n: not merged - check run(s) skipped while KIT_ACTIONS_PAUSED was set count as no signal, never green: $paused. Re-run those workflows (or push a commit); their completion re-evaluates this PR."; return 0
+              hold "$n" "check run(s) skipped while KIT_ACTIONS_PAUSED was set count as no signal, never green: $paused." \
+                "remove the KIT_ACTIONS_PAUSED variable (or set it to anything but true), then re-run those workflows from the Actions tab or push a commit. Their completion re-evaluates the PR."; return 0
             fi
             if [ -n "$waiting" ]; then
-              log "PR #$n: waiting - check run(s) still queued/in progress: $waiting"; return 0
+              hold "$n" "waiting for check run(s) still queued or in progress: $waiting." \
+                "nothing, if they finish green. If they never start, the account's Actions budget may be used up: merge by hand. If they finished but this comment did not change, add and remove the no-automerge label to re-evaluate."; return 0
             fi
             if [ -n "$wf_waiting" ]; then
-              log "PR #$n: waiting - workflow run(s) not completed yet: $wf_waiting"; return 0
+              hold "$n" "waiting for workflow run(s) not completed yet: $wf_waiting." \
+                "nothing, if they finish green. If they never start, the account's Actions budget may be used up: merge by hand. If they finished but this comment did not change, add and remove the no-automerge label to re-evaluate."; return 0
             fi
             if [ "$status_count" -gt 0 ]; then
               case "$status_state" in
                 success) ;;
                 pending)
-                  log "PR #$n: waiting - combined commit status is pending ($status_count status(es))."; return 0 ;;
+                  hold "$n" "waiting for commit status(es) still pending ($status_count)." \
+                    "nothing, if they turn green. Each status update re-evaluates the PR."; return 0 ;;
                 *)
-                  log "PR #$n: not merged - combined commit status is '$status_state': $(printf '%s' "$combined" | jq -r '[ .statuses[]? | select(.state != "success") | "\(.context) (\(.state))" ] | join(", ")')"; return 0 ;;
+                  hold "$n" "commit status is '$status_state': $(printf '%s' "$combined" | jq -r '[ .statuses[]? | select(.state != "success") | "\(.context) (\(.state))" ] | join(", ")')." \
+                    "fix what the failing status reports and push. A success status re-evaluates the PR."; return 0 ;;
               esac
             fi
             if [ "$run_count" -eq 0 ] && [ "$status_count" -eq 0 ] && [ "$wf_count" -eq 0 ]; then
               if [ "$ALLOW_NO_CHECKS" != "true" ]; then
-                log "PR #$n: no check runs, commit statuses or workflow runs on $sha - not merged, because that cannot be told apart from CI that has not run. A human merges it; a repo that genuinely has no CI sets the Actions variable KIT_AUTOMERGE_ALLOW_NO_CHECKS=true."; return 0
+                hold "$n" "no check ran on this commit, and no checks cannot be told apart from CI that did not run." \
+                  "merge it by hand. The kit's CI runs only for production-bound PRs, so a PR into the working branch normally has no checks: to let such PRs merge when marked ready, set the repository Actions variable KIT_AUTOMERGE_ALLOW_NO_CHECKS=true (github-kit: \"variables\" in .github/fanout-targets.json, applied by scripts/apply-repo-variables.sh)."; return 0
               fi
               log "PR #$n: no check runs, commit statuses or workflow runs on $sha - allow_no_checks is on, so a ready PR merges as-is (the '$OPT_OUT_LABEL' label is the brake)."
             fi
@@ -469,12 +523,16 @@ jobs:
                   # GitHub refuses workflow-file changes from a token without the workflow
                   # permission; GITHUB_TOKEN can never have it. Not a failure of this run.
                   log "::warning::PR #$n: GitHub refused the merge because the PR changes .github/workflows/* and the merge token lacks the workflow permission - a human merges it, or store an AUTOMERGE_TOKEN with the workflow scope (github-kit docs/OWNER_SETUP.md, Step 4b). Response: $out"
+                  hold "$n" "every check is green, but GitHub refuses to merge changes to .github/workflows/* with this repository's token." \
+                    "merge it by hand (every github-kit update PR changes workflow files), or store an AUTOMERGE_TOKEN secret with the workflow permission (github-kit docs/OWNER_SETUP.md, Step 4b)."
                   return 0 ;;
                 *"HTTP 405"*|*"HTTP 409"*)
                   log "PR #$n: merge returned $(printf '%s' "$out" | grep -oE 'HTTP 4[0-9]{2}' | head -n1) (already merged, not mergeable, or base/head moved) - no-op."
                   return 0 ;;
                 *)
                   log "::error::PR #$n: merge failed: $out"
+                  hold "$n" "the merge request failed: $(printf '%s' "$out" | head -c 300)" \
+                    "merge it by hand, and check this workflow's run log if it keeps happening."
                   return 1 ;;
               esac
             fi
@@ -514,9 +572,18 @@ jobs:
               fi
               body="$(printf 'Auto-merged by github-kit (auto-merge.yml, method: %s) because every check on %s was green: %s.\n\n%s Hold a PR back next time with the "%s" label.' \
                 "$MERGE_METHOD" "${sha:0:7}" "${green:-no checks or statuses were registered for this commit}" "$token_note" "$OPT_OUT_LABEL")"
-              if ! gh api -X POST "repos/${repo}/issues/${n}/comments" -f body="$body" >/dev/null 2>&1; then
+              # A PR that was held has a sticky status comment: the summary replaces it there
+              # instead of adding a second comment.
+              if [ "$STATUS_COMMENT" = "true" ] && [ -n "$(status_comment_id "$n" || true)" ]; then
+                write_status "$n" "$body"
+              elif ! gh api -X POST "repos/${repo}/issues/${n}/comments" -f body="$body" >/dev/null 2>&1; then
                 log "::warning::PR #$n: merged, but the summary comment could not be posted."
               fi
+            elif [ "$STATUS_COMMENT" = "true" ] && [ -n "$(status_comment_id "$n" || true)" ]; then
+              # A held PR's sticky comment is closed out rather than left saying "holding". The
+              # backticks are a Markdown code span.
+              # shellcheck disable=SC2016
+              write_status "$n" "$(printf '**Merged** by github-kit auto-merge at `%s` once every check was green.' "${sha:0:7}")"
             fi
           }
 

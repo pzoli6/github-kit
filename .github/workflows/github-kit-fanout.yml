@@ -80,7 +80,9 @@ jobs:
         run: |
           set -euo pipefail
           # A missing tier means tier 1; the tier is passed to the updater/installer as --tier.
-          targets='[.targets[] | . + {tier: ((.tier // 1) | tostring)}]'
+          # "variables" are repository settings a human applies (scripts/apply-repo-variables.sh);
+          # the fan-out never touches them, so they stay out of the matrix.
+          targets='[.targets[] | del(.variables) | . + {tier: ((.tier // 1) | tostring)}]'
           if [ -n "$ONLY_REPO" ]; then
             matrix="$(jq -c --arg r "$ONLY_REPO" "{include: ($targets | map(select(.repo == \$r)))}" .github/fanout-targets.json)"
           else

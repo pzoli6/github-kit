@@ -6,7 +6,8 @@
 #   2. actionlint                     workflow syntax, expression types, script-injection sinks
 #   3. shellcheck -S error            real errors in every shell script (warnings are not gated)
 #   4. JSON                           fan-out registry and Claude settings template parse
-#   5. test-install-update.sh         install/update promises, bash vs PowerShell parity
+#   5. test-auto-merge.sh             auto-merge decisions and its status comment (fake gh)
+#   6. test-install-update.sh         install/update promises, bash vs PowerShell parity
 #
 # A missing optional tool (actionlint, shellcheck, pwsh) is reported as SKIP, not as a failure,
 # so the script is useful on any machine; CI installs all of them.
@@ -50,6 +51,14 @@ for f in .github/fanout-targets.json templates/.claude/settings.json; do
   python3 -c 'import json,sys; json.load(open(sys.argv[1]))' "$f" || { echo "invalid JSON: $f"; json_ok=1; }
 done
 result "$json_ok" "JSON files parse"
+
+step "auto-merge behaviour"
+if python3 -c 'import yaml' 2>/dev/null; then
+  bash scripts/test-auto-merge.sh
+  result $? "test-auto-merge.sh"
+else
+  echo "SKIP    test-auto-merge.sh needs python3 with PyYAML (pip install pyyaml)"
+fi
 
 step "install/update"
 bash scripts/test-install-update.sh

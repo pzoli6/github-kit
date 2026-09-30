@@ -17,9 +17,16 @@ name: Auto-merge after green
 #
 # No checks is not green: a head commit with no check runs, statuses or workflow runs is not
 # merged -- with the kit's budget-first CI triggers that is the normal state of a PR into the
-# base branch unless a third-party check (Vercel, ...) reports on it. A repo that genuinely has
-# no CI and wants "merge when marked ready" sets the repository Actions variable
-# KIT_AUTOMERGE_ALLOW_NO_CHECKS to `true`.
+# base branch unless a third-party check (Vercel, ...) reports on it. A repo that wants such PRs
+# to merge when marked ready sets the repository Actions variable KIT_AUTOMERGE_ALLOW_NO_CHECKS
+# to `true` (github-kit declares it per repo in .github/fanout-targets.json and a human applies it
+# with scripts/apply-repo-variables.sh).
+#
+# Never silent: a ready PR that is held back gets one comment, kept current, saying why (no
+# checks, a failing or paused check, changes requested, conflicts, a workflow-file change the token
+# cannot merge) and what moves it forward. Merging by hand always works: private Free-plan repos
+# have no branch protection that could block it. The one case with no comment is an exhausted
+# Actions budget, because then no run starts at all.
 #
 # Per-repo settings live in repository Actions variables, never in this file (it is refreshed
 # by /github_kit_update and the fan-out, so edits here are overwritten -- except the marked
@@ -43,8 +50,8 @@ name: Auto-merge after green
 # label edits other than removing `no-automerge`, failed runs/suites, non-success statuses,
 # runs/suites with no PR). What remains is roughly one run per successful workflow run,
 # third-party check suite and success status on a PR head -- e.g. about 3-5 billed minutes for a
-# typical PR with Vercel plus one CI workflow -- plus ~3 minutes when the PR is marked ready
-# (grace_seconds, 120 s, lets checks queued for that commit exist before they are counted).
+# typical PR with Vercel plus one CI workflow -- plus ~1 minute when the PR is marked ready
+# (grace_seconds, 30 s, lets checks queued for that commit exist before they are counted).
 #
 # Agents: never mark a PR ready for review, never add or remove the `no-automerge` label, and
 # never merge -- those three acts are how the human decides. See AGENTS.md -> "Auto-merge after
@@ -103,10 +110,12 @@ jobs:
       opt_out_label: no-automerge
       delete_branch: true
       allow_forks: false
-      grace_seconds: 120
+      grace_seconds: 30
       require_no_changes_requested: true
       require_human_ready: true
       comment: true
+      # One comment, kept current, on a ready PR that is held back: why, and what unblocks it.
+      status_comment: true
       # Repository Actions variable, so this refreshed file stays free of per-repo values.
       allow_no_checks: ${{ vars.KIT_AUTOMERGE_ALLOW_NO_CHECKS == 'true' }}
     # Optional token. Merges made with the default GITHUB_TOKEN do not trigger other Actions

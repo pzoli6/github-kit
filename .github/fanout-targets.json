@@ -1,18 +1,18 @@
 {
-  "_comment": "Repos that receive automatic github-kit bootstrap-file updates via .github/workflows/github-kit-fanout.yml. 'repo' is required. 'base' is optional: the branch the auto-update draft PR targets (a repo's integration branch); when omitted the target's default branch is resolved at run time via the GitHub API. 'install' (optional, default false): a target that does not have the kit installed yet (no docs/ai/PROJECT_CONFIG.md) is skipped with a log line and no PR unless install is true, in which case the full kit is installed on the first run. pzoli6/github-kit itself and pzoli6/app-investment are deliberately not listed (the latter is maintained directly). 'tier' (optional, default 1) is the Actions-budget tier the fan-out writes into the repo's CI callers: 1 = CI and verify run automatically on production-bound changes; 2 = they run only when dispatched by hand (see README.md -> 'Repository tiers'). Add a repo by appending an entry here; nothing is needed on the target side.",
+  "_comment": "Repos that receive automatic github-kit bootstrap-file updates via .github/workflows/github-kit-fanout.yml. 'repo' is required. 'base' is optional: the branch the auto-update draft PR targets (a repo's integration branch); when omitted the target's default branch is resolved at run time via the GitHub API. 'install' (optional, default false): a target that does not have the kit installed yet (no docs/ai/PROJECT_CONFIG.md) is skipped with a log line and no PR unless install is true, in which case the full kit is installed on the first run. pzoli6/github-kit itself and pzoli6/app-investment are deliberately not listed (the latter is maintained directly). 'tier' (optional, default 1) is the Actions-budget tier the fan-out writes into the repo's CI callers: 1 = CI and verify run automatically on production-bound changes; 2 = they run only when dispatched by hand (see README.md -> 'Repository tiers'). 'variables' (optional): repository Actions variables for that repo, applied by a human with scripts/apply-repo-variables.sh (never by CI). KIT_AUTOMERGE_ALLOW_NO_CHECKS=true lets a PR a person marked ready merge when no check ran on it, which is the normal state of a PR into the working branch because the kit's CI runs only for production-bound changes; set it to false for a repo that must never merge without a check. Add a repo by appending an entry here; nothing is needed on the target side.",
   "targets": [
-    { "repo": "pzoli6/ai-company", "tier": 1 },
-    { "repo": "pzoli6/Modelling_and_Simulations", "base": "develop", "tier": 1 },
-    { "repo": "pzoli6/app-dance", "tier": 1 },
-    { "repo": "pzoli6/app-career", "tier": 2, "install": true },
-    { "repo": "pzoli6/ai-stack", "tier": 2, "install": true },
-    { "repo": "pzoli6/app-scrape", "tier": 2, "install": true },
-    { "repo": "pzoli6/app-travel", "tier": 2 },
-    { "repo": "pzoli6/app-general-aviation", "tier": 2, "install": true },
-    { "repo": "pzoli6/app-space", "tier": 2 },
-    { "repo": "pzoli6/Invoice_Sync", "base": "main", "tier": 2 },
-    { "repo": "pszichocloud/Platform", "base": "develop", "tier": 1 },
-    { "repo": "pszichocloud/expenses", "tier": 2, "install": true },
-    { "repo": "pszichocloud/pszichocloud", "tier": 2, "install": true }
+    { "repo": "pzoli6/ai-company", "tier": 1, "variables": { "KIT_AUTOMERGE_ALLOW_NO_CHECKS": "true" } },
+    { "repo": "pzoli6/Modelling_and_Simulations", "base": "develop", "tier": 1, "variables": { "KIT_AUTOMERGE_ALLOW_NO_CHECKS": "true" } },
+    { "repo": "pzoli6/app-dance", "tier": 1, "variables": { "KIT_AUTOMERGE_ALLOW_NO_CHECKS": "true" } },
+    { "repo": "pzoli6/app-career", "tier": 2, "install": true, "variables": { "KIT_AUTOMERGE_ALLOW_NO_CHECKS": "true" } },
+    { "repo": "pzoli6/ai-stack", "tier": 2, "install": true, "variables": { "KIT_AUTOMERGE_ALLOW_NO_CHECKS": "true" } },
+    { "repo": "pzoli6/app-scrape", "tier": 2, "install": true, "variables": { "KIT_AUTOMERGE_ALLOW_NO_CHECKS": "true" } },
+    { "repo": "pzoli6/app-travel", "tier": 2, "variables": { "KIT_AUTOMERGE_ALLOW_NO_CHECKS": "true" } },
+    { "repo": "pzoli6/app-general-aviation", "tier": 2, "install": true, "variables": { "KIT_AUTOMERGE_ALLOW_NO_CHECKS": "true" } },
+    { "repo": "pzoli6/app-space", "tier": 2, "variables": { "KIT_AUTOMERGE_ALLOW_NO_CHECKS": "true" } },
+    { "repo": "pzoli6/Invoice_Sync", "base": "main", "tier": 2, "variables": { "KIT_AUTOMERGE_ALLOW_NO_CHECKS": "true" } },
+    { "repo": "pszichocloud/Platform", "base": "develop", "tier": 1, "variables": { "KIT_AUTOMERGE_ALLOW_NO_CHECKS": "true" } },
+    { "repo": "pszichocloud/expenses", "tier": 2, "install": true, "variables": { "KIT_AUTOMERGE_ALLOW_NO_CHECKS": "true" } },
+    { "repo": "pszichocloud/pszichocloud", "tier": 2, "install": true, "variables": { "KIT_AUTOMERGE_ALLOW_NO_CHECKS": "true" } }
   ]
 }

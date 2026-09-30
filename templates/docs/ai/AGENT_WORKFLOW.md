@@ -377,6 +377,11 @@ closed. It never approves a review, never bypasses anything, never touches branc
 repository settings, and deletes the merged head branch only if it is an agent branch
 (`agent/`, `claude/`, `codex/`, ...) that no other open PR uses.
 
+A ready PR that auto-merge holds back carries **one auto-merge comment, kept current**, naming
+the reason and the next step (the rows below). It is written by the automation for the human:
+don't act on it yourself beyond what the human asks, and never mark ready, relabel or merge to
+"fix" it.
+
 | Situation | What it means |
 |---|---|
 | No check runs, statuses or workflow runs on the head | **Not merged** — "no checks" is not green. With the kit's budget-first triggers this is the normal state of a PR into the base branch unless a third-party check (Vercel) reports on it; the human merges it by hand. A repo that wants "merge when marked ready" without checks sets the variable `KIT_AUTOMERGE_ALLOW_NO_CHECKS=true` (owner action). |
@@ -390,7 +395,7 @@ repository settings, and deletes the merged head branch only if it is an agent b
 
 Budget: on a private repo every auto-merge run that starts bills at least one minute. Events that
 cannot make a PR mergeable (drafts, unrelated label edits, failed runs, pending statuses) are
-dropped before a runner starts; marking a PR ready costs about three minutes (the 120 s grace
+dropped before a runner starts; marking a PR ready costs about one minute (the 30 s grace
 sleep); as an estimate a typical PR with one CI workflow and a Vercel preview costs 3–5 billed
 minutes in total.
 

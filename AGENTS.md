@@ -88,6 +88,29 @@ so working here dogfoods it.
 
 ## Migration notes
 
+### Auto-merge explains every hold; per-repo variables from the registry
+
+A ready PR that auto-merge held back used to say why only in the Actions run log, so it looked
+stuck. `reusable-auto-merge.yml` now keeps **one sticky comment** on such a PR (hidden marker
+`<!-- github-kit:auto-merge-status -->`), naming the reason and the next step, edited in place
+only when the text changes and turned into the merge summary on merge. New input
+`status_comment` (default `true`; the caller template sets it explicitly). Drafts, PRs no person
+marked ready, and long-lived-branch PRs get no comment, as before. Merge gates are unchanged
+(`scripts/test-auto-merge.sh` runs the step's real script against a fake `gh`: 13 scenarios,
+6 of which fail against the previous version).
+
+- `grace_seconds` default and template value: `120` → `30`. Nothing the kit runs is triggered by
+  marking a PR ready, and the sleep was billed; about 2 minutes saved per ready PR.
+- `.github/fanout-targets.json` entries take `"variables"`: repository Actions variables for that
+  repo, applied by a human with `scripts/apply-repo-variables.sh` (`--dry-run` first; needs `gh`
+  with admin on the targets; never deletes a variable; never run by CI or by agents). Every entry
+  declares `KIT_AUTOMERGE_ALLOW_NO_CHECKS=true`, because a PR into a working branch has no kit
+  checks by design. Flip it to `false` for a repo that must never merge without a check.
+
+**What a target repo must do:** nothing for the comment (the reusable workflow auto-tracks
+`@main`). The 30 s grace arrives with the next fan-out PR. The variables take effect once the
+owner runs the script.
+
 ### GitHub Copilot support dropped
 
 The kit no longer ships anything for GitHub Copilot. `templates/.github/copilot-instructions.md`

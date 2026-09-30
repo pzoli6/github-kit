@@ -420,6 +420,29 @@ if ($callerAutoMerge -match [regex]::Escape('reusable-auto-merge.yml@main') -and
     $script:Missing = 1
 }
 
+# A ready PR that auto-merge holds back must say why on the PR (sticky status comment), and the
+# per-repo variables it depends on must be applicable from the registry.
+$amReusable = Get-Content -LiteralPath ".github/workflows/reusable-auto-merge.yml" -Raw -ErrorAction SilentlyContinue
+$amCaller = Get-Content -LiteralPath "templates/.github/workflows/auto-merge.yml" -Raw -ErrorAction SilentlyContinue
+$varsOk = $false
+try {
+    $reg = Get-Content -LiteralPath ".github/fanout-targets.json" -Raw | ConvertFrom-Json
+    $varsOk = $true
+    foreach ($t in $reg.targets) {
+        if ($t.PSObject.Properties.Name -contains 'variables') {
+            foreach ($p in $t.variables.PSObject.Properties) { if ($p.Value -isnot [string]) { $varsOk = $false } }
+        }
+    }
+} catch { $varsOk = $false }
+if ($amReusable -and $amReusable.Contains('status_comment:') -and $amReusable.Contains('<!-- github-kit:auto-merge-status -->') -and
+    $amCaller -and $amCaller.Contains('status_comment: true') -and
+    (Test-Path -LiteralPath "scripts/apply-repo-variables.sh") -and (Test-Path -LiteralPath "scripts/test-auto-merge.sh") -and $varsOk) {
+    Write-Host "OK      auto-merge explains every hold (status comment); registry variables are strings and applicable"
+} else {
+    Write-Host "MISSING auto-merge status_comment / marker, the caller's status_comment: true, scripts/apply-repo-variables.sh, scripts/test-auto-merge.sh, or non-string values under `"variables`" in .github/fanout-targets.json"
+    $script:Missing = 1
+}
+
 # The caller carries no repo-specific values, so it is a refreshed `workflow` row in the manifest
 # (the same mode as ci-node.yml), which install, update and the fan-out all read.
 $amRow = Get-Content -LiteralPath "templates/docs/ai/KIT_MANIFEST.tsv" -ErrorAction SilentlyContinue |
