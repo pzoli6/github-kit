@@ -12,6 +12,8 @@
 #   --dry-run          show what would change, change nothing
 #   --repo OWNER/REPO  limit to one registry entry
 # Needs: gh (authenticated as an account with admin rights on the targets), jq.
+# Windows (Git Bash): install jq with `winget install jqlang.jq`. A native jq.exe ends its output
+# lines with CRLF; every value read here is stripped of that CR before it is compared or set.
 set -euo pipefail
 
 KIT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -23,16 +25,22 @@ while [ "$#" -gt 0 ]; do
   case "$1" in
     --dry-run) DRY_RUN=1; shift ;;
     --repo) [ "$#" -ge 2 ] || { echo "error: --repo needs OWNER/REPO" >&2; exit 2; }; ONLY="$2"; shift 2 ;;
-    -h|--help) sed -n '2,15p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,16p' "$0"; exit 0 ;;
     *) echo "error: unknown argument '$1'" >&2; exit 2 ;;
   esac
 done
 
 command -v gh > /dev/null || { echo "error: gh is not installed (https://cli.github.com)" >&2; exit 1; }
-command -v jq > /dev/null || { echo "error: jq is not installed" >&2; exit 1; }
+command -v jq > /dev/null || {
+  echo "error: jq is not installed (Windows: winget install jqlang.jq, then open a new shell;" \
+       "macOS: brew install jq; Debian/Ubuntu: sudo apt-get install jq)" >&2
+  exit 1
+}
 
 changed=0 failed=0
 while IFS=$'\t' read -r repo name value; do
+  # A native Windows jq.exe (or gh.exe) writes CRLF; a stray CR would be set as part of the value.
+  repo="${repo%$'\r'}" name="${name%$'\r'}" value="${value%$'\r'}"
   [ -n "$repo" ] || continue
   [ -z "$ONLY" ] || [ "$repo" = "$ONLY" ] || continue
   if ! current="$(gh variable list --repo "$repo" --json name,value \
@@ -40,6 +48,7 @@ while IFS=$'\t' read -r repo name value; do
     echo "FAILED  $repo: cannot read Actions variables (does your gh login have admin on it?)"
     failed=1; continue
   fi
+  current="${current%$'\r'}"
   if [ "$current" = "$value" ]; then
     echo "OK      $repo: $name=$value"
     continue
