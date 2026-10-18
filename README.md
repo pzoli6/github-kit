@@ -123,7 +123,8 @@ sets the repository Actions variable **`KIT_AUTOMERGE_ALLOW_NO_CHECKS=true`**; t
 `no-automerge` label is then its only brake. The fan-out registry declares it per repo
 (`"variables"` on the repo's entry — see "Fan-out propagation of bootstrap files"), and you apply
 it with `scripts/apply-repo-variables.sh` (run it with `--dry-run` first; it needs `gh` logged in
-as the repos' admin). Nothing in CI changes repository settings.
+as the repos' admin, and `jq`: on Windows `winget install jqlang.jq`, then run it from Git Bash; the
+CRLF a native `jq.exe` writes is stripped). Nothing in CI changes repository settings.
 
 **Why hasn't my PR merged?** A ready PR that auto-merge holds back gets **one comment, kept
 current**, that names the reason and the next step, so a held PR is never silent. Merging by
