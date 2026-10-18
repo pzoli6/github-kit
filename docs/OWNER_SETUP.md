@@ -15,12 +15,16 @@ later is cheap.
 # 1. Is the fan-out token set? (expects total_count >= 1)
 gh api repos/pzoli6/github-kit/actions/secrets --jq '.total_count'
 
+# 1b. Is the fan-out registry stored? (prints an error if not)
+bash scripts/fanout-registry.sh get > /dev/null && echo "registry present"
+
 # 2. Has fan-out ever succeeded?
 gh run list --repo pzoli6/github-kit --workflow github-kit-fanout.yml --limit 5 \
   --json createdAt,conclusion --jq '.[] | "\(.createdAt[0:16])  \(.conclusion)"'
 ```
 
 If (1) prints `0`, nothing has ever propagated to any repo — start at Step 1.
+If (1b) prints an error, the fan-out fails fast at its first job — Step 1b.
 If (2) is all `failure`, same conclusion.
 
 > Listing secrets needs **admin** on `github-kit`. If you're signed in as a different account with
@@ -33,23 +37,18 @@ If (2) is all `failure`, same conclusion.
 
 ### Why a **classic** PAT, not fine-grained
 
-The README used to say fine-grained. That's wrong as soon as targets span more than one account,
-which they now do:
+The README used to say fine-grained. That's wrong as soon as targets span more than one account
+(a personal account plus an organisation, say), which they do.
 
-| Owner | Targets |
-| --- | --- |
-| `pzoli6` | `ai-company`, `Modelling_and_Simulations`, `app-dance`, `app-career`, `ai-stack`, `app-scrape`, `app-travel`, `app-general-aviation`, `app-space`, `Invoice_Sync` |
-| `pszichocloud` | `Platform`, `expenses`, `pszichocloud` |
-
-(`pzoli6/github-kit` itself and `pzoli6/app-investment` are deliberately not targets — the
-latter is maintained directly. The authoritative list is `.github/fanout-targets.json`.)
+The authoritative list is the fan-out registry — the `FANOUT_TARGETS` repository variable (Step
+1b), **not** a file in this public repository. `github-kit` itself is never a target.
 
 A **fine-grained PAT is scoped to exactly one resource owner** — the dropdown offers only your own
 account and organisations you belong to. Repos you're an *outside collaborator* on can't be
 selected at all. So no single fine-grained PAT can cover both lists.
 
-A **classic PAT reaches every repo its creating account can push to.** As long as `pzoli6` has
-`write` on every `pszichocloud/*` target, one classic PAT from `pzoli6` covers all thirteen.
+A **classic PAT reaches every repo its creating account can push to.** As long as the owner
+account has `write` on every target in the other accounts, one classic PAT from it covers them all.
 
 > Prefer least privilege? See "Alternative: two fine-grained PATs" at the bottom. It needs a
 > change to the fan-out workflow, so it isn't the default.
@@ -61,7 +60,8 @@ A **classic PAT reaches every repo its creating account can push to.** As long a
    - **Note:** `github-kit fan-out`
    - **Expiration:** your call. If you set one, put a reminder somewhere — fan-out starts failing
      silently-ish on expiry (it fails loudly in Actions, but only if you look).
-   - **Scopes:** tick **`repo`** *and* **`workflow`**. Nothing else — not `admin:*`.
+   - **Scopes:** tick **`repo`** *and* **`workflow`**. Nothing else — not `admin:*`. (`repo` also
+     lets the fan-out read the `FANOUT_TARGETS` registry variable, Step 1b.)
 
      > `workflow` is not optional. Fan-out refreshes `.github/workflows/*.yml` in the target
      > repos, and git refuses a PAT push that touches a workflow file without it:
@@ -108,14 +108,56 @@ gh api repos/pzoli6/github-kit/actions/secrets --jq '[.secrets[].name] | join(",
 
 ---
 
+## Step 1b — Store the fan-out registry *(required; the workflow fails fast without it)*
+
+The list of repositories the fan-out maintains is **not committed** to this public repository: it
+lives in the repository Actions **variable** `FANOUT_TARGETS` on `github-kit`, as the JSON described
+in `.github/fanout-targets.example.json` (one `{ "repo": "owner/name", ... }` entry per target; the
+example's `_comment` documents every key). Anyone with collaborator access to `github-kit` can
+read it — the public cannot, so mind who you add as a collaborator — and the workflow masks every
+target name in its logs and names jobs by registry index, so a public run page shows no repo.
+
+Check: `bash scripts/fanout-registry.sh get` prints it (needs `gh` signed in to an account with
+write access to `github-kit`; a variable that does not exist prints an error).
+
+Create or update it from a local file, which stays local (`.github/fanout-targets.json` is
+gitignored for exactly this purpose):
+
+```bash
+cp .github/fanout-targets.example.json .github/fanout-targets.json   # first time: then edit it
+bash scripts/fanout-registry.sh check .github/fanout-targets.json    # schema check, changes nothing
+bash scripts/fanout-registry.sh set   .github/fanout-targets.json    # stores it as FANOUT_TARGETS
+```
+
+`set` refuses an invalid file (unknown keys, a `repo` that is not `owner/name`, a `tier` other than
+1 or 2, duplicate repos, non-string `variables`), so a typo can never break the fan-out. Keep the
+local file, or re-create it anywhere with `get`. Never commit it, paste it into an issue or a chat,
+or put repository names into the workflow, the docs or the example — the doctor fails if the
+registry is ever tracked.
+
+Storing the registry triggers nothing by itself — it is a variable, not a push — so after a `set`
+that adds or changes a target, dispatch the fan-out (`set` prints the command; Step 2 shows it) or
+wait for Monday's cron.
+
+> Migrating from the committed file? Its last version is still in history:
+> `git show <last-main-commit-before-the-move>:.github/fanout-targets.json > .github/fanout-targets.json`.
+> **Reorder the entries** before `set` (any order but the historical one): job names carry registry
+> indices, and an order that differs from the public file keeps an index from mapping back to a
+> name. Then `check` and `set` as above, **before** merging the move, so the next fan-out run finds
+> the variable.
+
+---
+
 ## Step 2 — First run, on one repo only
 
 Fan-out has probably never run successfully, so the first success will open draft PRs on **every**
 installed target at once, each carrying however much drift has accumulated. Do one first:
 
 ```bash
+# one target: pass its 0-based index in the registry (`bash scripts/fanout-registry.sh get`).
+# An owner/name works too, but an index keeps the repo name out of this public run's inputs.
 gh workflow run github-kit-fanout.yml --repo pzoli6/github-kit \
-  -f only_repo=pszichocloud/Platform
+  -f only_repo=0
 
 # watch it
 gh run watch --repo pzoli6/github-kit "$(gh run list --repo pzoli6/github-kit \
@@ -158,8 +200,8 @@ automatically. Three things only you can do:
 
 Auto-merge is a GitHub Actions run like any other. While the account's Actions budget is
 exhausted, **no run starts, so no PR merges** — a green PR simply sits there. Check the budget
-for whichever account pays for the repo (personal `pzoli6`, and the `pszichocloud`
-organisation): **Settings → Billing and licensing → Budgets and alerts**. GitHub's default
+for whichever account pays for the repo (your personal account, and every organisation that owns
+a target): **Settings → Billing and licensing → Budgets and alerts**. GitHub's default
 budget for metered products is $0, which hard-stops all Actions once the plan's included minutes
 are used. Set a budget you are comfortable with (public repos consume no paid minutes), or raise
 it when the kit's `KIT_ACTIONS_PAUSED` pause is lifted. Agents never change billing settings.
@@ -215,7 +257,7 @@ Settings → Secrets and variables → Actions → **Variables**, per target rep
 | Variable | Effect |
 | --- | --- |
 | `KIT_AUTOMERGE_DISABLED` = `true` | Auto-merge off in this repo. This is the durable opt-out — deleting `auto-merge.yml` lasts only until the next kit update or fan-out recreates it. |
-| `KIT_AUTOMERGE_ALLOW_NO_CHECKS` = `true` | Declared per repo in github-kit's `.github/fanout-targets.json` (`"variables"`) and applied with `scripts/apply-repo-variables.sh` (`--dry-run` first). A ready PR whose head commit has no check runs, statuses or workflow runs merges anyway. Off by default because "no checks" cannot be told apart from "CI did not run". With the kit's budget-first triggers a PR into the base branch has no kit checks, so without this (or a third-party check such as Vercel) such PRs are merged by hand. |
+| `KIT_AUTOMERGE_ALLOW_NO_CHECKS` = `true` | Declared per repo in github-kit's fan-out registry (`"variables"` on the entry, Step 1b) and applied with `scripts/apply-repo-variables.sh` (`--dry-run` first). A ready PR whose head commit has no check runs, statuses or workflow runs merges anyway. Off by default because "no checks" cannot be told apart from "CI did not run". With the kit's budget-first triggers a PR into the base branch has no kit checks, so without this (or a third-party check such as Vercel) such PRs are merged by hand. |
 | `KIT_ACTIONS_PAUSED` = `true` | Pauses every github-kit job, auto-merge included. Checks the pause left `skipped` are never counted as green: after unpausing, re-run those workflows (or push) and their completion re-evaluates the PR. |
 
 ```bash
@@ -226,10 +268,18 @@ gh variable set KIT_AUTOMERGE_DISABLED --body true --repo <owner>/<repo>
 
 ## Adding a new target repo
 
-One line, then nothing on the target side:
+One registry entry, then nothing on the target side. The registry is the `FANOUT_TARGETS` variable
+(Step 1b), so edit a local, gitignored copy and store it back:
+
+```bash
+bash scripts/fanout-registry.sh get > .github/fanout-targets.json   # local copy, never committed
+# add one entry to "targets" (shapes below), then:
+bash scripts/fanout-registry.sh set .github/fanout-targets.json
+# a stored variable triggers nothing: run the fan-out for the new entry now (N = its 0-based index)
+gh workflow run github-kit-fanout.yml --repo pzoli6/github-kit -f only_repo=N
+```
 
 ```jsonc
-// .github/fanout-targets.json
 { "repo": "owner/name" }                        // base = the repo's default branch, resolved at run time
 { "repo": "owner/name", "base": "develop" }     // base = that repo's integration branch, if not the default
 { "repo": "owner/name", "install": true }       // first install: the kit is not there yet
@@ -269,12 +319,14 @@ Neither file hints at the other. Check both.
 | Symptom | Cause | Fix |
 | --- | --- | --- |
 | Fan-out fails at the first step, `FANOUT_TOKEN:` empty in the log | Secret not set | Step 1 |
+| Fan-out fails in `discover` naming `FANOUT_TARGETS` | The registry variable is missing, is not valid registry JSON, or the token cannot read it | Step 1b (`scripts/fanout-registry.sh check` / `set`) |
+| A fan-out job is red but the log says only `fanout (target 3)` and `***` | By design: target names are masked on this public repo | `bash scripts/fanout-registry.sh get \| jq '.targets[3]'` names the repo |
 | Fan-out fails only for *some* targets | Token can't reach those repos — usually a fine-grained PAT hitting a different account | Step 1, use a classic PAT |
 | Writing `.github/workflows/*` via the API returns **404** | Token lacks the `workflow` scope. It returns 404, **not 403**, and reads still succeed — so it looks like a wrong path | `gh auth refresh -s workflow` |
 | `gh project`/field commands fail with "missing required scopes" | Token lacks `project` | `gh auth refresh -s read:project,project` |
 | A new `templates/` file never appears in target repos | One of the two registration points above | See "Adding a new file to `templates/`" |
 | Fan-out PR is missing a script the workflow calls | Fan-out staging allowlist | Same |
-| Fan-out logs `Skipped <repo>: github-kit is not installed there` and opens no PR | The target has no `docs/ai/PROJECT_CONFIG.md` and its entry lacks `"install": true` | Add `"install": true` to that entry (see "Adding a new target repo"), or leave it skipped on purpose |
+| Fan-out logs `Skipped target N: github-kit is not installed there` and opens no PR | The target has no `docs/ai/PROJECT_CONFIG.md` and its registry entry lacks `"install": true` | Add `"install": true` to that entry (see "Adding a new target repo"), or leave it skipped on purpose |
 | A green, ready PR never merges | Read the auto-merge comment on the PR: it names the reason and the next step. No comment means the PR was never handed over (draft; opened non-draft; `no-automerge`; a long-lived head branch; a fork) or no run could start (`KIT_AUTOMERGE_DISABLED`, `KIT_ACTIONS_PAUSED`, Actions budget exhausted, caller not on the default branch yet) | README → "Why hasn't my PR merged?"; Steps 4a and 4c; apply `KIT_AUTOMERGE_ALLOW_NO_CHECKS` with `scripts/apply-repo-variables.sh` |
 | Auto-merge logs "GitHub refused the merge because the PR changes .github/workflows/*" | The merge token lacks the workflow permission (always true of `GITHUB_TOKEN`) | Merge that PR by hand, or Step 4b with *Workflows: Read and write* |
 | Auto-merge run fails with "could not read ... - not merged" | The token cannot read checks / statuses / workflow runs / the PR timeline, or the API was down | Step 4b permissions; re-trigger by adding and removing `no-automerge` |
@@ -287,9 +339,10 @@ Neither file hints at the other. Check both.
 
 If you'd rather not use a classic PAT, the shape is:
 
-- one fine-grained PAT per resource owner (`pzoli6`, `pszichocloud`), each granting **Contents: RW**
-  and **Pull requests: RW** on just that owner's targets;
-- stored as two secrets, e.g. `FANOUT_TOKEN` and `FANOUT_TOKEN_PSZICHOCLOUD`;
+- one fine-grained PAT per resource owner (your account, each organisation), each granting
+  **Contents: RW** and **Pull requests: RW** on just that owner's targets (the one for the account
+  that owns `github-kit` also needs **Variables: Read** there, to read the registry);
+- stored as one secret per owner, e.g. `FANOUT_TOKEN` and `FANOUT_TOKEN_<ORG>`;
 - a change in `github-kit-fanout.yml` to select the token by the target's owner prefix.
 
 That last part is a code change, so it isn't the default — ask an agent to open a PR for it if you
@@ -318,24 +371,37 @@ commits across every branch, ~32k lines of patch.
 | Real email addresses | none (only `github-kit-bot@users.noreply.github.com`) |
 | Fork-triggerable workflows that could reach a secret | **none** — all six `reusable-*.yml` are `workflow_call` only, and fan-out triggers on push/schedule/dispatch, none of which a stranger's PR can fire |
 
-**Nothing needs purging, and no history rewrite is required.**
+**Nothing needs purging, and no history rewrite is required.** Re-audited 2026-10-18 against every
+tracked file and every file version in history: still 0 credential hits.
 
-### The one judgement call: target repo names
+### Target repo names — moved out of the repo (2026-10-18)
 
-`.github/fanout-targets.json` lists your private repos by name. Going public makes those names
-visible. They are not credentials — but they do reveal which projects exist.
+The fan-out registry used to be a committed file, `.github/fanout-targets.json`, naming every
+repository the kit maintains. It is now the `FANOUT_TARGETS` repository variable (Step 1b): only
+accounts with collaborator access to `github-kit` can read it, the workflow reads it inside a step
+(never through `env:`/`with:` before masking), masks every target name with `::add-mask::`, and names jobs by registry index —
+the index-based-matrix-plus-masking design the earlier audit called "harder to operate", made
+bearable by `scripts/fanout-registry.sh get | jq '.targets[N]'` as the one lookup it costs. The
+repo carries only `.github/fanout-targets.example.json` with placeholder names, and the doctor
+fails if a registry file is ever tracked.
 
-Two honest options:
+What this does **not** undo — owner decisions, never an agent's:
 
-1. **Accept it.** Simplest, and repo names are low-sensitivity. Nothing to change.
-2. **Split the orchestration out.** Keep `github-kit` public for what *must* be public — templates
-   and `reusable-*.yml` — and move fan-out (workflow + target list + PAT) into a small **private**
-   repo that checks out `github-kit@main` and runs `update-github-kit.sh` against your targets.
-   You still only ever edit `github-kit`; the private repo is set-and-forget.
-
-Avoid the middle path of hiding the list in a secret inside the public repo: the names still leak
-through matrix job titles and `workflow_dispatch` inputs unless you switch to index-based matrices
-and masking, which makes the one mechanism you depend on materially harder to operate and debug.
+- **History.** Every commit of the old file (2026-07-13 → 2026-10-18) still holds the names.
+  Removing them needs a history rewrite plus a force-push of `main`, which invalidates every
+  clone and open PR. Repo names are low-sensitivity, so the recommended default is to leave
+  history alone.
+- **Old workflow runs.** Fan-out run logs and job names from before this change show the names
+  until they expire (90 days by default), or sooner if you delete those runs (Actions → run →
+  ⋯ → *Delete workflow run*).
+- **Indices.** Job names carry registry indices. For the pre-move targets an index maps back to
+  the historical file's order unless the live registry was stored in a different order (Step 1b
+  says to reorder it); a target added after the move never had a public position, so its index
+  tells nothing. Per-run opaque labels (token-seeded) would close even this, at the cost of
+  needing the token to map a failed job back to its repo.
+- **The other option still stands.** If even a masked, variable-held registry in a public repo
+  is too much, move the fan-out (workflow + registry + PAT) into a small **private** repo that
+  checks out `github-kit@main` and runs `update-github-kit.sh` against your targets.
 
 ### After flipping to public
 

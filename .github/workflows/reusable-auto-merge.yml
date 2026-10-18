@@ -488,7 +488,7 @@ jobs:
             if [ "$run_count" -eq 0 ] && [ "$status_count" -eq 0 ] && [ "$wf_count" -eq 0 ]; then
               if [ "$ALLOW_NO_CHECKS" != "true" ]; then
                 hold "$n" "no check ran on this commit, and no checks cannot be told apart from CI that did not run." \
-                  "merge it by hand. The kit's CI runs only for production-bound PRs, so a PR into the working branch normally has no checks: to let such PRs merge when marked ready, set the repository Actions variable KIT_AUTOMERGE_ALLOW_NO_CHECKS=true (github-kit: \"variables\" in .github/fanout-targets.json, applied by scripts/apply-repo-variables.sh)."; return 0
+                  "merge it by hand. The kit's CI runs only for production-bound PRs, so a PR into the working branch normally has no checks: to let such PRs merge when marked ready, set the repository Actions variable KIT_AUTOMERGE_ALLOW_NO_CHECKS=true (github-kit: \"variables\" on the repo's fan-out registry entry, applied by scripts/apply-repo-variables.sh)."; return 0
               fi
               log "PR #$n: no check runs, commit statuses or workflow runs on $sha - allow_no_checks is on, so a ready PR merges as-is (the '$OPT_OUT_LABEL' label is the brake)."
             fi

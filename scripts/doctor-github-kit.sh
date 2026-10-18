@@ -391,15 +391,30 @@ else
 fi
 
 # A ready PR that auto-merge holds back must say why on the PR (sticky status comment), and the
-# per-repo variables it depends on must be applicable from the registry.
+# per-repo variables it depends on must be applicable from the registry (schema: the example file).
 if grep -q 'status_comment:' .github/workflows/reusable-auto-merge.yml 2>/dev/null \
     && grep -Fq '<!-- github-kit:auto-merge-status -->' .github/workflows/reusable-auto-merge.yml 2>/dev/null \
     && grep -q 'status_comment: true' templates/.github/workflows/auto-merge.yml 2>/dev/null \
     && [ -f scripts/apply-repo-variables.sh ] && [ -f scripts/test-auto-merge.sh ] \
-    && jq -e '[.targets[] | (.variables // {}) | to_entries[] | .value | type == "string"] | all' .github/fanout-targets.json >/dev/null 2>&1; then
+    && jq -e '[.targets[] | (.variables // {}) | to_entries[] | .value | type == "string"] | all' .github/fanout-targets.example.json >/dev/null 2>&1; then
   echo "OK      auto-merge explains every hold (status comment); registry variables are strings and applicable"
 else
-  echo "MISSING auto-merge status_comment / marker, the caller's status_comment: true, scripts/apply-repo-variables.sh, scripts/test-auto-merge.sh, or non-string values under \"variables\" in .github/fanout-targets.json"
+  echo "MISSING auto-merge status_comment / marker, the caller's status_comment: true, scripts/apply-repo-variables.sh, scripts/test-auto-merge.sh, or non-string values under \"variables\" in .github/fanout-targets.example.json"
+  missing=1
+fi
+
+# The fan-out registry (which repositories the kit maintains) is never committed: github-kit is
+# public, that list is not. It lives in the FANOUT_TARGETS repository variable; the repo carries only
+# the placeholder example, the workflow reads the variable (never a registry file), a local working
+# copy at .github/fanout-targets.json is gitignored, and scripts/fanout-registry.sh is the one door.
+if [ -f .github/fanout-targets.example.json ] && [ -f scripts/fanout-registry.sh ] \
+    && ! git ls-files --error-unmatch .github/fanout-targets.json >/dev/null 2>&1 \
+    && grep -q '^/\.github/fanout-targets\.json$' .gitignore 2>/dev/null \
+    && grep -q 'FANOUT_TARGETS' .github/workflows/github-kit-fanout.yml 2>/dev/null \
+    && ! grep -q '\.github/fanout-targets\.json' .github/workflows/github-kit-fanout.yml 2>/dev/null; then
+  echo "OK      fan-out registry stays out of the repo (FANOUT_TARGETS variable; example, gitignore and fanout-registry.sh present; no tracked .github/fanout-targets.json)"
+else
+  echo "MISSING fan-out registry hygiene: .github/fanout-targets.json must not be tracked and must be gitignored, github-kit-fanout.yml must read FANOUT_TARGETS and never a registry file, and .github/fanout-targets.example.json + scripts/fanout-registry.sh must exist"
   missing=1
 fi
 

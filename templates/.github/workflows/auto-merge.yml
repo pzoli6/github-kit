@@ -19,7 +19,7 @@ name: Auto-merge after green
 # merged -- with the kit's budget-first CI triggers that is the normal state of a PR into the
 # base branch unless a third-party check (Vercel, ...) reports on it. A repo that wants such PRs
 # to merge when marked ready sets the repository Actions variable KIT_AUTOMERGE_ALLOW_NO_CHECKS
-# to `true` (github-kit declares it per repo in .github/fanout-targets.json and a human applies it
+# to `true` (github-kit declares it per repo in its fan-out registry and a human applies it
 # with scripts/apply-repo-variables.sh).
 #
 # Never silent: a ready PR that is held back gets one comment, kept current, saying why (no

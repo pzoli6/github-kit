@@ -47,7 +47,7 @@ Usage: install-github-kit.sh [--target <path>] [--mode merge|force] [--allow-dir
                              1 = run automatically on production-bound changes (the default);
                              2 = run only when dispatched by hand. Omitted = keep each caller's
                              current tier ("# github-kit tier: N" line), or 1 for a new file.
-                             The fan-out passes the tier from .github/fanout-targets.json.
+                             The fan-out passes the tier from its registry entry.
 
   Regardless of mode, this script NEVER overwrites:
     - docs/ai/PROJECT_CONFIG.md (repo-specific, edit it yourself)

@@ -421,12 +421,12 @@ if ($callerAutoMerge -match [regex]::Escape('reusable-auto-merge.yml@main') -and
 }
 
 # A ready PR that auto-merge holds back must say why on the PR (sticky status comment), and the
-# per-repo variables it depends on must be applicable from the registry.
+# per-repo variables it depends on must be applicable from the registry (schema: the example file).
 $amReusable = Get-Content -LiteralPath ".github/workflows/reusable-auto-merge.yml" -Raw -ErrorAction SilentlyContinue
 $amCaller = Get-Content -LiteralPath "templates/.github/workflows/auto-merge.yml" -Raw -ErrorAction SilentlyContinue
 $varsOk = $false
 try {
-    $reg = Get-Content -LiteralPath ".github/fanout-targets.json" -Raw | ConvertFrom-Json
+    $reg = Get-Content -LiteralPath ".github/fanout-targets.example.json" -Raw | ConvertFrom-Json
     $varsOk = $true
     foreach ($t in $reg.targets) {
         if ($t.PSObject.Properties.Name -contains 'variables') {
@@ -439,7 +439,27 @@ if ($amReusable -and $amReusable.Contains('status_comment:') -and $amReusable.Co
     (Test-Path -LiteralPath "scripts/apply-repo-variables.sh") -and (Test-Path -LiteralPath "scripts/test-auto-merge.sh") -and $varsOk) {
     Write-Host "OK      auto-merge explains every hold (status comment); registry variables are strings and applicable"
 } else {
-    Write-Host "MISSING auto-merge status_comment / marker, the caller's status_comment: true, scripts/apply-repo-variables.sh, scripts/test-auto-merge.sh, or non-string values under `"variables`" in .github/fanout-targets.json"
+    Write-Host "MISSING auto-merge status_comment / marker, the caller's status_comment: true, scripts/apply-repo-variables.sh, scripts/test-auto-merge.sh, or non-string values under `"variables`" in .github/fanout-targets.example.json"
+    $script:Missing = 1
+}
+
+# The fan-out registry (which repositories the kit maintains) is never committed: github-kit is
+# public, that list is not. It lives in the FANOUT_TARGETS repository variable; the repo carries only
+# the placeholder example, the workflow reads the variable (never a registry file), a local working
+# copy at .github/fanout-targets.json is gitignored, and scripts/fanout-registry.sh is the one door.
+$fanoutWf = Get-Content -LiteralPath ".github/workflows/github-kit-fanout.yml" -Raw -ErrorAction SilentlyContinue
+$gitignoreLines = @(Get-Content -LiteralPath ".gitignore" -ErrorAction SilentlyContinue)
+$registryTracked = $false
+try {
+    & git ls-files --error-unmatch .github/fanout-targets.json *> $null
+    if ($LASTEXITCODE -eq 0) { $registryTracked = $true }
+} catch { $registryTracked = $false }
+if ((Test-Path -LiteralPath ".github/fanout-targets.example.json") -and (Test-Path -LiteralPath "scripts/fanout-registry.sh") -and
+    (-not $registryTracked) -and ($gitignoreLines -contains '/.github/fanout-targets.json') -and
+    $fanoutWf -and $fanoutWf.Contains('FANOUT_TARGETS') -and (-not $fanoutWf.Contains('.github/fanout-targets.json'))) {
+    Write-Host "OK      fan-out registry stays out of the repo (FANOUT_TARGETS variable; example, gitignore and fanout-registry.sh present; no tracked .github/fanout-targets.json)"
+} else {
+    Write-Host "MISSING fan-out registry hygiene: .github/fanout-targets.json must not be tracked and must be gitignored, github-kit-fanout.yml must read FANOUT_TARGETS and never a registry file, and .github/fanout-targets.example.json + scripts/fanout-registry.sh must exist"
     $script:Missing = 1
 }
 

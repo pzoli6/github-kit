@@ -120,10 +120,10 @@ starts no kit workflow at all (CI and PR Policy run for production-bound PRs), s
 third-party check such as a Vercel preview reports on it, such a PR is **not** merged
 automatically — a human merges it. A repo that wants "merge when marked ready" without checks
 sets the repository Actions variable **`KIT_AUTOMERGE_ALLOW_NO_CHECKS=true`**; the
-`no-automerge` label is then its only brake. The registry declares it per repo
-(`"variables"` in `.github/fanout-targets.json`), and you apply it with
-`scripts/apply-repo-variables.sh` (run it with `--dry-run` first; it needs `gh` logged in as the
-repos' admin, and `jq`: on Windows `winget install jqlang.jq`, then run it from Git Bash; the
+`no-automerge` label is then its only brake. The fan-out registry declares it per repo
+(`"variables"` on the repo's entry — see "Fan-out propagation of bootstrap files"), and you apply
+it with `scripts/apply-repo-variables.sh` (run it with `--dry-run` first; it needs `gh` logged in
+as the repos' admin, and `jq`: on Windows `winget install jqlang.jq`, then run it from Git Bash; the
 CRLF a native `jq.exe` writes is stripped). Nothing in CI changes repository settings.
 
 **Why hasn't my PR merged?** A ready PR that auto-merge holds back gets **one comment, kept
@@ -333,10 +333,16 @@ that gap so you never have to run `/github_kit_update` in each repo by hand.
 
 - triggers on every push to `main` that touches `templates/**` or the install/update scripts, plus
   a weekly cron safety net and manual `workflow_dispatch`;
-- reads the target list from [`.github/fanout-targets.json`](.github/fanout-targets.json) (add a
-  repo by appending one `{ "repo": "owner/name", "tier": 1 }` entry — nothing is needed on the
-  target side; `"base"` is optional and defaults to the repo's default branch, resolved at run
-  time; see "Repository tiers" below);
+- reads the target list from the **fan-out registry**: the `FANOUT_TARGETS` repository Actions
+  variable of github-kit, holding the JSON documented in
+  [`.github/fanout-targets.example.json`](.github/fanout-targets.example.json). The registry is
+  deliberately **not a committed file** — this repo is public, the list of repositories it
+  maintains is not — and the workflow masks every target name in its logs and names jobs by
+  registry index, so a public run page reveals no repo. Edit it with `scripts/fanout-registry.sh`
+  (`get`, `check <file>`, `set <file>`); add a repo by adding one
+  `{ "repo": "owner/name", "tier": 1 }` entry — nothing is needed on the target side; `"base"` is
+  optional and defaults to the repo's default branch, resolved at run time; see "Repository
+  tiers" below;
 - **skips, with a visible log line and no PR, any target that does not have the kit installed**
   (no `docs/ai/PROJECT_CONFIG.md` at its base branch) — unless the entry says `"install": true`,
   in which case the full installer runs there once and the resulting draft PR says so. The kit is
@@ -356,9 +362,9 @@ workflow fails fast with a clear message instead of silently doing nothing.
 
 A **fine-grained** PAT (Contents: RW + Pull requests: RW on each target) is enough **only while
 every target belongs to one account** — fine-grained PATs are scoped to a single resource owner and
-cannot select repos you are merely an outside collaborator on. The target list now spans `pzoli6`
-and `pszichocloud`, so it needs a **classic** PAT with the `repo` scope, created by an account
-with push access to every target. Full instructions, including the least-privilege alternative:
+cannot select repos you are merely an outside collaborator on. A registry that spans more than one
+account therefore needs a **classic** PAT with the `repo` scope, created by an account with push
+access to every target. Full instructions, including the least-privilege alternative:
 **[docs/OWNER_SETUP.md](docs/OWNER_SETUP.md)**.
 
 The mental model is: **you improve `github-kit`, and every repo gets a draft PR** — reusable CI
@@ -387,8 +393,8 @@ own `<!-- BEGIN GITHUB-KIT ... -->` block; the scripts no longer carry a copy.
 
 ## Repository tiers
 
-Every repo in `.github/fanout-targets.json` has a `tier` that decides how much of the shared Actions
-budget it may spend automatically:
+Every entry in the fan-out registry (`FANOUT_TARGETS`, see "Fan-out propagation of bootstrap
+files") has a `tier` that decides how much of the shared Actions budget it may spend automatically:
 
 | Tier | CI and Agent Workflow Verify | Codex automatic review |
 |---|---|---|

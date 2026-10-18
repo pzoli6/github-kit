@@ -9,21 +9,47 @@ name: github-kit fan-out (propagate bootstrap updates)
 # NOT auto-track; historically they only refreshed when a human ran /github_kit_update.
 #
 # This workflow makes that automatic. On every push to main that changes template/script content
-# (plus a weekly safety net, plus manual dispatch), it refreshes each target repo listed in
-# .github/fanout-targets.json from github-kit@main and opens a DRAFT PR whenever anything drifted.
+# (plus a weekly safety net, plus manual dispatch), it refreshes each target repo listed in the
+# fan-out registry from github-kit@main and opens a DRAFT PR whenever anything drifted.
 # It never merges, never overwrites an existing docs/ai/PROJECT_CONFIG.md (only an explicit
 # "install": true creates the template one), and never force-pushes. Its PRs change
 # .github/workflows/*, which the kit's auto-merge.yml can merge only when the target has an
 # AUTOMERGE_TOKEN with the workflow permission (GitHub refuses workflow-file merges from
 # GITHUB_TOKEN) -- otherwise the owner merges them by hand. The fan-out itself only opens drafts.
 #
-# Per-target entry: { "repo": "owner/name", "base": "<branch>", "install": true }
-#   base    optional -- the branch the draft PR targets; omitted = the repo's default branch,
-#           resolved at run time (gh api repos/<repo> .default_branch).
-#   install optional, default false -- a target WITHOUT the kit installed (no
-#           docs/ai/PROJECT_CONFIG.md at the base branch) is skipped with a visible log line
-#           and no PR. Only "install": true makes fan-out run the full installer there; the kit
-#           is never silently installed into a repo that never had it.
+# THE REGISTRY IS NOT IN THIS REPOSITORY. github-kit is public; the list of repositories it
+# maintains is not. The registry is the repository Actions VARIABLE `FANOUT_TARGETS` of github-kit
+# (Settings -> Secrets and variables -> Actions -> Variables), holding the JSON documented in
+# .github/fanout-targets.example.json; scripts/fanout-registry.sh reads, checks and stores it.
+# Nothing about a target may reach this public repo's run pages, so:
+#   - the registry is read INSIDE a step with `gh variable get` (through the fan-out token), never
+#     through `env:` or `with:` before masking -- the runner prints those in every step header;
+#   - every target name is registered with ::add-mask:: as the first thing each job does, so it
+#     shows as *** wherever a tool prints it afterwards (checkout, git, gh, this workflow's own log);
+#   - the matrix carries only the entry's INDEX in the registry, so job names read
+#     "fanout (target 3)"; map that back with `scripts/fanout-registry.sh get | jq '.targets[3]'`;
+#   - the `only_repo` dispatch input takes that index too (an owner/name also works, but then the
+#     name sits in the run's inputs);
+#   - each run plans its targets from ONE read of the registry in `discover`, and every fan-out job
+#     checks its own fresh read against a token-keyed fingerprint of that snapshot, so a registry
+#     stored mid-run fails the job instead of acting on a shifted index;
+#   - storing a changed registry triggers nothing by itself (it is a variable, not a push):
+#     dispatch this workflow after `scripts/fanout-registry.sh set`, or wait for the weekly cron.
+# A step output may never carry a masked value (the runner drops it with "Skip output ... since it
+# may contain secret"), which is why TARGET_REPO is re-read from the variable per step below.
+#
+# Per-target entry: { "repo": "owner/name", "base": "<branch>", "install": true, "tier": 1,
+#                     "variables": { ... } }
+#   base      optional -- the branch the draft PR targets; omitted = the repo's default branch,
+#             resolved at run time (gh api repos/<repo> .default_branch).
+#   install   optional, default false -- a target WITHOUT the kit installed (no
+#             docs/ai/PROJECT_CONFIG.md at the base branch) is skipped with a visible log line
+#             and no PR. Only "install": true makes fan-out run the full installer there; the kit
+#             is never silently installed into a repo that never had it.
+#   tier      optional, default 1 -- passed to the updater/installer as --tier (README ->
+#             "Repository tiers").
+#   variables optional -- repository Actions variables a human applies with
+#             scripts/apply-repo-variables.sh; the fan-out never touches them.
 #
 # Requires one repository secret in github-kit: FANOUT_TOKEN
 #
@@ -35,7 +61,9 @@ name: github-kit fan-out (propagate bootstrap updates)
 # write", and nothing else. The default GITHUB_TOKEN cannot reach other repos at all, which is why
 # a PAT is needed. It needs BOTH the "repo" AND "workflow" scopes -- without "workflow", git
 # rejects the push the moment a target's .github/workflows/*.yml changes, which happens after
-# checkout/refresh/commit all succeed, so it reads like a target-repo permissions problem.
+# checkout/refresh/commit all succeed, so it reads like a target-repo permissions problem. The
+# `repo` scope also lets it read the FANOUT_TARGETS variable of github-kit (a fine-grained token
+# would additionally need "Variables: Read" on github-kit).
 # Use a CLASSIC PAT when targets span more than one account:
 # a fine-grained PAT is scoped to a single resource owner and cannot select repos you are only an
 # outside collaborator on. See docs/OWNER_SETUP.md.
@@ -48,13 +76,12 @@ on:
       - 'scripts/install-github-kit.sh'
       - 'scripts/update-github-kit.sh'
       - '.github/workflows/github-kit-fanout.yml'
-      - '.github/fanout-targets.json'
   schedule:
     - cron: '0 6 * * 1'   # Mondays 06:00 UTC — catches anything a path-filtered push missed
   workflow_dispatch:
     inputs:
       only_repo:
-        description: 'Limit fan-out to one target (owner/name). Blank = all targets.'
+        description: 'Limit fan-out to one target: its 0-based index in the FANOUT_TARGETS registry (keeps the name out of this public run), or owner/name. Blank = all targets.'
         required: false
         default: ''
 
@@ -71,29 +98,62 @@ jobs:
     outputs:
       matrix: ${{ steps.set.outputs.matrix }}
       count: ${{ steps.set.outputs.count }}
+      fingerprint: ${{ steps.set.outputs.fingerprint }}
     steps:
-      - uses: actions/checkout@v5
       - id: set
         shell: bash
         env:
+          GH_TOKEN: ${{ secrets.FANOUT_TOKEN }}
           ONLY_REPO: ${{ github.event.inputs.only_repo }}
         run: |
           set -euo pipefail
-          # A missing tier means tier 1; the tier is passed to the updater/installer as --tier.
-          # "variables" are repository settings a human applies (scripts/apply-repo-variables.sh);
-          # the fan-out never touches them, so they stay out of the matrix.
-          targets='[.targets[] | del(.variables) | . + {tier: ((.tier // 1) | tostring)}]'
-          if [ -n "$ONLY_REPO" ]; then
-            matrix="$(jq -c --arg r "$ONLY_REPO" "{include: ($targets | map(select(.repo == \$r)))}" .github/fanout-targets.json)"
-          else
-            matrix="$(jq -c "{include: $targets}" .github/fanout-targets.json)"
+          # Read through env and tested for emptiness only — the value is never echoed.
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "::error::FANOUT_TOKEN secret is not set in github-kit. Create a CLASSIC PAT with BOTH the repo and workflow scopes (workflow is required because fan-out updates .github/workflows/*.yml in targets) and add it as this secret. See docs/OWNER_SETUP.md."
+            exit 1
           fi
-          count="$(echo "$matrix" | jq '.include | length')"
+          # The registry is read here, inside the step, so that no step header prints it.
+          if ! registry="$(gh variable get FANOUT_TARGETS --repo "$GITHUB_REPOSITORY" 2> /dev/null)" || [ -z "$registry" ]; then
+            echo "::error::The FANOUT_TARGETS repository variable is not set in ${GITHUB_REPOSITORY} (or FANOUT_TOKEN cannot read its variables). It holds the fan-out registry: the JSON described in .github/fanout-targets.example.json. Store it with scripts/fanout-registry.sh set <file>; see docs/OWNER_SETUP.md -> Step 1b."
+            exit 1
+          fi
+          if ! jq -e '(.targets | type) == "array" and (.targets | length) > 0
+                      and all(.targets[]; (.repo | type) == "string" and (.repo | test("^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")))' \
+                 <<< "$registry" > /dev/null 2>&1; then
+            echo "::error::FANOUT_TARGETS is not a valid fan-out registry (expected {\"targets\": [{\"repo\": \"owner/name\", ...}, ...]}). Check it with scripts/fanout-registry.sh check <file> and store it again with scripts/fanout-registry.sh set <file>."
+            exit 1
+          fi
+          # Mask every target name before anything else is logged.
+          while IFS= read -r r; do echo "::add-mask::$r"; done < <(jq -r '.targets[].repo' <<< "$registry")
+          # Fingerprint of the registry this run plans from, keyed with the token so the digest tells
+          # an observer nothing; every fan-out job checks its own fresh read against it.
+          fingerprint="$(printf '%s' "$registry" | openssl dgst -sha256 -hmac "$GH_TOKEN" | awk '{print $NF}')"
+          echo "fingerprint=$fingerprint" >> "$GITHUB_OUTPUT"
+          total="$(jq '.targets | length' <<< "$registry")"
+          # The matrix carries registry indices only; each fan-out job re-reads its entry.
+          if [ -z "$ONLY_REPO" ]; then
+            matrix="$(jq -c '{include: [range(.targets | length) | {index: .}]}' <<< "$registry")"
+          elif [[ "$ONLY_REPO" =~ ^[0-9]+$ ]]; then
+            if [ "$ONLY_REPO" -ge "$total" ]; then
+              echo "::error::only_repo index $ONLY_REPO is out of range: the registry has $total target(s), indices 0-$((total - 1))."
+              exit 1
+            fi
+            matrix="$(jq -cn --argjson i "$ONLY_REPO" '{include: [{index: $i}]}')"
+          else
+            idx="$(jq -r --arg r "$ONLY_REPO" '[.targets[].repo] | index($r) // empty' <<< "$registry")"
+            if [ -z "$idx" ]; then
+              echo "::error::only_repo names no registry entry. Pass the entry's 0-based index instead (scripts/fanout-registry.sh get); that also keeps the name out of this public run."
+              exit 1
+            fi
+            matrix="$(jq -cn --argjson i "$idx" '{include: [{index: $i}]}')"
+          fi
+          count="$(jq '.include | length' <<< "$matrix")"
           echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
           echo "count=$count" >> "$GITHUB_OUTPUT"
-          echo "Fan-out will consider $count target(s)."
+          echo "Fan-out will consider $count of $total registered target(s)."
 
   fanout:
+    name: fanout (target ${{ matrix.index }})
     needs: discover
     if: ${{ needs.discover.outputs.count != '0' }}
     runs-on: ubuntu-latest
@@ -102,33 +162,65 @@ jobs:
       max-parallel: 4
       matrix: ${{ fromJSON(needs.discover.outputs.matrix) }}
     steps:
-      - name: Check fan-out token is configured
-        env:
-          FANOUT_TOKEN: ${{ secrets.FANOUT_TOKEN }}
+      # First, before any other step header can print it: mask every target name for this job,
+      # and read this job's registry entry. The repo name itself cannot travel as a step output
+      # (the runner drops outputs that contain a masked value), so the steps below take it from
+      # the variable again via the expression  fromJSON(vars.FANOUT_TARGETS).targets[matrix.index].repo
+      # -- printed in their headers only as ***, because this step masked it first. Those
+      # expressions read the live variable at each step; the fingerprint check below covers the
+      # gap between planning and running, and a change inside one job's few minutes can only fail
+      # that job (checkout and PR would disagree), never reach a repository outside the registry.
+      - name: Resolve the registry entry (names masked)
+        id: target
         shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.FANOUT_TOKEN }}
+          INDEX: ${{ matrix.index }}
+          EXPECTED_FINGERPRINT: ${{ needs.discover.outputs.fingerprint }}
         run: |
-          # Read through env and tested for emptiness only — the value is never echoed.
-          if [ -z "${FANOUT_TOKEN:-}" ]; then
-            echo "::error::FANOUT_TOKEN secret is not set in github-kit. Create a CLASSIC PAT with BOTH the repo and workflow scopes (workflow is required because fan-out updates .github/workflows/*.yml in targets) and add it as this secret. See docs/OWNER_SETUP.md."
+          set -euo pipefail
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "::error::FANOUT_TOKEN secret is not set in github-kit. See docs/OWNER_SETUP.md."
             exit 1
           fi
+          registry="$(gh variable get FANOUT_TARGETS --repo "$GITHUB_REPOSITORY")"
+          while IFS= read -r r; do echo "::add-mask::$r"; done < <(jq -r '.targets[].repo' <<< "$registry")
+          # The matrix index is meaningful only for the registry `discover` planned from. A registry
+          # stored while this run was queued or running could shift the indices, so a fresh read
+          # that differs from the planned snapshot stops this job before it touches anything.
+          fingerprint="$(printf '%s' "$registry" | openssl dgst -sha256 -hmac "$GH_TOKEN" | awk '{print $NF}')"
+          if [ "$fingerprint" != "$EXPECTED_FINGERPRINT" ]; then
+            echo "::error::The FANOUT_TARGETS registry changed after this run planned its targets, so index $INDEX may now name a different repository. Nothing was touched; re-run the workflow."
+            exit 1
+          fi
+          entry="$(jq -c --argjson i "$INDEX" '.targets[$i]' <<< "$registry")"
+          if [ -z "$entry" ] || [ "$entry" = "null" ]; then
+            echo "::error::Registry entry $INDEX does not exist. Re-run the workflow."
+            exit 1
+          fi
+          {
+            echo "base=$(jq -r '.base // ""' <<< "$entry")"
+            echo "install=$(jq -r '.install // false' <<< "$entry")"
+            echo "tier=$(jq -r '(.tier // 1) | tostring' <<< "$entry")"
+          } >> "$GITHUB_OUTPUT"
+          echo "Target $INDEX is $(jq -r '.repo' <<< "$entry") (shown masked), tier $(jq -r '.tier // 1' <<< "$entry")."
 
       - name: Checkout github-kit (source of truth)
         uses: actions/checkout@v5
         with:
           path: github-kit
 
-      - name: Resolve target base branch (${{ matrix.repo }})
+      - name: Resolve target base branch
         id: base
         env:
           GH_TOKEN: ${{ secrets.FANOUT_TOKEN }}
-          TARGET_REPO: ${{ matrix.repo }}
-          TARGET_BASE: ${{ matrix.base }}
+          TARGET_REPO: ${{ fromJSON(vars.FANOUT_TARGETS).targets[matrix.index].repo }}
+          TARGET_BASE: ${{ steps.target.outputs.base }}
         shell: bash
         run: |
           set -euo pipefail
           if [ -n "${TARGET_BASE:-}" ]; then
-            echo "Base branch for ${TARGET_REPO}: ${TARGET_BASE} (from fanout-targets.json)."
+            echo "Base branch for ${TARGET_REPO}: ${TARGET_BASE} (from the registry entry)."
           else
             # `|| true` so a 403/404 reaches the explicit error below instead of aborting the step
             # under `set -e` with only gh's own message.
@@ -141,10 +233,10 @@ jobs:
           fi
           echo "base=${TARGET_BASE}" >> "$GITHUB_OUTPUT"
 
-      - name: Checkout target repo (${{ matrix.repo }})
+      - name: Checkout target repo
         uses: actions/checkout@v5
         with:
-          repository: ${{ matrix.repo }}
+          repository: ${{ fromJSON(vars.FANOUT_TARGETS).targets[matrix.index].repo }}
           ref: ${{ steps.base.outputs.base }}
           token: ${{ secrets.FANOUT_TOKEN }}
           path: target
@@ -153,8 +245,9 @@ jobs:
       - name: Check the kit is installed in the target
         id: gate
         env:
-          TARGET_REPO: ${{ matrix.repo }}
-          INSTALL: ${{ matrix.install }}
+          TARGET_REPO: ${{ fromJSON(vars.FANOUT_TARGETS).targets[matrix.index].repo }}
+          INDEX: ${{ matrix.index }}
+          INSTALL: ${{ steps.target.outputs.install }}
         shell: bash
         run: |
           set -euo pipefail
@@ -162,10 +255,10 @@ jobs:
             echo "github-kit is installed in ${TARGET_REPO} (docs/ai/PROJECT_CONFIG.md present) — refreshing."
             echo "mode=update" >> "$GITHUB_OUTPUT"
           elif [ "${INSTALL:-}" = "true" ]; then
-            echo "github-kit is NOT installed in ${TARGET_REPO}, but its fanout-targets.json entry says \"install\": true — running the full installer."
+            echo "github-kit is NOT installed in ${TARGET_REPO}, but its registry entry says \"install\": true — running the full installer."
             echo "mode=install" >> "$GITHUB_OUTPUT"
           else
-            echo "::notice title=Skipped ${TARGET_REPO}::github-kit is not installed there (no docs/ai/PROJECT_CONFIG.md at the base branch) and the target entry does not say \"install\": true — skipping, no PR opened. Add \"install\": true to its fanout-targets.json entry to install the kit on the next run."
+            echo "::notice title=Skipped target ${INDEX}::github-kit is not installed there (no docs/ai/PROJECT_CONFIG.md at the base branch) and the registry entry does not say \"install\": true — skipping, no PR opened. Add \"install\": true to that entry (scripts/fanout-registry.sh) to install the kit on the next run."
             echo "mode=skip" >> "$GITHUB_OUTPUT"
           fi
 
@@ -173,7 +266,7 @@ jobs:
         if: steps.gate.outputs.mode == 'update'
         shell: bash
         env:
-          TARGET_TIER: ${{ matrix.tier }}
+          TARGET_TIER: ${{ steps.target.outputs.tier }}
         run: |
           set -euo pipefail
           bash github-kit/scripts/update-github-kit.sh --target target --allow-dirty --ref main --tier "$TARGET_TIER"
@@ -182,7 +275,7 @@ jobs:
         if: steps.gate.outputs.mode == 'install'
         shell: bash
         env:
-          TARGET_TIER: ${{ matrix.tier }}
+          TARGET_TIER: ${{ steps.target.outputs.tier }}
         run: |
           set -euo pipefail
           bash github-kit/scripts/install-github-kit.sh --target target --mode merge --allow-dirty --ref main --tier "$TARGET_TIER"
@@ -191,7 +284,7 @@ jobs:
         if: steps.gate.outputs.mode != 'skip'
         env:
           GH_TOKEN: ${{ secrets.FANOUT_TOKEN }}
-          TARGET_REPO: ${{ matrix.repo }}
+          TARGET_REPO: ${{ fromJSON(vars.FANOUT_TARGETS).targets[matrix.index].repo }}
           TARGET_BASE: ${{ steps.base.outputs.base }}
           RUN_ID: ${{ github.run_id }}
           MODE: ${{ steps.gate.outputs.mode }}
@@ -264,7 +357,7 @@ jobs:
           if [ "$MODE" = "install" ]; then
             {
               echo
-              echo "**First install** (\`\"install\": true\` in github-kit's \`fanout-targets.json\`): this PR adds the"
+              echo "**First install** (\`\"install\": true\` on this repo's entry in github-kit's fan-out registry): this PR adds the"
               echo "whole kit, including a template \`docs/ai/PROJECT_CONFIG.md\` — fill in its base branch, validation"
               echo "commands and forbidden files before merging. Your issue/PR templates are only added where missing."
             } >> "$body_file"
@@ -273,7 +366,7 @@ jobs:
               echo
               echo "It does **not** touch \`docs/ai/PROJECT_CONFIG.md\` or your issue/PR templates. The exact file"
               echo "list is \`docs/ai/KIT_MANIFEST.tsv\`; the CI callers carry this repo's Actions-budget tier"
-              echo "from github-kit's \`fanout-targets.json\` (\`# github-kit tier: N\`)."
+              echo "from its entry in github-kit's fan-out registry (\`# github-kit tier: N\`)."
             } >> "$body_file"
           fi
 

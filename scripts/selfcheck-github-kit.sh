@@ -5,7 +5,7 @@
 #   1. doctor-github-kit.sh           packaging, manifest integrity, pause guards, gates
 #   2. actionlint                     workflow syntax, expression types, script-injection sinks
 #   3. shellcheck -S error            real errors in every shell script (warnings are not gated)
-#   4. JSON                           fan-out registry and Claude settings template parse
+#   4. JSON                           fan-out registry example (schema) and Claude settings template parse
 #   5. test-auto-merge.sh             auto-merge decisions and its status comment (fake gh)
 #   6. test-apply-repo-variables.sh   registry variables script, incl. CRLF from Windows jq.exe
 #   7. test-install-update.sh         install/update promises, bash vs PowerShell parity
@@ -48,10 +48,11 @@ fi
 
 step "JSON"
 json_ok=0
-for f in .github/fanout-targets.json templates/.claude/settings.json; do
+for f in .github/fanout-targets.example.json templates/.claude/settings.json; do
   python3 -c 'import json,sys; json.load(open(sys.argv[1]))' "$f" || { echo "invalid JSON: $f"; json_ok=1; }
 done
-result "$json_ok" "JSON files parse"
+bash scripts/fanout-registry.sh check .github/fanout-targets.example.json || json_ok=1
+result "$json_ok" "JSON files parse; fan-out registry example matches the schema"
 
 step "auto-merge behaviour"
 if python3 -c 'import yaml' 2>/dev/null; then

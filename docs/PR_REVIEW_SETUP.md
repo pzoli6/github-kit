@@ -23,7 +23,8 @@ checkers in CI should own anything mechanical.
 
 ## Recommended setup per tier
 
-Tiers are recorded in `.github/fanout-targets.json` (see README → "Repository tiers").
+Tiers are recorded in the fan-out registry — the `FANOUT_TARGETS` variable of github-kit (see README →
+"Repository tiers").
 
 | | Tier 1 | Tier 2 |
 |---|---|---|

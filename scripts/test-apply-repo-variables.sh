@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
 # Behaviour test for scripts/apply-repo-variables.sh.
 #
-# Runs the real script from a throwaway kit root (its own .github/fanout-targets.json) against a
-# fake `gh` that keeps repository variables as files and logs every write. Asserts that:
+# Runs the real script from a throwaway kit root against a fake `gh` that serves the fan-out
+# registry (`gh variable get FANOUT_TARGETS`), keeps repository variables as files and logs every
+# write. Asserts that:
+#   - the registry comes from the FANOUT_TARGETS variable, or from --registry FILE; a missing
+#     variable fails early and points at docs/OWNER_SETUP.md -> Step 1b
 #   - --dry-run and a matching value change nothing; a differing or unset value is set
 #   - --repo limits the run to one registry entry; a repo gh cannot read is FAILED, exit 1
 #   - CRLF output (a native Windows jq.exe or gh.exe) never leaks a CR into the value that is set
@@ -20,10 +23,11 @@ fail() { echo "FAIL    $1"; failures=$((failures + 1)); }
 
 REAL_JQ="$(command -v jq)" || { echo "FAIL    jq is required to run this test"; exit 1; }
 
-# Throwaway kit root: the script under test plus a small registry.
-mkdir -p "$WORK/kit/scripts" "$WORK/kit/.github" "$WORK/bin" "$WORK/crlf-bin"
+# Throwaway kit root: the script under test, plus a small registry the fake gh serves as the
+# FANOUT_TARGETS variable (and that --registry can read as a file).
+mkdir -p "$WORK/kit/scripts" "$WORK/bin" "$WORK/crlf-bin"
 cp "$KIT_ROOT/scripts/apply-repo-variables.sh" "$WORK/kit/scripts/"
-cat > "$WORK/kit/.github/fanout-targets.json" <<'JSON'
+cat > "$WORK/registry.json" <<'JSON'
 { "targets": [
   { "repo": "o/unset",  "variables": { "KIT_AUTOMERGE_ALLOW_NO_CHECKS": "true" } },
   { "repo": "o/same",   "variables": { "KIT_AUTOMERGE_ALLOW_NO_CHECKS": "true" } },
@@ -32,9 +36,11 @@ cat > "$WORK/kit/.github/fanout-targets.json" <<'JSON'
 ] }
 JSON
 
-# Fake gh: `gh variable list --repo R ...` prints the value of the name in the --jq filter;
+# Fake gh: `gh variable get FANOUT_TARGETS --repo KIT` prints the registry ($FAKE_GH_REGISTRY);
+# `gh variable list --repo R ...` prints the value of the name in the --jq filter;
 # `gh variable set NAME --repo R --body V` stores it. State: $GH_STATE/<owner>_<repo>/<NAME>.
-# FAKE_GH_DENY=<repo> makes reads of that repo fail; FAKE_GH_CRLF=1 ends output with CRLF.
+# FAKE_GH_DENY=<repo> makes reads of that repo fail; FAKE_GH_CRLF=1 ends output with CRLF;
+# FAKE_GH_NO_REGISTRY=1 makes the FANOUT_TARGETS variable not exist.
 cat > "$WORK/bin/gh" <<'SH'
 #!/usr/bin/env bash
 sub="$1 $2"; shift 2
@@ -50,6 +56,11 @@ while [ "$#" -gt 0 ]; do
 done
 dir="$GH_STATE/${repo//\//_}"
 case "$sub" in
+  "variable get")
+    if [ -n "${FAKE_GH_NO_REGISTRY:-}" ] || [ "$name" != "FANOUT_TARGETS" ]; then
+      echo "variable $name was not found" >&2; exit 1
+    fi
+    if [ -n "${FAKE_GH_CRLF:-}" ]; then sed 's/$/\r/' "$FAKE_GH_REGISTRY"; else cat "$FAKE_GH_REGISTRY"; fi ;;
   "variable list")
     [ "$repo" != "${FAKE_GH_DENY:-}" ] || { echo "HTTP 403" >&2; exit 1; }
     want="$(printf '%s' "$filter" | sed -n 's/.*\.name == "\([^"]*\)".*/\1/p')"
@@ -82,7 +93,7 @@ reset() {
 value_of() { cat "$GH_STATE/${1//\//_}/KIT_AUTOMERGE_ALLOW_NO_CHECKS" 2>/dev/null || echo "<unset>"; }
 writes() { wc -l < "$GH_STATE/writes.log" | tr -d ' '; }
 run() { PATH="$WORK/bin:$PATH" bash "$WORK/kit/scripts/apply-repo-variables.sh" "$@" > "$WORK/out" 2>&1; }
-export GH_STATE="$WORK/state"
+export GH_STATE="$WORK/state" FAKE_GH_REGISTRY="$WORK/registry.json"
 
 # 1. dry run: reports, writes nothing.
 reset; run --dry-run; rc=$?
@@ -134,6 +145,19 @@ PATH="$WORK/bin:$WORK/nojq-bin" "$BASH" "$WORK/kit/scripts/apply-repo-variables.
 if [ "$rc" -eq 1 ] && [ "$(writes)" = 0 ] && grep -q 'winget install jqlang.jq' "$WORK/out"; then
   pass "missing jq fails early with an install hint"
 else fail "missing jq (rc=$rc): $(cat "$WORK/out")"; fi
+
+# 8. --registry FILE: the local copy is used; the FANOUT_TARGETS variable is never needed.
+reset; FAKE_GH_NO_REGISTRY=1 run --dry-run --registry "$WORK/registry.json"; rc=$?
+if [ "$rc" -eq 0 ] && [ "$(writes)" = 0 ] && grep -q '^WOULD   o/unset' "$WORK/out" \
+   && grep -q '^OK      o/same' "$WORK/out"; then
+  pass "--registry FILE reads the local copy instead of the FANOUT_TARGETS variable"
+else fail "--registry (rc=$rc, writes=$(writes)): $(cat "$WORK/out")"; fi
+
+# 9. no FANOUT_TARGETS variable: fails before touching anything, pointing at Step 1b.
+reset; FAKE_GH_NO_REGISTRY=1 run; rc=$?
+if [ "$rc" -eq 1 ] && [ "$(writes)" = 0 ] && grep -q 'FANOUT_TARGETS' "$WORK/out" && grep -q 'Step 1b' "$WORK/out"; then
+  pass "missing FANOUT_TARGETS variable fails early with a pointer to Step 1b"
+else fail "missing registry (rc=$rc, writes=$(writes)): $(cat "$WORK/out")"; fi
 
 echo
 if [ "$failures" -ne 0 ]; then echo "$failures apply-repo-variables test(s) failed"; exit 1; fi

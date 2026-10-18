@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Apply the repository Actions variables declared in .github/fanout-targets.json to each target.
+# Apply the repository Actions variables declared in the fan-out registry to each target.
 #
 # The registry is the single place that says how each repo behaves; a target entry may carry
 #   "variables": { "KIT_AUTOMERGE_ALLOW_NO_CHECKS": "true", ... }
@@ -8,16 +8,23 @@
 # `gh variable delete NAME --repo OWNER/REPO`). Changing repository settings is a human action:
 # nothing in CI runs this script, and agents must not run it on their own.
 #
-# Usage: scripts/apply-repo-variables.sh [--dry-run] [--repo OWNER/REPO]
+# The registry is not a file in this public repository: it is the FANOUT_TARGETS repository
+# Actions variable of github-kit (scripts/fanout-registry.sh; schema in
+# .github/fanout-targets.example.json). This script reads the live variable unless --registry
+# points at a local copy, e.g. the one you are about to `fanout-registry.sh set`.
+#
+# Usage: scripts/apply-repo-variables.sh [--dry-run] [--repo OWNER/REPO] [--registry FILE]
 #   --dry-run          show what would change, change nothing
 #   --repo OWNER/REPO  limit to one registry entry
-# Needs: gh (authenticated as an account with admin rights on the targets), jq.
+#   --registry FILE    read the registry from FILE instead of the FANOUT_TARGETS variable
+#   GITHUB_KIT_REPO    the repo whose variable holds the registry (default: pzoli6/github-kit)
+# Needs: gh (authenticated as an account with write access to github-kit and admin on the targets), jq.
 # Windows (Git Bash): install jq with `winget install jqlang.jq`. A native jq.exe ends its output
 # lines with CRLF; every value read here is stripped of that CR before it is compared or set.
 set -euo pipefail
 
-KIT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-REGISTRY="$KIT_ROOT/.github/fanout-targets.json"
+KIT_REPO="${GITHUB_KIT_REPO:-pzoli6/github-kit}"
+REGISTRY_FILE=""
 DRY_RUN=0
 ONLY=""
 
@@ -25,7 +32,8 @@ while [ "$#" -gt 0 ]; do
   case "$1" in
     --dry-run) DRY_RUN=1; shift ;;
     --repo) [ "$#" -ge 2 ] || { echo "error: --repo needs OWNER/REPO" >&2; exit 2; }; ONLY="$2"; shift 2 ;;
-    -h|--help) sed -n '2,16p' "$0"; exit 0 ;;
+    --registry) [ "$#" -ge 2 ] || { echo "error: --registry needs FILE" >&2; exit 2; }; REGISTRY_FILE="$2"; shift 2 ;;
+    -h|--help) sed -n '2,23p' "$0"; exit 0 ;;
     *) echo "error: unknown argument '$1'" >&2; exit 2 ;;
   esac
 done
@@ -36,6 +44,18 @@ command -v jq > /dev/null || {
        "macOS: brew install jq; Debian/Ubuntu: sudo apt-get install jq)" >&2
   exit 1
 }
+
+if [ -n "$REGISTRY_FILE" ]; then
+  [ -f "$REGISTRY_FILE" ] || { echo "error: no such file: $REGISTRY_FILE" >&2; exit 1; }
+  registry="$(< "$REGISTRY_FILE")"
+elif ! registry="$(gh variable get FANOUT_TARGETS --repo "$KIT_REPO")"; then
+  echo "error: could not read the FANOUT_TARGETS variable of $KIT_REPO: it does not exist yet (docs/OWNER_SETUP.md -> Step 1b) or gh is not signed in to an account with access to it. Or pass --registry FILE." >&2
+  exit 1
+fi
+if ! jq -e '(.targets | type) == "array"' <<< "$registry" > /dev/null 2>&1; then
+  echo "error: the registry is not JSON with a \"targets\" array (validate it with scripts/fanout-registry.sh check FILE)" >&2
+  exit 1
+fi
 
 changed=0 failed=0
 while IFS=$'\t' read -r repo name value; do
@@ -63,7 +83,7 @@ while IFS=$'\t' read -r repo name value; do
     echo "FAILED  $repo: could not set $name"
     failed=1
   fi
-done < <(jq -r '.targets[] | .repo as $r | (.variables // {}) | to_entries[] | [$r, .key, (.value | tostring)] | @tsv' "$REGISTRY")
+done < <(jq -r '.targets[] | .repo as $r | (.variables // {}) | to_entries[] | [$r, .key, (.value | tostring)] | @tsv' <<< "$registry")
 
 echo
 if [ "$failed" -ne 0 ]; then echo "Some repositories could not be updated - see FAILED above."; exit 1; fi

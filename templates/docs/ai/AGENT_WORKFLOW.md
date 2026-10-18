@@ -285,7 +285,7 @@ When that happens:
    `no-automerge` alone will not merge it while the paused-skipped checks are still the latest ones.
 3. **Lower the repo's tier.** A tier 2 repo's CI and verify workflows run only when dispatched by
    hand (`# github-kit tier: N` in those callers, set from github-kit's
-   `.github/fanout-targets.json`). `auto-merge.yml` needs at least one check, so in a tier 2 repo a
+   fan-out registry). `auto-merge.yml` needs at least one check, so in a tier 2 repo a
    ready PR merges only after someone dispatches its CI (or `KIT_AUTOMERGE_ALLOW_NO_CHECKS` is set).
 4. **Merge conflicts never require Actions** — any locally-running agent (or the human) resolves
    them in the task's worktree with zero Actions minutes:
