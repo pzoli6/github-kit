@@ -7,7 +7,8 @@
 #   3. shellcheck -S error            real errors in every shell script (warnings are not gated)
 #   4. JSON                           fan-out registry and Claude settings template parse
 #   5. test-auto-merge.sh             auto-merge decisions and its status comment (fake gh)
-#   6. test-install-update.sh         install/update promises, bash vs PowerShell parity
+#   6. test-apply-repo-variables.sh   registry variables script, incl. CRLF from Windows jq.exe
+#   7. test-install-update.sh         install/update promises, bash vs PowerShell parity
 #
 # A missing optional tool (actionlint, shellcheck, pwsh) is reported as SKIP, not as a failure,
 # so the script is useful on any machine; CI installs all of them.
@@ -59,6 +60,10 @@ if python3 -c 'import yaml' 2>/dev/null; then
 else
   echo "SKIP    test-auto-merge.sh needs python3 with PyYAML (pip install pyyaml)"
 fi
+
+step "apply-repo-variables"
+bash scripts/test-apply-repo-variables.sh
+result $? "test-apply-repo-variables.sh"
 
 step "install/update"
 bash scripts/test-install-update.sh
