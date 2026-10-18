@@ -10,14 +10,15 @@
 #        scripts/fanout-registry.sh check FILE    validate FILE against the schema, change nothing
 #        scripts/fanout-registry.sh set FILE      validate FILE, then store it as FANOUT_TARGETS
 #   GITHUB_KIT_REPO   the repo whose variable holds the registry (default: pzoli6/github-kit)
-# Needs: jq; `get` and `set` also need gh signed in as an admin of that repo. Changing the registry
-# is a human action: nothing in CI runs `set`, and agents must not run it on their own.
+# Needs: jq; `get` and `set` also need gh signed in to an account with write access to that repo
+# (any collaborator can read or write repository variables; the public cannot). Changing the
+# registry is a human action: nothing in CI runs `set`, and agents must not run it on their own.
 set -euo pipefail
 
 KIT_REPO="${GITHUB_KIT_REPO:-pzoli6/github-kit}"
 VAR_NAME="FANOUT_TARGETS"
 
-usage() { sed -n '2,14p' "$0"; }
+usage() { sed -n '2,15p' "$0"; }
 need() { command -v "$1" > /dev/null || { echo "error: $1 is not installed" >&2; exit 1; }; }
 
 # Prints one line per schema violation; prints nothing for a valid registry.
@@ -70,7 +71,7 @@ case "$cmd" in
   get)
     need gh; need jq
     if ! value="$(gh variable get "$VAR_NAME" --repo "$KIT_REPO")"; then
-      echo "error: could not read $VAR_NAME on $KIT_REPO: it does not exist yet (docs/OWNER_SETUP.md -> Step 1b), or gh is not signed in as an admin of $KIT_REPO." >&2
+      echo "error: could not read $VAR_NAME on $KIT_REPO: it does not exist yet (docs/OWNER_SETUP.md -> Step 1b), or gh is not signed in to an account with access to $KIT_REPO." >&2
       exit 1
     fi
     jq . <<< "$value"
@@ -86,6 +87,9 @@ case "$cmd" in
     check_file "$1"
     gh variable set "$VAR_NAME" --repo "$KIT_REPO" --body "$(jq -c . "$1")"
     echo "SET     $VAR_NAME on $KIT_REPO from $1. Keep that file out of git (it is gitignored at .github/fanout-targets.json)."
+    echo "NEXT    a stored registry triggers nothing by itself. Run the fan-out now, or wait for Monday's cron:"
+    echo "          gh workflow run github-kit-fanout.yml --repo $KIT_REPO                   # every target"
+    echo "          gh workflow run github-kit-fanout.yml --repo $KIT_REPO -f only_repo=N    # one entry, N = its 0-based index"
     ;;
   -h|--help)
     usage

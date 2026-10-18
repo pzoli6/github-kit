@@ -18,7 +18,7 @@
 #   --repo OWNER/REPO  limit to one registry entry
 #   --registry FILE    read the registry from FILE instead of the FANOUT_TARGETS variable
 #   GITHUB_KIT_REPO    the repo whose variable holds the registry (default: pzoli6/github-kit)
-# Needs: gh (authenticated as an account with admin rights on github-kit and the targets), jq.
+# Needs: gh (authenticated as an account with write access to github-kit and admin on the targets), jq.
 # Windows (Git Bash): install jq with `winget install jqlang.jq`. A native jq.exe ends its output
 # lines with CRLF; every value read here is stripped of that CR before it is compared or set.
 set -euo pipefail
@@ -49,7 +49,7 @@ if [ -n "$REGISTRY_FILE" ]; then
   [ -f "$REGISTRY_FILE" ] || { echo "error: no such file: $REGISTRY_FILE" >&2; exit 1; }
   registry="$(< "$REGISTRY_FILE")"
 elif ! registry="$(gh variable get FANOUT_TARGETS --repo "$KIT_REPO")"; then
-  echo "error: could not read the FANOUT_TARGETS variable of $KIT_REPO: it does not exist yet (docs/OWNER_SETUP.md -> Step 1b) or gh is not signed in as its admin. Or pass --registry FILE." >&2
+  echo "error: could not read the FANOUT_TARGETS variable of $KIT_REPO: it does not exist yet (docs/OWNER_SETUP.md -> Step 1b) or gh is not signed in to an account with access to it. Or pass --registry FILE." >&2
   exit 1
 fi
 if ! jq -e '(.targets | type) == "array"' <<< "$registry" > /dev/null 2>&1; then

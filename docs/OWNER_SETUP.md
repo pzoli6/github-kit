@@ -113,11 +113,12 @@ gh api repos/pzoli6/github-kit/actions/secrets --jq '[.secrets[].name] | join(",
 The list of repositories the fan-out maintains is **not committed** to this public repository: it
 lives in the repository Actions **variable** `FANOUT_TARGETS` on `github-kit`, as the JSON described
 in `.github/fanout-targets.example.json` (one `{ "repo": "owner/name", ... }` entry per target; the
-example's `_comment` documents every key). Only the repo's admins can read it, the workflow masks
-every target name in its logs and names jobs by registry index, so a public run page shows no repo.
+example's `_comment` documents every key). Anyone with collaborator access to `github-kit` can
+read it — the public cannot, so mind who you add as a collaborator — and the workflow masks every
+target name in its logs and names jobs by registry index, so a public run page shows no repo.
 
-Check: `bash scripts/fanout-registry.sh get` prints it (needs `gh` signed in as an admin of
-`github-kit`; a variable that does not exist prints an error).
+Check: `bash scripts/fanout-registry.sh get` prints it (needs `gh` signed in to an account with
+write access to `github-kit`; a variable that does not exist prints an error).
 
 Create or update it from a local file, which stays local (`.github/fanout-targets.json` is
 gitignored for exactly this purpose):
@@ -134,9 +135,15 @@ local file, or re-create it anywhere with `get`. Never commit it, paste it into 
 or put repository names into the workflow, the docs or the example — the doctor fails if the
 registry is ever tracked.
 
+Storing the registry triggers nothing by itself — it is a variable, not a push — so after a `set`
+that adds or changes a target, dispatch the fan-out (`set` prints the command; Step 2 shows it) or
+wait for Monday's cron.
+
 > Migrating from the committed file? Its last version is still in history:
-> `git show <last-main-commit-before-the-move>:.github/fanout-targets.json > .github/fanout-targets.json`,
-> then `check` and `set` as above. Do this **before** merging the move, so the next fan-out run finds
+> `git show <last-main-commit-before-the-move>:.github/fanout-targets.json > .github/fanout-targets.json`.
+> **Reorder the entries** before `set` (any order but the historical one): job names carry registry
+> indices, and an order that differs from the public file keeps an index from mapping back to a
+> name. Then `check` and `set` as above, **before** merging the move, so the next fan-out run finds
 > the variable.
 
 ---
@@ -268,6 +275,8 @@ One registry entry, then nothing on the target side. The registry is the `FANOUT
 bash scripts/fanout-registry.sh get > .github/fanout-targets.json   # local copy, never committed
 # add one entry to "targets" (shapes below), then:
 bash scripts/fanout-registry.sh set .github/fanout-targets.json
+# a stored variable triggers nothing: run the fan-out for the new entry now (N = its 0-based index)
+gh workflow run github-kit-fanout.yml --repo pzoli6/github-kit -f only_repo=N
 ```
 
 ```jsonc
@@ -369,8 +378,8 @@ tracked file and every file version in history: still 0 credential hits.
 
 The fan-out registry used to be a committed file, `.github/fanout-targets.json`, naming every
 repository the kit maintains. It is now the `FANOUT_TARGETS` repository variable (Step 1b): only
-the repo's admins can read it, the workflow reads it inside a step (never through `env:`/`with:`
-before masking), masks every target name with `::add-mask::`, and names jobs by registry index —
+accounts with collaborator access to `github-kit` can read it, the workflow reads it inside a step
+(never through `env:`/`with:` before masking), masks every target name with `::add-mask::`, and names jobs by registry index —
 the index-based-matrix-plus-masking design the earlier audit called "harder to operate", made
 bearable by `scripts/fanout-registry.sh get | jq '.targets[N]'` as the one lookup it costs. The
 repo carries only `.github/fanout-targets.example.json` with placeholder names, and the doctor
@@ -385,6 +394,11 @@ What this does **not** undo — owner decisions, never an agent's:
 - **Old workflow runs.** Fan-out run logs and job names from before this change show the names
   until they expire (90 days by default), or sooner if you delete those runs (Actions → run →
   ⋯ → *Delete workflow run*).
+- **Indices.** Job names carry registry indices. For the pre-move targets an index maps back to
+  the historical file's order unless the live registry was stored in a different order (Step 1b
+  says to reorder it); a target added after the move never had a public position, so its index
+  tells nothing. Per-run opaque labels (token-seeded) would close even this, at the cost of
+  needing the token to map a failed job back to its repo.
 - **The other option still stands.** If even a masked, variable-held registry in a public repo
   is too much, move the fan-out (workflow + registry + PAT) into a small **private** repo that
   checks out `github-kit@main` and runs `update-github-kit.sh` against your targets.

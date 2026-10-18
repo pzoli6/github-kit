@@ -29,7 +29,12 @@ name: github-kit fan-out (propagate bootstrap updates)
 #   - the matrix carries only the entry's INDEX in the registry, so job names read
 #     "fanout (target 3)"; map that back with `scripts/fanout-registry.sh get | jq '.targets[3]'`;
 #   - the `only_repo` dispatch input takes that index too (an owner/name also works, but then the
-#     name sits in the run's inputs).
+#     name sits in the run's inputs);
+#   - each run plans its targets from ONE read of the registry in `discover`, and every fan-out job
+#     checks its own fresh read against a token-keyed fingerprint of that snapshot, so a registry
+#     stored mid-run fails the job instead of acting on a shifted index;
+#   - storing a changed registry triggers nothing by itself (it is a variable, not a push):
+#     dispatch this workflow after `scripts/fanout-registry.sh set`, or wait for the weekly cron.
 # A step output may never carry a masked value (the runner drops it with "Skip output ... since it
 # may contain secret"), which is why TARGET_REPO is re-read from the variable per step below.
 #
@@ -93,6 +98,7 @@ jobs:
     outputs:
       matrix: ${{ steps.set.outputs.matrix }}
       count: ${{ steps.set.outputs.count }}
+      fingerprint: ${{ steps.set.outputs.fingerprint }}
     steps:
       - id: set
         shell: bash
@@ -119,6 +125,10 @@ jobs:
           fi
           # Mask every target name before anything else is logged.
           while IFS= read -r r; do echo "::add-mask::$r"; done < <(jq -r '.targets[].repo' <<< "$registry")
+          # Fingerprint of the registry this run plans from, keyed with the token so the digest tells
+          # an observer nothing; every fan-out job checks its own fresh read against it.
+          fingerprint="$(printf '%s' "$registry" | openssl dgst -sha256 -hmac "$GH_TOKEN" | awk '{print $NF}')"
+          echo "fingerprint=$fingerprint" >> "$GITHUB_OUTPUT"
           total="$(jq '.targets | length' <<< "$registry")"
           # The matrix carries registry indices only; each fan-out job re-reads its entry.
           if [ -z "$ONLY_REPO" ]; then
@@ -156,13 +166,17 @@ jobs:
       # and read this job's registry entry. The repo name itself cannot travel as a step output
       # (the runner drops outputs that contain a masked value), so the steps below take it from
       # the variable again via the expression  fromJSON(vars.FANOUT_TARGETS).targets[matrix.index].repo
-      # -- printed in their headers only as ***, because this step masked it first.
+      # -- printed in their headers only as ***, because this step masked it first. Those
+      # expressions read the live variable at each step; the fingerprint check below covers the
+      # gap between planning and running, and a change inside one job's few minutes can only fail
+      # that job (checkout and PR would disagree), never reach a repository outside the registry.
       - name: Resolve the registry entry (names masked)
         id: target
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.FANOUT_TOKEN }}
           INDEX: ${{ matrix.index }}
+          EXPECTED_FINGERPRINT: ${{ needs.discover.outputs.fingerprint }}
         run: |
           set -euo pipefail
           if [ -z "${GH_TOKEN:-}" ]; then
@@ -171,9 +185,17 @@ jobs:
           fi
           registry="$(gh variable get FANOUT_TARGETS --repo "$GITHUB_REPOSITORY")"
           while IFS= read -r r; do echo "::add-mask::$r"; done < <(jq -r '.targets[].repo' <<< "$registry")
+          # The matrix index is meaningful only for the registry `discover` planned from. A registry
+          # stored while this run was queued or running could shift the indices, so a fresh read
+          # that differs from the planned snapshot stops this job before it touches anything.
+          fingerprint="$(printf '%s' "$registry" | openssl dgst -sha256 -hmac "$GH_TOKEN" | awk '{print $NF}')"
+          if [ "$fingerprint" != "$EXPECTED_FINGERPRINT" ]; then
+            echo "::error::The FANOUT_TARGETS registry changed after this run planned its targets, so index $INDEX may now name a different repository. Nothing was touched; re-run the workflow."
+            exit 1
+          fi
           entry="$(jq -c --argjson i "$INDEX" '.targets[$i]' <<< "$registry")"
           if [ -z "$entry" ] || [ "$entry" = "null" ]; then
-            echo "::error::Registry entry $INDEX does not exist (the registry changed while this run was in flight?). Re-run the workflow."
+            echo "::error::Registry entry $INDEX does not exist. Re-run the workflow."
             exit 1
           fi
           {
