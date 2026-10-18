@@ -1,0 +1,4 @@
+# The live fan-out registry (which repositories the kit maintains) is the FANOUT_TARGETS repository
+# Actions variable, never a committed file: github-kit is public, that list is not. A local working
+# copy at this path stays local; scripts/fanout-registry.sh reads, checks and stores it.
+/.github/fanout-targets.json

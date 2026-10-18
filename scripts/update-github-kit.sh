@@ -47,7 +47,7 @@ Usage: update-github-kit.sh [--target <path>] [--force-config] [--allow-dirty]
                              1 = run automatically on production-bound changes (the default);
                              2 = run only when dispatched by hand. Omitted = keep each caller's
                              current tier ("# github-kit tier: N" line), or 1 for a new file.
-                             The fan-out passes the tier from .github/fanout-targets.json.
+                             The fan-out passes the tier from its registry entry.
 
 This always refreshes: the managed block in AGENTS.md/CLAUDE.md/GEMINI.md, the agent-workflow-verify
 / ci-node / ci-python caller workflows, Cursor rules, skills, CODEOWNERS, REVIEW.md block,

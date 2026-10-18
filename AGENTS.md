@@ -23,9 +23,15 @@ than a typical app repo:
 
 - **Changes to `templates/`, `.github/workflows/reusable-*.yml`, and
   `.github/workflows/github-kit-fanout.yml` must be carefully reviewed** — treat them as a public
-  API surface for other repos, not internal implementation detail. The fan-out workflow (with its
-  `.github/fanout-targets.json` list) has the widest blast radius of anything here: it can open a
-  PR in every target repo, so review it as the highest-stakes file in the repo.
+  API surface for other repos, not internal implementation detail. The fan-out workflow (driven by
+  the `FANOUT_TARGETS` registry variable) has the widest blast radius of anything here: it can open
+  a PR in every target repo, so review it as the highest-stakes file in the repo.
+- **Nothing about the owner's other repositories belongs in this public repo.** The fan-out
+  registry (which repositories the kit maintains) lives in the `FANOUT_TARGETS` repository
+  variable — never in a committed file, a workflow, a doc or an example. `.github/fanout-targets.json`
+  is gitignored and the doctor fails if it is ever tracked. Use placeholders only
+  (`your-account/app-one`), as `.github/fanout-targets.example.json` does. The same goes for
+  credentials, e-mail addresses and local paths: none of them, anywhere, including commit messages.
 - **Never break backward compatibility without documenting a migration.** If an input, required
   file, key phrase, Project field name/status, or script CLI flag changes in a breaking way, add a
   note to this file (or a `CHANGELOG.md` if one exists) explaining what changed and what target
@@ -88,6 +94,26 @@ so working here dogfoods it.
 
 ## Migration notes
 
+### Fan-out registry moved out of the repository (`FANOUT_TARGETS`)
+
+`.github/fanout-targets.json` — the list of every repository the fan-out maintains — is no longer
+committed: github-kit is public, that list is not. The registry is now the **`FANOUT_TARGETS`
+repository Actions variable** of github-kit, same JSON as before (schema and placeholder names in
+`.github/fanout-targets.example.json`). `scripts/fanout-registry.sh` is the one door to it (`get`,
+`check <file>`, `set <file>`, with schema validation so a typo cannot break the fan-out);
+`scripts/apply-repo-variables.sh` reads the variable (or `--registry <file>`). The workflow reads
+the variable inside a step with `gh variable get` (through `FANOUT_TOKEN`, whose `repo` scope
+covers it), masks every target name with `::add-mask::`, and names jobs by registry index
+(`fanout (target 3)`), so a public run page shows no repository; the `only_repo` dispatch input
+takes that index (an `owner/name` still works). `.github/fanout-targets.json` is gitignored and
+the doctor fails if it is ever tracked. Docs and template comments that pointed at the file now
+point at "the fan-out registry".
+
+**What the owner must do, once, before merging:** store the registry —
+`docs/OWNER_SETUP.md` → "Step 1b" (`bash scripts/fanout-registry.sh set <file>`). Until then the
+fan-out fails fast in `discover`, naming the missing variable, and opens no PR. **What a target
+repo must do:** nothing; the next fan-out PR carries the comment-only template changes.
+
 ### Auto-merge explains every hold; per-repo variables from the registry
 
 A ready PR that auto-merge held back used to say why only in the Actions run log, so it looked
@@ -101,7 +127,7 @@ marked ready, and long-lived-branch PRs get no comment, as before. Merge gates a
 
 - `grace_seconds` default and template value: `120` → `30`. Nothing the kit runs is triggered by
   marking a PR ready, and the sleep was billed; about 2 minutes saved per ready PR.
-- `.github/fanout-targets.json` entries take `"variables"`: repository Actions variables for that
+- Fan-out registry entries take `"variables"`: repository Actions variables for that
   repo, applied by a human with `scripts/apply-repo-variables.sh` (`--dry-run` first; needs `gh`
   with admin on the targets; never deletes a variable; never run by CI or by agents). Every entry
   declares `KIT_AUTOMERGE_ALLOW_NO_CHECKS=true`, because a PR into a working branch has no kit
@@ -229,15 +255,14 @@ every other kit job. README → "Auto-merge after green".
   instruction is the only guard, and `require_human_ready` still refuses a PR that only a bot
   marked ready.
 
-### Fan-out: optional `base`, install gate, current target list
+### Fan-out: optional `base`, install gate
 
-`.github/fanout-targets.json` entries now need only `"repo"`. `"base"` is optional (omitted =
+Registry entries now need only `"repo"`. `"base"` is optional (omitted =
 the target's default branch, resolved at run time with `gh api repos/<repo>`). A target without
 the kit installed (no `docs/ai/PROJECT_CONFIG.md` at the base branch) is **skipped with a
 `::notice` and no PR** unless its entry says `"install": true`, in which case
 `install-github-kit.sh --mode merge` runs there once and the draft PR says so. The stale target
-list was replaced with the owner's current repositories; `pzoli6/github-kit` and
-`pzoli6/app-investment` are deliberately excluded (the latter is maintained directly).
+list was replaced with the owner's current repositories (`github-kit` itself is never a target).
 
 ### Spec approval by comment (`/approve-spec`)
 
