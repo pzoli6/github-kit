@@ -25,18 +25,23 @@ name: github-kit fan-out (propagate bootstrap updates)
 #   - the registry is read INSIDE a step with `gh variable get` (through the fan-out token), never
 #     through `env:` or `with:` before masking -- the runner prints those in every step header;
 #   - every target name is registered with ::add-mask:: as the first thing each job does, so it
-#     shows as *** wherever a tool prints it afterwards (checkout, git, gh, this workflow's own log);
-#   - the matrix carries only the entry's INDEX in the registry, so job names read
-#     "fanout (target 3)"; map that back with `scripts/fanout-registry.sh get | jq '.targets[3]'`;
-#   - the `only_repo` dispatch input takes that index too (an owner/name also works, but then the
-#     name sits in the run's inputs);
+#     shows as *** wherever a tool prints it afterwards (git, gh, this workflow's own log);
+#   - the matrix carries one per-run OPAQUE LABEL per entry -- HMAC-SHA256 of "<run id>:<index>",
+#     keyed with the FANOUT_LABEL_KEY secret (or, while that secret is absent, FANOUT_TOKEN), cut to
+#     12 hex chars -- so job names read "fanout (3f9c2a1b7e0d)" and tell an observer nothing, not
+#     even a stable position: every run relabels. Map a label back with
+#     `scripts/fanout-registry.sh which <run id> <label>` (needs the same key locally);
+#   - every later step reads its entry from a snapshot file the first step wrote, and the target is
+#     cloned with plain git from that snapshot, so neither a name nor an index ever travels through
+#     a `with:`/`env:` expression or a step output (the runner drops outputs that contain a masked
+#     value anyway, with "Skip output ... since it may contain secret");
+#   - the `only_repo` dispatch input takes the entry's 0-based index (an owner/name also works, but
+#     then the name sits in the run's inputs);
 #   - each run plans its targets from ONE read of the registry in `discover`, and every fan-out job
-#     checks its own fresh read against a token-keyed fingerprint of that snapshot, so a registry
+#     checks its own fresh read against a key-HMAC fingerprint of that snapshot, so a registry
 #     stored mid-run fails the job instead of acting on a shifted index;
 #   - storing a changed registry triggers nothing by itself (it is a variable, not a push):
 #     dispatch this workflow after `scripts/fanout-registry.sh set`, or wait for the weekly cron.
-# A step output may never carry a masked value (the runner drops it with "Skip output ... since it
-# may contain secret"), which is why TARGET_REPO is re-read from the variable per step below.
 #
 # Per-target entry: { "repo": "owner/name", "base": "<branch>", "install": true, "tier": 1,
 #                     "variables": { ... } }
@@ -51,7 +56,9 @@ name: github-kit fan-out (propagate bootstrap updates)
 #   variables optional -- repository Actions variables a human applies with
 #             scripts/apply-repo-variables.sh; the fan-out never touches them.
 #
-# Requires one repository secret in github-kit: FANOUT_TOKEN
+# Requires one repository secret in github-kit: FANOUT_TOKEN. Recommended second secret:
+# FANOUT_LABEL_KEY (any random string, e.g. `openssl rand -hex 32`), the key of the job labels, so
+# the owner can resolve a label without keeping the PAT at hand (docs/OWNER_SETUP.md -> Step 1c).
 #
 # NOTE ON THE NAME: it must NOT start with "GITHUB_". GitHub reserves that prefix and rejects any
 # secret named with it, so the previously-documented "GITHUB_KIT_FANOUT_TOKEN" was impossible to
@@ -104,6 +111,7 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.FANOUT_TOKEN }}
+          LABEL_KEY: ${{ secrets.FANOUT_LABEL_KEY }}
           ONLY_REPO: ${{ github.event.inputs.only_repo }}
         run: |
           set -euo pipefail
@@ -112,6 +120,12 @@ jobs:
             echo "::error::FANOUT_TOKEN secret is not set in github-kit. Create a CLASSIC PAT with BOTH the repo and workflow scopes (workflow is required because fan-out updates .github/workflows/*.yml in targets) and add it as this secret. See docs/OWNER_SETUP.md."
             exit 1
           fi
+          # Key of the per-run job labels and of the registry fingerprint: FANOUT_LABEL_KEY when the
+          # owner stored one (docs/OWNER_SETUP.md -> Step 1c), else the fan-out token itself.
+          KEY="${LABEL_KEY:-$GH_TOKEN}"
+          # The label of registry entry $1 for this run. Must stay identical to label_for() in
+          # scripts/fanout-registry.sh (the doctor checks the recipe).
+          label_for() { printf '%s:%s' "$GITHUB_RUN_ID" "$1" | openssl dgst -sha256 -hmac "$KEY" | awk '{print $NF}' | cut -c1-12; }
           # The registry is read here, inside the step, so that no step header prints it.
           if ! registry="$(gh variable get FANOUT_TARGETS --repo "$GITHUB_REPOSITORY" 2> /dev/null)" || [ -z "$registry" ]; then
             echo "::error::The FANOUT_TARGETS repository variable is not set in ${GITHUB_REPOSITORY} (or FANOUT_TOKEN cannot read its variables). It holds the fan-out registry: the JSON described in .github/fanout-targets.example.json. Store it with scripts/fanout-registry.sh set <file>; see docs/OWNER_SETUP.md -> Step 1b."
@@ -125,35 +139,41 @@ jobs:
           fi
           # Mask every target name before anything else is logged.
           while IFS= read -r r; do echo "::add-mask::$r"; done < <(jq -r '.targets[].repo' <<< "$registry")
-          # Fingerprint of the registry this run plans from, keyed with the token so the digest tells
-          # an observer nothing; every fan-out job checks its own fresh read against it.
-          fingerprint="$(printf '%s' "$registry" | openssl dgst -sha256 -hmac "$GH_TOKEN" | awk '{print $NF}')"
+          # Fingerprint of the registry this run plans from, keyed so the digest tells an observer
+          # nothing; every fan-out job checks its own fresh read against it.
+          fingerprint="$(printf '%s' "$registry" | openssl dgst -sha256 -hmac "$KEY" | awk '{print $NF}')"
           echo "fingerprint=$fingerprint" >> "$GITHUB_OUTPUT"
           total="$(jq '.targets | length' <<< "$registry")"
-          # The matrix carries registry indices only; each fan-out job re-reads its entry.
+          # One opaque label per entry; the matrix is sorted by label so that even the job order on
+          # the run page carries no registry position.
+          labels="$(for ((i = 0; i < total; i++)); do label_for "$i"; done)"
+          if [ "$(sort <<< "$labels" | uniq -d | wc -l)" -ne 0 ]; then
+            echo "::error::Two registry entries got the same job label for this run (a 48-bit collision). Re-run the workflow."
+            exit 1
+          fi
           if [ -z "$ONLY_REPO" ]; then
-            matrix="$(jq -c '{include: [range(.targets | length) | {index: .}]}' <<< "$registry")"
+            matrix="$(jq -cRn '{include: ([inputs | {label: .}] | sort_by(.label))}' <<< "$labels")"
           elif [[ "$ONLY_REPO" =~ ^[0-9]+$ ]]; then
             if [ "$ONLY_REPO" -ge "$total" ]; then
               echo "::error::only_repo index $ONLY_REPO is out of range: the registry has $total target(s), indices 0-$((total - 1))."
               exit 1
             fi
-            matrix="$(jq -cn --argjson i "$ONLY_REPO" '{include: [{index: $i}]}')"
+            matrix="$(jq -cn --arg l "$(label_for "$ONLY_REPO")" '{include: [{label: $l}]}')"
           else
             idx="$(jq -r --arg r "$ONLY_REPO" '[.targets[].repo] | index($r) // empty' <<< "$registry")"
             if [ -z "$idx" ]; then
               echo "::error::only_repo names no registry entry. Pass the entry's 0-based index instead (scripts/fanout-registry.sh get); that also keeps the name out of this public run."
               exit 1
             fi
-            matrix="$(jq -cn --argjson i "$idx" '{include: [{index: $i}]}')"
+            matrix="$(jq -cn --arg l "$(label_for "$idx")" '{include: [{label: $l}]}')"
           fi
           count="$(jq '.include | length' <<< "$matrix")"
           echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
           echo "count=$count" >> "$GITHUB_OUTPUT"
-          echo "Fan-out will consider $count of $total registered target(s)."
+          echo "Fan-out will consider $count of $total registered target(s). Jobs carry per-run labels; map one back with: scripts/fanout-registry.sh which $GITHUB_RUN_ID <label>"
 
   fanout:
-    name: fanout (target ${{ matrix.index }})
+    name: fanout (${{ matrix.label }})
     needs: discover
     if: ${{ needs.discover.outputs.count != '0' }}
     runs-on: ubuntu-latest
@@ -162,20 +182,16 @@ jobs:
       max-parallel: 4
       matrix: ${{ fromJSON(needs.discover.outputs.matrix) }}
     steps:
-      # First, before any other step header can print it: mask every target name for this job,
-      # and read this job's registry entry. The repo name itself cannot travel as a step output
-      # (the runner drops outputs that contain a masked value), so the steps below take it from
-      # the variable again via the expression  fromJSON(vars.FANOUT_TARGETS).targets[matrix.index].repo
-      # -- printed in their headers only as ***, because this step masked it first. Those
-      # expressions read the live variable at each step; the fingerprint check below covers the
-      # gap between planning and running, and a change inside one job's few minutes can only fail
-      # that job (checkout and PR would disagree), never reach a repository outside the registry.
+      # First, before any other step header can print anything about the target: mask every
+      # target name for this job, resolve the job's label to its registry entry, and write that
+      # entry to a snapshot file. Every later step reads the file, never the live variable, so one
+      # job works on one registry throughout and no name or index travels through `with:`/`env:`.
       - name: Resolve the registry entry (names masked)
-        id: target
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.FANOUT_TOKEN }}
-          INDEX: ${{ matrix.index }}
+          LABEL_KEY: ${{ secrets.FANOUT_LABEL_KEY }}
+          LABEL: ${{ matrix.label }}
           EXPECTED_FINGERPRINT: ${{ needs.discover.outputs.fingerprint }}
         run: |
           set -euo pipefail
@@ -183,27 +199,29 @@ jobs:
             echo "::error::FANOUT_TOKEN secret is not set in github-kit. See docs/OWNER_SETUP.md."
             exit 1
           fi
+          KEY="${LABEL_KEY:-$GH_TOKEN}"
+          label_for() { printf '%s:%s' "$GITHUB_RUN_ID" "$1" | openssl dgst -sha256 -hmac "$KEY" | awk '{print $NF}' | cut -c1-12; }
           registry="$(gh variable get FANOUT_TARGETS --repo "$GITHUB_REPOSITORY")"
           while IFS= read -r r; do echo "::add-mask::$r"; done < <(jq -r '.targets[].repo' <<< "$registry")
-          # The matrix index is meaningful only for the registry `discover` planned from. A registry
-          # stored while this run was queued or running could shift the indices, so a fresh read
+          # The label is meaningful only for the registry `discover` planned from. A registry
+          # stored while this run was queued or running could shift the entries, so a fresh read
           # that differs from the planned snapshot stops this job before it touches anything.
-          fingerprint="$(printf '%s' "$registry" | openssl dgst -sha256 -hmac "$GH_TOKEN" | awk '{print $NF}')"
+          fingerprint="$(printf '%s' "$registry" | openssl dgst -sha256 -hmac "$KEY" | awk '{print $NF}')"
           if [ "$fingerprint" != "$EXPECTED_FINGERPRINT" ]; then
-            echo "::error::The FANOUT_TARGETS registry changed after this run planned its targets, so index $INDEX may now name a different repository. Nothing was touched; re-run the workflow."
+            echo "::error::The FANOUT_TARGETS registry changed after this run planned its targets, so job $LABEL may now name a different repository. Nothing was touched; re-run the workflow."
             exit 1
           fi
-          entry="$(jq -c --argjson i "$INDEX" '.targets[$i]' <<< "$registry")"
-          if [ -z "$entry" ] || [ "$entry" = "null" ]; then
-            echo "::error::Registry entry $INDEX does not exist. Re-run the workflow."
+          total="$(jq '.targets | length' <<< "$registry")"
+          index=""
+          for ((i = 0; i < total; i++)); do
+            if [ "$(label_for "$i")" = "$LABEL" ]; then index="$i"; break; fi
+          done
+          if [ -z "$index" ]; then
+            echo "::error::Job label $LABEL resolves to no entry of this run's registry (was FANOUT_LABEL_KEY changed while the run was in flight?). Nothing was touched; re-run the workflow."
             exit 1
           fi
-          {
-            echo "base=$(jq -r '.base // ""' <<< "$entry")"
-            echo "install=$(jq -r '.install // false' <<< "$entry")"
-            echo "tier=$(jq -r '(.tier // 1) | tostring' <<< "$entry")"
-          } >> "$GITHUB_OUTPUT"
-          echo "Target $INDEX is $(jq -r '.repo' <<< "$entry") (shown masked), tier $(jq -r '.tier // 1' <<< "$entry")."
+          jq -c --argjson i "$index" '.targets[$i]' <<< "$registry" > "$RUNNER_TEMP/target.json"
+          echo "Job $LABEL is $(jq -r '.repo' "$RUNNER_TEMP/target.json") (shown masked), tier $(jq -r '.tier // 1' "$RUNNER_TEMP/target.json")."
 
       - name: Checkout github-kit (source of truth)
         uses: actions/checkout@v5
@@ -211,15 +229,14 @@ jobs:
           path: github-kit
 
       - name: Resolve target base branch
-        id: base
         env:
           GH_TOKEN: ${{ secrets.FANOUT_TOKEN }}
-          TARGET_REPO: ${{ fromJSON(vars.FANOUT_TARGETS).targets[matrix.index].repo }}
-          TARGET_BASE: ${{ steps.target.outputs.base }}
         shell: bash
         run: |
           set -euo pipefail
-          if [ -n "${TARGET_BASE:-}" ]; then
+          TARGET_REPO="$(jq -r '.repo' "$RUNNER_TEMP/target.json")"
+          TARGET_BASE="$(jq -r '.base // ""' "$RUNNER_TEMP/target.json")"
+          if [ -n "$TARGET_BASE" ]; then
             echo "Base branch for ${TARGET_REPO}: ${TARGET_BASE} (from the registry entry)."
           else
             # `|| true` so a 403/404 reaches the explicit error below instead of aborting the step
@@ -231,66 +248,71 @@ jobs:
             fi
             echo "Base branch for ${TARGET_REPO}: ${TARGET_BASE} (repository default branch)."
           fi
-          echo "base=${TARGET_BASE}" >> "$GITHUB_OUTPUT"
+          printf '%s' "$TARGET_BASE" > "$RUNNER_TEMP/target.base"
 
       - name: Checkout target repo
-        uses: actions/checkout@v5
-        with:
-          repository: ${{ fromJSON(vars.FANOUT_TARGETS).targets[matrix.index].repo }}
-          ref: ${{ steps.base.outputs.base }}
-          token: ${{ secrets.FANOUT_TOKEN }}
-          path: target
-          fetch-depth: 0
+        env:
+          GH_TOKEN: ${{ secrets.FANOUT_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          TARGET_REPO="$(jq -r '.repo' "$RUNNER_TEMP/target.json")"
+          TARGET_BASE="$(cat "$RUNNER_TEMP/target.base")"
+          # Plain git instead of actions/checkout: the repository name must not travel through a
+          # `with:` expression (which would read the live variable again and print the value in
+          # the step header), and a step output cannot carry a masked value. The token rides in
+          # the remote URL on this ephemeral runner only; git and the runner both mask it.
+          git clone --quiet --branch "$TARGET_BASE" --single-branch \
+            "https://x-access-token:${GH_TOKEN}@github.com/${TARGET_REPO}.git" target
+          echo "Checked out ${TARGET_REPO} at ${TARGET_BASE}."
 
       - name: Check the kit is installed in the target
         id: gate
         env:
-          TARGET_REPO: ${{ fromJSON(vars.FANOUT_TARGETS).targets[matrix.index].repo }}
-          INDEX: ${{ matrix.index }}
-          INSTALL: ${{ steps.target.outputs.install }}
+          LABEL: ${{ matrix.label }}
         shell: bash
         run: |
           set -euo pipefail
+          TARGET_REPO="$(jq -r '.repo' "$RUNNER_TEMP/target.json")"
+          INSTALL="$(jq -r '.install // false' "$RUNNER_TEMP/target.json")"
           if [ -e target/docs/ai/PROJECT_CONFIG.md ]; then
             echo "github-kit is installed in ${TARGET_REPO} (docs/ai/PROJECT_CONFIG.md present) — refreshing."
             echo "mode=update" >> "$GITHUB_OUTPUT"
-          elif [ "${INSTALL:-}" = "true" ]; then
+          elif [ "$INSTALL" = "true" ]; then
             echo "github-kit is NOT installed in ${TARGET_REPO}, but its registry entry says \"install\": true — running the full installer."
             echo "mode=install" >> "$GITHUB_OUTPUT"
           else
-            echo "::notice title=Skipped target ${INDEX}::github-kit is not installed there (no docs/ai/PROJECT_CONFIG.md at the base branch) and the registry entry does not say \"install\": true — skipping, no PR opened. Add \"install\": true to that entry (scripts/fanout-registry.sh) to install the kit on the next run."
+            echo "::notice title=Skipped job ${LABEL}::github-kit is not installed there (no docs/ai/PROJECT_CONFIG.md at the base branch) and the registry entry does not say \"install\": true — skipping, no PR opened. Add \"install\": true to that entry (scripts/fanout-registry.sh) to install the kit on the next run."
             echo "mode=skip" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Refresh bootstrap files from github-kit@main
         if: steps.gate.outputs.mode == 'update'
         shell: bash
-        env:
-          TARGET_TIER: ${{ steps.target.outputs.tier }}
         run: |
           set -euo pipefail
+          TARGET_TIER="$(jq -r '(.tier // 1) | tostring' "$RUNNER_TEMP/target.json")"
           bash github-kit/scripts/update-github-kit.sh --target target --allow-dirty --ref main --tier "$TARGET_TIER"
 
       - name: 'Install github-kit (first install, opted in via "install": true)'
         if: steps.gate.outputs.mode == 'install'
         shell: bash
-        env:
-          TARGET_TIER: ${{ steps.target.outputs.tier }}
         run: |
           set -euo pipefail
+          TARGET_TIER="$(jq -r '(.tier // 1) | tostring' "$RUNNER_TEMP/target.json")"
           bash github-kit/scripts/install-github-kit.sh --target target --mode merge --allow-dirty --ref main --tier "$TARGET_TIER"
 
       - name: Open draft PR if anything drifted
         if: steps.gate.outputs.mode != 'skip'
         env:
           GH_TOKEN: ${{ secrets.FANOUT_TOKEN }}
-          TARGET_REPO: ${{ fromJSON(vars.FANOUT_TARGETS).targets[matrix.index].repo }}
-          TARGET_BASE: ${{ steps.base.outputs.base }}
           RUN_ID: ${{ github.run_id }}
           MODE: ${{ steps.gate.outputs.mode }}
         shell: bash
         run: |
           set -euo pipefail
+          TARGET_REPO="$(jq -r '.repo' "$RUNNER_TEMP/target.json")"
+          TARGET_BASE="$(cat "$RUNNER_TEMP/target.base")"
           cd target
           # Commit as github-actions[bot], NOT an invented "github-kit-bot" identity. Deployment
           # providers verify that a commit author resolves to a real GitHub account before they

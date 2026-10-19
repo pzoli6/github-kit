@@ -8,7 +8,8 @@
 #   4. JSON                           fan-out registry example (schema) and Claude settings template parse
 #   5. test-auto-merge.sh             auto-merge decisions and its status comment (fake gh)
 #   6. test-apply-repo-variables.sh   registry variables script, incl. CRLF from Windows jq.exe
-#   7. test-install-update.sh         install/update promises, bash vs PowerShell parity
+#   7. test-fanout-labels.sh          per-run job labels of the fan-out (labels / which, recipe parity)
+#   8. test-install-update.sh         install/update promises, bash vs PowerShell parity
 #
 # A missing optional tool (actionlint, shellcheck, pwsh) is reported as SKIP, not as a failure,
 # so the script is useful on any machine; CI installs all of them.
@@ -65,6 +66,10 @@ fi
 step "apply-repo-variables"
 bash scripts/test-apply-repo-variables.sh
 result $? "test-apply-repo-variables.sh"
+
+step "fan-out job labels"
+bash scripts/test-fanout-labels.sh
+result $? "test-fanout-labels.sh"
 
 step "install/update"
 bash scripts/test-install-update.sh
