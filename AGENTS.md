@@ -103,11 +103,15 @@ repository Actions variable** of github-kit, same JSON as before (schema and pla
 `check <file>`, `set <file>`, with schema validation so a typo cannot break the fan-out);
 `scripts/apply-repo-variables.sh` reads the variable (or `--registry <file>`). The workflow reads
 the variable inside a step with `gh variable get` (through `FANOUT_TOKEN`, whose `repo` scope
-covers it), masks every target name with `::add-mask::`, and names jobs by registry index
-(`fanout (target 3)`), so a public run page shows no repository; the `only_repo` dispatch input
+covers it), masks every target name with `::add-mask::`, and names jobs with per-run opaque labels
+(`fanout (3f9c2a1b7e0d)`: HMAC-SHA256 of `<run id>:<index>` keyed with the optional
+`FANOUT_LABEL_KEY` secret, else the token; `scripts/fanout-registry.sh which` maps one back), so a
+public run page shows no repository and no stable position; the `only_repo` dispatch input
 takes that index (an `owner/name` still works). `.github/fanout-targets.json` is gitignored and
-the doctor fails if it is ever tracked. Docs and template comments that pointed at the file now
-point at "the fan-out registry".
+the doctor fails if it is ever tracked. Each job writes its registry entry to a snapshot file and
+clones the target with plain `git` from it (no `actions/checkout` for the target), so no name or
+index travels through `with:`/`env:` or a step output. Docs and template comments that pointed at
+the file now point at "the fan-out registry".
 
 **What the owner must do, once, before merging:** store the registry —
 `docs/OWNER_SETUP.md` → "Step 1b" (`bash scripts/fanout-registry.sh set <file>`). Until then the

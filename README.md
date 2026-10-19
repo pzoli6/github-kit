@@ -337,8 +337,10 @@ that gap so you never have to run `/github_kit_update` in each repo by hand.
   variable of github-kit, holding the JSON documented in
   [`.github/fanout-targets.example.json`](.github/fanout-targets.example.json). The registry is
   deliberately **not a committed file** — this repo is public, the list of repositories it
-  maintains is not — and the workflow masks every target name in its logs and names jobs by
-  registry index, so a public run page reveals no repo. Edit it with `scripts/fanout-registry.sh`
+  maintains is not — and the workflow masks every target name in its logs and names jobs with
+  per-run opaque labels (`scripts/fanout-registry.sh which <run id> <label>` maps one back, keyed
+  with the `FANOUT_LABEL_KEY` secret), so a public run page reveals no repo and no stable
+  position. Edit it with `scripts/fanout-registry.sh`
   (`get`, `check <file>`, `set <file>`); add a repo by adding one
   `{ "repo": "owner/name", "tier": 1 }` entry — nothing is needed on the target side; `"base"` is
   optional and defaults to the repo's default branch, resolved at run time; see "Repository

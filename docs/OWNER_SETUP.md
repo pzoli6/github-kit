@@ -115,7 +115,8 @@ lives in the repository Actions **variable** `FANOUT_TARGETS` on `github-kit`, a
 in `.github/fanout-targets.example.json` (one `{ "repo": "owner/name", ... }` entry per target; the
 example's `_comment` documents every key). Anyone with collaborator access to `github-kit` can
 read it — the public cannot, so mind who you add as a collaborator — and the workflow masks every
-target name in its logs and names jobs by registry index, so a public run page shows no repo.
+target name in its logs and names jobs with per-run opaque labels (Step 1c), so a public run page
+shows no repo and no stable position.
 
 Check: `bash scripts/fanout-registry.sh get` prints it (needs `gh` signed in to an account with
 write access to `github-kit`; a variable that does not exist prints an error).
@@ -140,11 +141,36 @@ that adds or changes a target, dispatch the fan-out (`set` prints the command; S
 wait for Monday's cron.
 
 > Migrating from the committed file? Its last version is still in history:
-> `git show <last-main-commit-before-the-move>:.github/fanout-targets.json > .github/fanout-targets.json`.
-> **Reorder the entries** before `set` (any order but the historical one): job names carry registry
-> indices, and an order that differs from the public file keeps an index from mapping back to a
-> name. Then `check` and `set` as above, **before** merging the move, so the next fan-out run finds
-> the variable.
+> `git show <last-main-commit-before-the-move>:.github/fanout-targets.json > .github/fanout-targets.json`,
+> then `check` and `set` as above, **before** merging the move, so the next fan-out run finds the
+> variable. The order of the entries does not matter: job names carry per-run labels (Step 1c),
+> never a registry position.
+
+---
+
+## Step 1c — Label key for the fan-out jobs *(recommended; the token is the fallback)*
+
+Every fan-out job is named with a **per-run opaque label**: HMAC-SHA256 of `<run id>:<registry
+index>`, cut to 12 hex chars, so a public run page shows `fanout (3f9c2a1b7e0d)` and nothing that
+maps back to a repository — not even a stable position, since every run relabels and the jobs are
+listed in label order. Mapping a label back needs the key the run used. Store one:
+
+```bash
+openssl rand -hex 32                                      # generate once; keep it in your password manager
+gh secret set FANOUT_LABEL_KEY --repo pzoli6/github-kit   # paste it at the prompt
+```
+
+Without this secret the workflow keys the labels with `FANOUT_TOKEN` itself, which works but means
+keeping the PAT at hand just to read a run page. With the key in your environment:
+
+```bash
+export FANOUT_LABEL_KEY=<the value you stored>
+bash scripts/fanout-registry.sh labels <run id>           # label -> repo for every entry of that run
+bash scripts/fanout-registry.sh which  <run id> <label>   # the entry behind one (failed) job
+```
+
+The run id is the number in the run's URL. Do not rotate the key while a run is in flight: a job
+would then resolve no entry, fail with that message and touch nothing — re-run after the rotation.
 
 ---
 
@@ -320,7 +346,8 @@ Neither file hints at the other. Check both.
 | --- | --- | --- |
 | Fan-out fails at the first step, `FANOUT_TOKEN:` empty in the log | Secret not set | Step 1 |
 | Fan-out fails in `discover` naming `FANOUT_TARGETS` | The registry variable is missing, is not valid registry JSON, or the token cannot read it | Step 1b (`scripts/fanout-registry.sh check` / `set`) |
-| A fan-out job is red but the log says only `fanout (target 3)` and `***` | By design: target names are masked on this public repo | `bash scripts/fanout-registry.sh get \| jq '.targets[3]'` names the repo |
+| A fan-out job is red but reads only `fanout (3f9c2a1b7e0d)` and `***` | By design: target names are masked and jobs carry per-run labels on this public repo | `FANOUT_LABEL_KEY=… bash scripts/fanout-registry.sh which <run id> 3f9c2a1b7e0d` names the repo (Step 1c) |
+| A fan-out job fails with "resolves to no entry of this run's registry" | `FANOUT_LABEL_KEY` was changed while the run was in flight | Re-run the workflow |
 | Fan-out fails only for *some* targets | Token can't reach those repos — usually a fine-grained PAT hitting a different account | Step 1, use a classic PAT |
 | Writing `.github/workflows/*` via the API returns **404** | Token lacks the `workflow` scope. It returns 404, **not 403**, and reads still succeed — so it looks like a wrong path | `gh auth refresh -s workflow` |
 | `gh project`/field commands fail with "missing required scopes" | Token lacks `project` | `gh auth refresh -s read:project,project` |
@@ -379,9 +406,9 @@ tracked file and every file version in history: still 0 credential hits.
 The fan-out registry used to be a committed file, `.github/fanout-targets.json`, naming every
 repository the kit maintains. It is now the `FANOUT_TARGETS` repository variable (Step 1b): only
 accounts with collaborator access to `github-kit` can read it, the workflow reads it inside a step
-(never through `env:`/`with:` before masking), masks every target name with `::add-mask::`, and names jobs by registry index —
-the index-based-matrix-plus-masking design the earlier audit called "harder to operate", made
-bearable by `scripts/fanout-registry.sh get | jq '.targets[N]'` as the one lookup it costs. The
+(never through `env:`/`with:` before masking), masks every target name with `::add-mask::`, and names jobs with per-run opaque labels (Step 1c)
+— the masking-plus-opaque-labels design the earlier audit called "harder to operate", made
+bearable by `scripts/fanout-registry.sh which <run id> <label>` as the one lookup it costs. The
 repo carries only `.github/fanout-targets.example.json` with placeholder names, and the doctor
 fails if a registry file is ever tracked.
 
@@ -394,11 +421,10 @@ What this does **not** undo — owner decisions, never an agent's:
 - **Old workflow runs.** Fan-out run logs and job names from before this change show the names
   until they expire (90 days by default), or sooner if you delete those runs (Actions → run →
   ⋯ → *Delete workflow run*).
-- **Indices.** Job names carry registry indices. For the pre-move targets an index maps back to
-  the historical file's order unless the live registry was stored in a different order (Step 1b
-  says to reorder it); a target added after the move never had a public position, so its index
-  tells nothing. Per-run opaque labels (token-seeded) would close even this, at the cost of
-  needing the token to map a failed job back to its repo.
+- **Job labels.** Job names carry per-run opaque labels (Step 1c), so neither a name nor a
+  registry position reaches a run page; the number of jobs still shows how many targets exist.
+  Mapping a label back needs the label key (or the token) — the one operational cost of this
+  design.
 - **The other option still stands.** If even a masked, variable-held registry in a public repo
   is too much, move the fan-out (workflow + registry + PAT) into a small **private** repo that
   checks out `github-kit@main` and runs `update-github-kit.sh` against your targets.

@@ -447,6 +447,10 @@ if ($amReusable -and $amReusable.Contains('status_comment:') -and $amReusable.Co
 # public, that list is not. It lives in the FANOUT_TARGETS repository variable; the repo carries only
 # the placeholder example, the workflow reads the variable (never a registry file), a local working
 # copy at .github/fanout-targets.json is gitignored, and scripts/fanout-registry.sh is the one door.
+# Jobs carry per-run opaque labels, never a registry index, and the label recipe must be the same
+# line in the workflow and in fanout-registry.sh, or `which` would name the wrong repo.
+$labelRecipe = '| openssl dgst -sha256 -hmac "$KEY" | awk ''{print $NF}'' | cut -c1-12'
+$registryScript = Get-Content -LiteralPath "scripts/fanout-registry.sh" -Raw -ErrorAction SilentlyContinue
 $fanoutWf = Get-Content -LiteralPath ".github/workflows/github-kit-fanout.yml" -Raw -ErrorAction SilentlyContinue
 $gitignoreLines = @(Get-Content -LiteralPath ".gitignore" -ErrorAction SilentlyContinue)
 $registryTracked = $false
@@ -456,10 +460,12 @@ try {
 } catch { $registryTracked = $false }
 if ((Test-Path -LiteralPath ".github/fanout-targets.example.json") -and (Test-Path -LiteralPath "scripts/fanout-registry.sh") -and
     (-not $registryTracked) -and ($gitignoreLines -contains '/.github/fanout-targets.json') -and
-    $fanoutWf -and $fanoutWf.Contains('FANOUT_TARGETS') -and (-not $fanoutWf.Contains('.github/fanout-targets.json'))) {
-    Write-Host "OK      fan-out registry stays out of the repo (FANOUT_TARGETS variable; example, gitignore and fanout-registry.sh present; no tracked .github/fanout-targets.json)"
+    $fanoutWf -and $fanoutWf.Contains('FANOUT_TARGETS') -and (-not $fanoutWf.Contains('.github/fanout-targets.json')) -and
+    (-not $fanoutWf.Contains('matrix.index')) -and $fanoutWf.Contains($labelRecipe) -and
+    $registryScript -and $registryScript.Contains($labelRecipe)) {
+    Write-Host "OK      fan-out registry stays out of the repo (FANOUT_TARGETS variable; example, gitignore and fanout-registry.sh present; no tracked .github/fanout-targets.json); jobs carry per-run labels with one recipe in the workflow and the script"
 } else {
-    Write-Host "MISSING fan-out registry hygiene: .github/fanout-targets.json must not be tracked and must be gitignored, github-kit-fanout.yml must read FANOUT_TARGETS and never a registry file, and .github/fanout-targets.example.json + scripts/fanout-registry.sh must exist"
+    Write-Host "MISSING fan-out registry hygiene: .github/fanout-targets.json must not be tracked and must be gitignored, github-kit-fanout.yml must read FANOUT_TARGETS and never a registry file or matrix.index, .github/fanout-targets.example.json + scripts/fanout-registry.sh must exist, and both must carry the same job-label recipe"
     $script:Missing = 1
 }
 

@@ -407,14 +407,20 @@ fi
 # public, that list is not. It lives in the FANOUT_TARGETS repository variable; the repo carries only
 # the placeholder example, the workflow reads the variable (never a registry file), a local working
 # copy at .github/fanout-targets.json is gitignored, and scripts/fanout-registry.sh is the one door.
+# Jobs carry per-run opaque labels, never a registry index, and the label recipe must be the same
+# line in the workflow and in fanout-registry.sh, or `which` would name the wrong repo.
+label_recipe='| openssl dgst -sha256 -hmac "$KEY" | awk '"'"'{print $NF}'"'"' | cut -c1-12'
 if [ -f .github/fanout-targets.example.json ] && [ -f scripts/fanout-registry.sh ] \
     && ! git ls-files --error-unmatch .github/fanout-targets.json >/dev/null 2>&1 \
     && grep -q '^/\.github/fanout-targets\.json$' .gitignore 2>/dev/null \
     && grep -q 'FANOUT_TARGETS' .github/workflows/github-kit-fanout.yml 2>/dev/null \
-    && ! grep -q '\.github/fanout-targets\.json' .github/workflows/github-kit-fanout.yml 2>/dev/null; then
-  echo "OK      fan-out registry stays out of the repo (FANOUT_TARGETS variable; example, gitignore and fanout-registry.sh present; no tracked .github/fanout-targets.json)"
+    && ! grep -q '\.github/fanout-targets\.json' .github/workflows/github-kit-fanout.yml 2>/dev/null \
+    && ! grep -q 'matrix\.index' .github/workflows/github-kit-fanout.yml 2>/dev/null \
+    && grep -qF -- "$label_recipe" .github/workflows/github-kit-fanout.yml 2>/dev/null \
+    && grep -qF -- "$label_recipe" scripts/fanout-registry.sh 2>/dev/null; then
+  echo "OK      fan-out registry stays out of the repo (FANOUT_TARGETS variable; example, gitignore and fanout-registry.sh present; no tracked .github/fanout-targets.json); jobs carry per-run labels with one recipe in the workflow and the script"
 else
-  echo "MISSING fan-out registry hygiene: .github/fanout-targets.json must not be tracked and must be gitignored, github-kit-fanout.yml must read FANOUT_TARGETS and never a registry file, and .github/fanout-targets.example.json + scripts/fanout-registry.sh must exist"
+  echo "MISSING fan-out registry hygiene: .github/fanout-targets.json must not be tracked and must be gitignored, github-kit-fanout.yml must read FANOUT_TARGETS and never a registry file or matrix.index, .github/fanout-targets.example.json + scripts/fanout-registry.sh must exist, and both must carry the same job-label recipe"
   missing=1
 fi
 
