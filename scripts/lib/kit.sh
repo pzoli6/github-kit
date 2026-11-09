@@ -11,7 +11,7 @@
 #   FORCE_CONFIG          true = update --force-config (reset `config` files to the template)
 #   INCLUDE_PROJECT_SYNC  1 = install `workflow-opt` files even when absent
 #   WORKFLOW_REF          ref written into `uses: pzoli6/github-kit/...@<ref>` lines
-#   KIT_TIER              1 | 2 | "" (empty = keep each caller's current tier, default 1)
+#   KIT_TIER              1 | 2 | "" (empty = keep each caller's current tier; a new caller is tier 2)
 # and read back CREATED_COUNT, UPDATED_COUNT, SKIPPED_COUNT afterwards.
 
 CREATED_COUNT=0
@@ -47,7 +47,7 @@ kit_existing_tier() {
 kit_render_workflow() {
   local src="$1" dst="$2" tier="$KIT_TIER"
   [ -n "$tier" ] || tier="$(kit_existing_tier "$dst")"
-  [ -n "$tier" ] || tier=1
+  [ -n "$tier" ] || tier=2   # a brand-new caller runs on demand only
   local tmp
   tmp="$(mktemp)"
   sed -E "s#(uses: pzoli6/github-kit/[^@[:space:]]+)@main#\1@$WORKFLOW_REF#" "$src" |
@@ -64,7 +64,8 @@ kit_render_workflow() {
   rm -f "$tmp" "$tmp.carried"
 }
 
-# A refreshed caller may hold one repo-owned region: auto-merge.yml's list of extra workflow names
+# A refreshed caller may hold one repo-owned region (no shipped caller uses it today; the retired
+# auto-merge.yml did): a list of extra workflow names
 # lives between these marker lines. Everything else comes from the template; the lines between the
 # markers are carried over from the existing file.
 KIT_REPO_BLOCK_BEGIN='# >>> github-kit: repo workflows >>>'

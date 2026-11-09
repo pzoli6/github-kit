@@ -46,7 +46,7 @@ Usage: update-github-kit.sh [--target <path>] [--force-config] [--allow-dirty]
   --tier 1|2                Actions-budget tier for the refreshed caller workflows (CI, verify).
                              1 = run automatically on production-bound changes (the default);
                              2 = run only when dispatched by hand. Omitted = keep each caller's
-                             current tier ("# github-kit tier: N" line), or 1 for a new file.
+                             current tier ("# github-kit tier: N" line), or 2 for a new file (on demand only).
                              The fan-out passes the tier from its registry entry.
 
 This always refreshes: the managed block in AGENTS.md/CLAUDE.md/GEMINI.md, the agent-workflow-verify

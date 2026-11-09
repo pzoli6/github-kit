@@ -62,13 +62,15 @@ file	.github/workflows/agent-workflow-verify.yml	workflow	-
 file	.github/workflows/ci-node.yml	workflow	-
 file	.github/workflows/ci-python.yml	workflow	-
 file	.github/workflows/design-handoff-approval.yml	workflow	-
-file	.github/workflows/auto-merge.yml	workflow	-
 file	.github/workflows/pr-policy.yml	workflow-create	-
 file	.github/workflows/project-setup.yml	workflow-create	-
 file	.github/workflows/project-sync.yml	workflow-opt	-
 
 # --- retired: no longer installed; removed from repos where unmodified -----------------------
 # GitHub Copilot adapter, dropped when the kit stopped supporting Copilot (see AGENTS.md migration notes).
+# Auto-merge after green caller, dropped when the kit went Actions-free by default: merging is a human act
+# (see AGENTS.md migration notes; reusable-auto-merge.yml stays as an opt-in building block).
+file	.github/workflows/auto-merge.yml	retired	-	15aec0424f97c85d18fd9f1f8ee27d99d789dae8,26344ea646f0a37c945d0a90e8e927a9fcee5ff3,8468d086f94fa844614bcb731d562cab081291a1,b151689d880b7c21c523d7086e214c7e31d05f10
 file	.github/copilot-instructions.md	retired	-	0201080ca451ef1995e84ae49e80e714d6f5a185,14a4759ed74d4811a780fd01c403f3fa7ce9a09b,14eaa915b968594da8b966b2601131c0efb823d4,69908148ff9f166fbc3961fdafb2b834729eb9e1,6e8295e0ea268b37e104e762c825092865ac4f55,822ff11b932783236d2756b7d82a3939018c0b12,86c26d5418388d5ed556cdcb1da60982459fff44,912e02144ce942d3fbb4a5c98c5f2f1eb81c7ec3,afd6a7f23c0e714ebfc3e3bcab2df22ba1ef1bed,be27aa49d564b2462e07ccdca9bc9983748a51fa,e5c43d5fd48b0d66044f37051a2fa7ebe4cd54d1
 
 # --- Claude Code / Codex / generic agents / Cursor ----------------------------------------------

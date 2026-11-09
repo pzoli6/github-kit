@@ -46,8 +46,8 @@
 .PARAMETER Tier
     Actions-budget tier for the refreshed caller workflows (CI, verify): 1 runs them
     automatically on production-bound changes (default); 2 runs them only when dispatched by
-    hand. Omitted = keep each caller's current tier ("# github-kit tier: N" line), or 1 for a new
-    file. The fan-out passes the tier from its registry entry.
+    hand. Omitted = keep each caller's current tier ("# github-kit tier: N" line), or 2 for a new
+    file (on demand only). The fan-out passes the tier from its registry entry.
 
 #>
 [CmdletBinding()]

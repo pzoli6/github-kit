@@ -7,7 +7,8 @@
 #   - repo-owned files (PROJECT_CONFIG.md, .claude/settings.json, pr-policy.yml, ...) survive
 #     update and install --mode force untouched
 #   - text outside the managed-block markers is never changed
-#   - --ref rewrites only `uses:` lines; --tier 2 drops the automatic triggers and sticks
+#   - --ref rewrites only `uses:` lines; a fresh caller is tier 2 (dispatch only), --tier 1 adds
+#     the automatic triggers and sticks, --tier 2 restores the original; no retired file is installed
 #   - the bash and PowerShell scripts produce byte-identical trees (when pwsh is available)
 #
 # Usage: scripts/test-install-update.sh    (needs git; pwsh optional)
@@ -110,7 +111,7 @@ for impl in $impls; do
   printf 'name: my policy\n' > "$R/custom/.github/workflows/pr-policy.yml"
   printf 'my config\n' > "$R/custom/docs/ai/PROJECT_CONFIG.md"
   commit_all "$R/custom"
-  install "$impl" "$R/custom" --mode force --include-project-sync --ref v9 > "$WORK/$impl-custom.log" 2>&1
+  install "$impl" "$R/custom" --mode force --include-project-sync --ref v9 --tier 1 > "$WORK/$impl-custom.log" 2>&1
   preserved=1
   grep -qx '{"custom": true}' "$R/custom/.claude/settings.json" || { echo "        overwritten: .claude/settings.json"; preserved=0; }
   grep -qx 'name: my policy' "$R/custom/.github/workflows/pr-policy.yml" || { echo "        overwritten: pr-policy.yml"; preserved=0; }
@@ -141,14 +142,11 @@ for impl in $impls; do
   grep -qx '{"mine": 1}' "$R/fresh/.claude/settings.json" || { echo "        overwritten: settings.json"; ok=0; }
   tail -1 "$R/fresh/CLAUDE.md" | grep -qx 'My own footer.' || { echo "        lost: CLAUDE.md text after the block"; ok=0; }
   [ "$ok" -eq 1 ] && pass "$impl update refreshes kit files and keeps repo-owned ones" || fail "$impl update refreshes kit files and keeps repo-owned ones"
-  # A repo's own lines between the auto-merge.yml repo-workflows markers survive a refresh.
-  am="$R/fresh/.github/workflows/auto-merge.yml"
-  if [ -f "$am" ] && grep -qF '# >>> github-kit: repo workflows >>>' "$am"; then
-    awk '{ print } index($0, "# >>> github-kit: repo workflows >>>") { print "      - \"My Repo Tests\"" }' "$am" > "$am.tmp" && mv "$am.tmp" "$am"
-    update "$impl" "$R/fresh" --allow-dirty > /dev/null 2>&1
-    grep -qF -- '- "My Repo Tests"' "$am" && pass "$impl update keeps the repo's auto-merge workflow list" \
-      || fail "$impl update keeps the repo's auto-merge workflow list"
-  fi
+  # No retired file (the auto-merge caller among them) is ever installed.
+  retired_present=0
+  while IFS=$'\t' read -r rp; do [ -e "$R/fresh/$rp" ] && { echo "        installed retired file: $rp"; retired_present=1; }; done \
+    < <(awk -F'\t' '$1 == "file" && $3 == "retired" { print $2 }' "$KIT_ROOT/templates/docs/ai/KIT_MANIFEST.tsv")
+  [ "$retired_present" -eq 0 ] && pass "$impl install places no retired file (no auto-merge.yml)" || fail "$impl install places no retired file"
   before="$(tree_hash "$R/fresh")"
   update "$impl" "$R/fresh" --allow-dirty > /dev/null 2>&1
   [ "$before" = "$(tree_hash "$R/fresh")" ] && pass "$impl update is idempotent" || fail "$impl update is idempotent"
@@ -172,19 +170,24 @@ for impl in $impls; do
     fi
   fi
 
-  # 5. Tier: 2 drops the automatic triggers, sticks without the flag, and 1 restores them.
-  update "$impl" "$R/fresh" --allow-dirty --tier 2 > /dev/null 2>&1
+  # 5. Tier: a fresh caller is tier 2 (no automatic triggers); --tier 1 adds them and sticks
+  #    without the flag; --tier 2 restores the original.
   wf="$R/fresh/.github/workflows/ci-python.yml"
   if grep -qx '# github-kit tier: 2' "$wf" && ! grep -q 'pull_request:' "$wf"; then
-    update "$impl" "$R/fresh" --allow-dirty > /dev/null 2>&1
-    if grep -qx '# github-kit tier: 2' "$wf" && ! grep -q 'pull_request:' "$wf"; then
-      update "$impl" "$R/fresh" --allow-dirty --tier 1 > /dev/null 2>&1
-      [ "$before" = "$(tree_hash "$R/fresh")" ] && pass "$impl tier 2 sticks and tier 1 restores the original" || fail "$impl tier 1 restores the original"
+    update "$impl" "$R/fresh" --allow-dirty --tier 1 > /dev/null 2>&1
+    if grep -qx '# github-kit tier: 1' "$wf" && grep -q 'pull_request:' "$wf"; then
+      update "$impl" "$R/fresh" --allow-dirty > /dev/null 2>&1
+      if grep -qx '# github-kit tier: 1' "$wf" && grep -q 'pull_request:' "$wf"; then
+        update "$impl" "$R/fresh" --allow-dirty --tier 2 > /dev/null 2>&1
+        [ "$before" = "$(tree_hash "$R/fresh")" ] && pass "$impl fresh caller is tier 2; tier 1 adds the triggers and sticks; tier 2 restores" || fail "$impl --tier 2 restores the original"
+      else
+        fail "$impl tier 1 is kept by a later update without --tier"
+      fi
     else
-      fail "$impl tier 2 is kept by a later update without --tier"
+      fail "$impl --tier 1 adds the automatic triggers"
     fi
   else
-    fail "$impl --tier 2 drops the automatic triggers"
+    fail "$impl fresh caller is tier 2 (dispatch only)"
   fi
 done
 
