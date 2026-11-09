@@ -399,34 +399,39 @@ if ($applyScript -match 'design-sync-answers/v1' -and (Test-Path -LiteralPath "t
 
 Write-Host ""
 
-# --- auto-merge after green: the Free-plan substitute for required checks + native auto-merge -----
-# (reusable rules + a refresh-on-update caller; see README.md -> "Auto-merge after green") --------
+# --- Actions on demand by default; auto-merge is an opt-in building block, not an installed caller --
+# (see README.md -> "Repository tiers" and "Optional: auto-merge after green") ----------------------
 
 $reusableAutoMerge = Get-Content -LiteralPath ".github/workflows/reusable-auto-merge.yml" -Raw -ErrorAction SilentlyContinue
 if ($reusableAutoMerge -match 'opt_out_label' -and $reusableAutoMerge -match 'automerge_token' -and $reusableAutoMerge -match [regex]::Escape("vars.KIT_ACTIONS_PAUSED != 'true'") -and
-    $reusableAutoMerge -match [regex]::Escape("vars.KIT_AUTOMERGE_DISABLED != 'true'") -and $reusableAutoMerge -match 'allow_no_checks:' -and $reusableAutoMerge -match 'require_human_ready:') {
-    Write-Host "OK      reusable-auto-merge.yml has opt_out_label, automerge_token, allow_no_checks, require_human_ready and the pause/disable switches"
+    $reusableAutoMerge -match [regex]::Escape("vars.KIT_AUTOMERGE_DISABLED != 'true'") -and $reusableAutoMerge -match 'allow_no_checks:' -and $reusableAutoMerge -match 'require_human_ready:' -and
+    $reusableAutoMerge -match 'status_comment:' -and $reusableAutoMerge.Contains('<!-- github-kit:auto-merge-status -->') -and (Test-Path -LiteralPath "scripts/test-auto-merge.sh")) {
+    Write-Host "OK      reusable-auto-merge.yml (opt-in) keeps its switches, fail-closed inputs, status comment and test"
 } else {
-    Write-Host "MISSING opt_out_label / automerge_token / allow_no_checks / require_human_ready / KIT_ACTIONS_PAUSED / KIT_AUTOMERGE_DISABLED in .github/workflows/reusable-auto-merge.yml"
+    Write-Host "MISSING opt_out_label / automerge_token / allow_no_checks / require_human_ready / status_comment / KIT_ACTIONS_PAUSED / KIT_AUTOMERGE_DISABLED in .github/workflows/reusable-auto-merge.yml, or scripts/test-auto-merge.sh"
     $script:Missing = 1
 }
 
-$callerAutoMerge = Get-Content -LiteralPath "templates/.github/workflows/auto-merge.yml" -Raw -ErrorAction SilentlyContinue
-if ($callerAutoMerge -match [regex]::Escape('reusable-auto-merge.yml@main') -and $callerAutoMerge -match 'ready_for_review' -and $callerAutoMerge -match 'workflow_run' -and $callerAutoMerge -match 'check_suite' -and
-    $callerAutoMerge -match 'issues: read' -and $callerAutoMerge -match [regex]::Escape('vars.KIT_AUTOMERGE_ALLOW_NO_CHECKS')) {
-    Write-Host "OK      templates/.github/workflows/auto-merge.yml calls reusable-auto-merge.yml@main with the PR/workflow_run/check_suite triggers, issues: read and the allow-no-checks variable"
+# The auto-merge caller is retired: no template, and a manifest row that lists every blob the kit
+# ever shipped, so update and fan-out delete an unmodified copy and keep an edited one.
+$amRetired = Get-Content -LiteralPath "templates/docs/ai/KIT_MANIFEST.tsv" -ErrorAction SilentlyContinue |
+    Where-Object { $_ -match '^file\t\.github/workflows/auto-merge\.yml\tretired\t-\t[0-9a-f]{40}(,[0-9a-f]{40})*$' }
+if ((-not (Test-Path -LiteralPath "templates/.github/workflows/auto-merge.yml")) -and $amRetired) {
+    Write-Host "OK      auto-merge.yml is retired: no template, manifest row with the shipped blob SHAs"
 } else {
-    Write-Host "MISSING reusable-auto-merge.yml@main call, ready_for_review/workflow_run/check_suite triggers, issues: read or KIT_AUTOMERGE_ALLOW_NO_CHECKS in templates/.github/workflows/auto-merge.yml"
+    Write-Host "MISSING auto-merge.yml retirement: templates/.github/workflows/auto-merge.yml must not exist and templates/docs/ai/KIT_MANIFEST.tsv needs a retired row for it with blob SHAs"
     $script:Missing = 1
 }
 
-# A ready PR that auto-merge holds back must say why on the PR (sticky status comment), and the
-# per-repo variables it depends on must be applicable from the registry (schema: the example file).
-$amReusable = Get-Content -LiteralPath ".github/workflows/reusable-auto-merge.yml" -Raw -ErrorAction SilentlyContinue
-$amCaller = Get-Content -LiteralPath "templates/.github/workflows/auto-merge.yml" -Raw -ErrorAction SilentlyContinue
+# Nothing runs unless a human asks: a brand-new caller is tier 2 in both updater libraries, the
+# fan-out defaults a registry entry to tier 2, and the registry example says so.
+$libShTier = Get-Content -LiteralPath "scripts/lib/kit.sh" -Raw -ErrorAction SilentlyContinue
+$libPsTier = Get-Content -LiteralPath "scripts/lib/Kit.ps1" -Raw -ErrorAction SilentlyContinue
+$fanoutTier = Get-Content -LiteralPath ".github/workflows/github-kit-fanout.yml" -Raw -ErrorAction SilentlyContinue
+$exampleRaw = Get-Content -LiteralPath ".github/fanout-targets.example.json" -Raw -ErrorAction SilentlyContinue
 $varsOk = $false
 try {
-    $reg = Get-Content -LiteralPath ".github/fanout-targets.example.json" -Raw | ConvertFrom-Json
+    $reg = $exampleRaw | ConvertFrom-Json
     $varsOk = $true
     foreach ($t in $reg.targets) {
         if ($t.PSObject.Properties.Name -contains 'variables') {
@@ -434,12 +439,22 @@ try {
         }
     }
 } catch { $varsOk = $false }
-if ($amReusable -and $amReusable.Contains('status_comment:') -and $amReusable.Contains('<!-- github-kit:auto-merge-status -->') -and
-    $amCaller -and $amCaller.Contains('status_comment: true') -and
-    (Test-Path -LiteralPath "scripts/apply-repo-variables.sh") -and (Test-Path -LiteralPath "scripts/test-auto-merge.sh") -and $varsOk) {
-    Write-Host "OK      auto-merge explains every hold (status comment); registry variables are strings and applicable"
+if ($libShTier -and $libShTier.Contains('|| tier=2') -and $libPsTier -and $libPsTier.Contains('$tier = "2"') -and
+    $fanoutTier -and $fanoutTier.Contains('.tier // 2') -and (-not $fanoutTier.Contains('.tier // 1')) -and
+    $exampleRaw -and $exampleRaw.Contains('default 2') -and $varsOk -and (Test-Path -LiteralPath "scripts/apply-repo-variables.sh")) {
+    Write-Host "OK      Actions on demand by default: new callers and registry entries are tier 2 (kit.sh, Kit.ps1, fan-out, example); registry variables are strings"
 } else {
-    Write-Host "MISSING auto-merge status_comment / marker, the caller's status_comment: true, scripts/apply-repo-variables.sh, scripts/test-auto-merge.sh, or non-string values under `"variables`" in .github/fanout-targets.example.json"
+    Write-Host "MISSING tier-2 default in scripts/lib/kit.sh (|| tier=2), scripts/lib/Kit.ps1, .github/workflows/github-kit-fanout.yml (.tier // 2), or .github/fanout-targets.example.json; or non-string values under `"variables`" in the example; or scripts/apply-repo-variables.sh"
+    $script:Missing = 1
+}
+
+# An ordinary PR comment must never start a runner: the design-handoff job filters on the marker
+# at job level, before a runner is allocated.
+$dhReusable = Get-Content -LiteralPath ".github/workflows/reusable-design-handoff-approval.yml" -Raw -ErrorAction SilentlyContinue
+if ($dhReusable -and $dhReusable.Contains('startsWith(github.event.comment.body, inputs.comment_marker)')) {
+    Write-Host "OK      reusable-design-handoff-approval.yml starts a runner only for an approving review or a marker comment"
+} else {
+    Write-Host "MISSING startsWith(github.event.comment.body, inputs.comment_marker) in the job-level if of .github/workflows/reusable-design-handoff-approval.yml"
     $script:Missing = 1
 }
 
@@ -469,59 +484,35 @@ if ((Test-Path -LiteralPath ".github/fanout-targets.example.json") -and (Test-Pa
     $script:Missing = 1
 }
 
-# The caller carries no repo-specific values, so it is a refreshed `workflow` row in the manifest
-# (the same mode as ci-node.yml), which install, update and the fan-out all read.
-$amRow = Get-Content -LiteralPath "templates/docs/ai/KIT_MANIFEST.tsv" -ErrorAction SilentlyContinue |
-    Where-Object { $_ -eq "file`t.github/workflows/auto-merge.yml`tworkflow`t-" }
-if ($amRow) {
-    Write-Host "OK      manifest refreshes auto-merge.yml as a caller workflow alongside ci-node.yml"
-} else {
-    Write-Host "MISSING .github/workflows/auto-merge.yml row with mode workflow in templates/docs/ai/KIT_MANIFEST.tsv"
-    $script:Missing = 1
-}
-
-# A repo's own PR workflows are listed in the caller between two marker lines, which every
-# refresh (update, fan-out, install -Mode force) carries over instead of resetting.
-$repoBlockBegin = '# >>> github-kit: repo workflows >>>'
-$repoBlockEnd = '# <<< github-kit: repo workflows <<<'
-$repoBlockDecl = "'" + $repoBlockBegin + "'"
-$libSh = Get-Content -LiteralPath "scripts/lib/kit.sh" -Raw -ErrorAction SilentlyContinue
-$libPs = Get-Content -LiteralPath "scripts/lib/Kit.ps1" -Raw -ErrorAction SilentlyContinue
-if ($callerAutoMerge -and $callerAutoMerge.Contains($repoBlockBegin) -and $callerAutoMerge.Contains($repoBlockEnd) -and $callerAutoMerge.Contains('- "CI"') -and
-    $libSh -and $libSh.Contains('kit_carry_repo_block "') -and $libPs -and $libPs.Contains('Merge-KitRepoBlock -OldPath') -and
-    $libSh.Contains($repoBlockDecl) -and $libPs.Contains($repoBlockDecl)) {
-    Write-Host "OK      auto-merge.yml carries the repo-workflows block and both install/update libraries keep it on refresh"
-} else {
-    Write-Host "MISSING repo-workflows markers in templates/.github/workflows/auto-merge.yml, or kit_carry_repo_block / Merge-KitRepoBlock in scripts/lib/{kit.sh,Kit.ps1}"
-    $script:Missing = 1
-}
-
 $agentsTemplate = Get-Content -LiteralPath "templates/AGENTS.md" -Raw -ErrorAction SilentlyContinue
 $projectConfigAm = Get-Content -LiteralPath "templates/docs/ai/PROJECT_CONFIG.md" -Raw -ErrorAction SilentlyContinue
 $agentWorkflowAm = Get-Content -LiteralPath "templates/docs/ai/AGENT_WORKFLOW.md" -Raw -ErrorAction SilentlyContinue
-if ($agentsTemplate -match [regex]::Escape('Auto-merge after green') -and $projectConfigAm -match [regex]::Escape('Auto-merge |') -and $agentWorkflowAm -match 'no-automerge') {
-    Write-Host "OK      templates/AGENTS.md, PROJECT_CONFIG.md and AGENT_WORKFLOW.md document auto-merge and the no-automerge label"
+$leftover = Get-ChildItem -LiteralPath "templates/AGENTS.md", "templates/CLAUDE.md", "templates/GEMINI.md", "templates/docs/ai", "templates/.claude", "templates/.agents", "templates/.cursor" -Recurse -File -ErrorAction SilentlyContinue |
+    Where-Object { (Get-Content -LiteralPath $_.FullName -Raw) -match 'no-automerge' }
+if ($agentsTemplate -match [regex]::Escape('Merging and Actions posture') -and $projectConfigAm -match [regex]::Escape('| Merge |') -and
+    $agentWorkflowAm -match [regex]::Escape('Merging and Actions posture') -and -not $leftover) {
+    Write-Host "OK      templates/AGENTS.md, PROJECT_CONFIG.md and AGENT_WORKFLOW.md document human merges and the on-demand Actions posture; no template still promises auto-merge"
 } else {
-    Write-Host "MISSING `"Auto-merge after green`" section in templates/AGENTS.md, `"Auto-merge |`" row in templates/docs/ai/PROJECT_CONFIG.md, or no-automerge in templates/docs/ai/AGENT_WORKFLOW.md"
+    Write-Host "MISSING `"Merging and Actions posture`" section in templates/AGENTS.md or templates/docs/ai/AGENT_WORKFLOW.md, `"| Merge |`" row in templates/docs/ai/PROJECT_CONFIG.md, or a leftover no-automerge mention in the templates"
     $script:Missing = 1
 }
 
-# The no-mark-ready rule must live inside the managed block: it is the only part of AGENTS.md /
-# CLAUDE.md / GEMINI.md that the updater (and so the fan-out) refreshes in existing repos.
+# The never-mark-ready / never-merge rule must live inside the managed block: it is the only part
+# of AGENTS.md / CLAUDE.md / GEMINI.md that the updater (and so the fan-out) refreshes in existing repos.
 $amBlockOk = $true
 # The install/update scripts take the block from these templates, so the templates are the copies.
 foreach ($f in @("templates/AGENTS.md", "templates/CLAUDE.md", "templates/GEMINI.md")) {
     $content = Get-Content -LiteralPath $f -Raw -ErrorAction SilentlyContinue
     # Every BEGIN..END span (templates/AGENTS.md also names both markers inline in its prose).
     $blockMatches = [regex]::Matches([string]$content, '(?s)<!-- BEGIN GITHUB-KIT UNIVERSAL WORKFLOW -->.*?<!-- END GITHUB-KIT UNIVERSAL WORKFLOW -->')
-    if (-not ($blockMatches | Where-Object { $_.Value -match 'never mark a PR ready for review.*no-automerge' })) {
-        Write-Host "MISSING managed-block auto-merge rule (never mark ready / no-automerge) in $f"
+    if (-not ($blockMatches | Where-Object { $_.Value -match 'never mark a PR ready for review and never merge' })) {
+        Write-Host "MISSING managed-block merge rule (never mark ready / never merge) in $f"
         $amBlockOk = $false
         $script:Missing = 1
     }
 }
 if ($amBlockOk) {
-    Write-Host "OK      managed block (3 template copies) carries the never-mark-ready / no-automerge rule"
+    Write-Host "OK      managed block (3 template copies) carries the never-mark-ready / never-merge rule"
 }
 
 Write-Host ""

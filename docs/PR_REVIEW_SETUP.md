@@ -24,7 +24,7 @@ checkers in CI should own anything mechanical.
 ## Recommended setup per tier
 
 Tiers are recorded in the fan-out registry — the `FANOUT_TARGETS` variable of github-kit (see README →
-"Repository tiers").
+"Repository tiers"). Tier 2 — CI only when a human dispatches it — is the default; tier 1 is an opt-in.
 
 | | Tier 1 | Tier 2 |
 |---|---|---|

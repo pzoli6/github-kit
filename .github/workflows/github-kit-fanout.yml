@@ -13,9 +13,8 @@ name: github-kit fan-out (propagate bootstrap updates)
 # fan-out registry from github-kit@main and opens a DRAFT PR whenever anything drifted.
 # It never merges, never overwrites an existing docs/ai/PROJECT_CONFIG.md (only an explicit
 # "install": true creates the template one), and never force-pushes. Its PRs change
-# .github/workflows/*, which the kit's auto-merge.yml can merge only when the target has an
-# AUTOMERGE_TOKEN with the workflow permission (GitHub refuses workflow-file merges from
-# GITHUB_TOKEN) -- otherwise the owner merges them by hand. The fan-out itself only opens drafts.
+# .github/workflows/*, which GitHub refuses to merge with GITHUB_TOKEN, so the owner merges them by
+# hand -- as every PR in a kit repo: the kit installs no auto-merge. The fan-out only opens drafts.
 #
 # THE REGISTRY IS NOT IN THIS REPOSITORY. github-kit is public; the list of repositories it
 # maintains is not. The registry is the repository Actions VARIABLE `FANOUT_TARGETS` of github-kit
@@ -51,7 +50,8 @@ name: github-kit fan-out (propagate bootstrap updates)
 #             docs/ai/PROJECT_CONFIG.md at the base branch) is skipped with a visible log line
 #             and no PR. Only "install": true makes fan-out run the full installer there; the kit
 #             is never silently installed into a repo that never had it.
-#   tier      optional, default 1 -- passed to the updater/installer as --tier (README ->
+#   tier      optional, default 2 (CI/verify run only when dispatched by hand) -- passed to the
+#             updater/installer as --tier; 1 = automatic production-bound runs (README ->
 #             "Repository tiers").
 #   variables optional -- repository Actions variables a human applies with
 #             scripts/apply-repo-variables.sh; the fan-out never touches them.
@@ -221,7 +221,7 @@ jobs:
             exit 1
           fi
           jq -c --argjson i "$index" '.targets[$i]' <<< "$registry" > "$RUNNER_TEMP/target.json"
-          echo "Job $LABEL is $(jq -r '.repo' "$RUNNER_TEMP/target.json") (shown masked), tier $(jq -r '.tier // 1' "$RUNNER_TEMP/target.json")."
+          echo "Job $LABEL is $(jq -r '.repo' "$RUNNER_TEMP/target.json") (shown masked), tier $(jq -r '.tier // 2' "$RUNNER_TEMP/target.json")."
 
       - name: Checkout github-kit (source of truth)
         uses: actions/checkout@v5
@@ -291,7 +291,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          TARGET_TIER="$(jq -r '(.tier // 1) | tostring' "$RUNNER_TEMP/target.json")"
+          TARGET_TIER="$(jq -r '(.tier // 2) | tostring' "$RUNNER_TEMP/target.json")"
           bash github-kit/scripts/update-github-kit.sh --target target --allow-dirty --ref main --tier "$TARGET_TIER"
 
       - name: 'Install github-kit (first install, opted in via "install": true)'
@@ -299,7 +299,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          TARGET_TIER="$(jq -r '(.tier // 1) | tostring' "$RUNNER_TEMP/target.json")"
+          TARGET_TIER="$(jq -r '(.tier // 2) | tostring' "$RUNNER_TEMP/target.json")"
           bash github-kit/scripts/install-github-kit.sh --target target --mode merge --allow-dirty --ref main --tier "$TARGET_TIER"
 
       - name: Open draft PR if anything drifted
@@ -363,16 +363,15 @@ jobs:
           - `.claude` / `.agents` skills and commands, `.cursor` rules
           - removes retired kit files you never edited (e.g. `.github/copilot-instructions.md`)
           - `docs/ai/AGENT_WORKFLOW.md`, `docs/ai/HANDOFF_INDEX.md`, `docs/ai/PROJECT_CONFIG.env.example`
-          - `scripts/project/*` helper scripts and the reusable-workflow callers, including
-            `.github/workflows/auto-merge.yml` (merge after green; hold any PR back with the
-            `no-automerge` label)
+          - `scripts/project/*` helper scripts and the reusable-workflow callers, rendered at this
+            repo's Actions tier (removes `.github/workflows/auto-merge.yml` where it is an unmodified
+            kit copy: the kit no longer installs auto-merge -- a person merges)
 
           Reusable CI workflows already auto-track `@main`; this PR covers the local files that don't.
 
           Draft on purpose — review the diff, then merge it yourself. It changes `.github/workflows/*`,
-          and GitHub refuses workflow-file merges from `GITHUB_TOKEN`, so `auto-merge.yml` can merge it
-          only if this repo has an `AUTOMERGE_TOKEN` with the workflow permission; with one, marking it
-          ready merges it once its checks are green. This automation itself never merges.
+          which GitHub refuses to merge with `GITHUB_TOKEN`; the kit installs no auto-merge, so every
+          merge is a person's act. This automation itself never merges.
 
           Relationships: none declared.
           BODY

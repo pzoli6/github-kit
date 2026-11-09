@@ -11,7 +11,7 @@
 #   $KitForceConfig      $true = update -ForceConfig (reset `config` files to the template)
 #   $KitIncludeSync      $true = install `workflow-opt` files even when absent
 #   $WorkflowRef         ref written into `uses: pzoli6/github-kit/...@<ref>` lines
-#   $KitTier             "1" | "2" | "" (empty = keep each caller's current tier, default 1)
+#   $KitTier             "1" | "2" | "" (empty = keep each caller's current tier; a new caller is tier 2)
 # and read back $script:CreatedCount, $script:UpdatedCount, $script:SkippedCount afterwards.
 
 $script:CreatedCount = 0
@@ -59,7 +59,8 @@ function Get-KitExistingTier {
     return ""
 }
 
-# A refreshed caller may hold one repo-owned region: auto-merge.yml's list of extra workflow names
+# A refreshed caller may hold one repo-owned region (no shipped caller uses it today; the retired
+# auto-merge.yml did): a list of extra workflow names
 # lives between these marker lines. Everything else comes from the template; the lines between the
 # markers are carried over from the existing file. Same result as kit_carry_repo_block in kit.sh.
 $KitRepoBlockBegin = '# >>> github-kit: repo workflows >>>'
@@ -97,7 +98,7 @@ function Write-KitWorkflow {
     param([string]$Src, [string]$Dst)
     $tier = $KitTier
     if (-not $tier) { $tier = Get-KitExistingTier $Dst }
-    if (-not $tier) { $tier = "1" }
+    if (-not $tier) { $tier = "2" }   # a brand-new caller runs on demand only
     $content = (Get-Content -LiteralPath $Src -Raw) -replace '(uses: pzoli6/github-kit/[^@\s]+)@main', "`$1@$WorkflowRef"
     $content = $content -replace '(?m)^# github-kit tier: [0-9]+[ \t]*$', "# github-kit tier: $tier"
     if ($tier -ne "1") {

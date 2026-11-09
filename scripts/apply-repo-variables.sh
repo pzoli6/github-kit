@@ -2,7 +2,7 @@
 # Apply the repository Actions variables declared in the fan-out registry to each target.
 #
 # The registry is the single place that says how each repo behaves; a target entry may carry
-#   "variables": { "KIT_AUTOMERGE_ALLOW_NO_CHECKS": "true", ... }
+#   "variables": { "KIT_ACTIONS_PAUSED": "false", ... }
 # and this script makes each repo's Actions variables match. It only creates or updates the
 # variables it is given and never deletes one (remove a variable with
 # `gh variable delete NAME --repo OWNER/REPO`). Changing repository settings is a human action:

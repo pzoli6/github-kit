@@ -94,6 +94,28 @@ so working here dogfoods it.
 
 ## Migration notes
 
+### Actions on demand by default; auto-merge retired
+
+The owner does not want to pay for Actions minutes, so the kit now spends none unless a human
+asks. A brand-new CI/verify caller is **tier 2** (dispatch only): the `--tier` default changed in
+`scripts/lib/kit.sh` / `Kit.ps1`, the fan-out passes `tier // 2`, and tier 1 (automatic
+production-bound runs) stays an explicit opt-in per registry entry. **`auto-merge.yml` is
+retired**: `templates/.github/workflows/auto-merge.yml` is gone and the manifest row lists every
+blob the kit ever shipped, so update and fan-out delete an unmodified copy and keep an edited one
+with a warning. `reusable-auto-merge.yml` and `scripts/test-auto-merge.sh` stay as an opt-in
+building block (README → "Optional: auto-merge after green" has a hand-written caller).
+`reusable-design-handoff-approval.yml` now gates on the comment body at job level, so an ordinary
+PR comment never starts a runner. The docs and the managed block say "human merges" instead of
+"human marks ready → auto-merge after green", the `no-automerge` label is gone from the rules,
+and `docs/ai/PROJECT_CONFIG.md` carries a `Merge` row in place of `Auto-merge`.
+
+**What a target repo must do:** merge its next fan-out/update PR (it deletes `auto-merge.yml` and
+renders the CI callers at the registry's tier). Until then, `KIT_AUTOMERGE_DISABLED=true` as a
+repository variable stops the old caller at zero cost (`scripts/apply-repo-variables.sh` can set
+it from the registry's `"variables"`). The design-handoff change is live on `@main` already.
+**Owner action:** give every registry entry `"tier": 2` (or no `tier`) unless it should keep
+automatic production-bound CI.
+
 ### Fan-out registry moved out of the repository (`FANOUT_TARGETS`)
 
 `.github/fanout-targets.json` — the list of every repository the fan-out maintains — is no longer

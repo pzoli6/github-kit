@@ -145,10 +145,9 @@ scripts/project/check_resume_safety.sh --issue <issue-number> --agent "<name>"
     Address the feedback, push the updates, then run
     `scripts/project/sync_project_fields.sh pr_opened <issue-url> <pr-url>` to move `Status` back
     to `In Review`.
-19. **Completion is human-driven.** A human marks the PR ready (or removes the `no-automerge`
-    label), and `.github/workflows/auto-merge.yml` merges it once every check is green — no agent
-    merges its own or anyone else's PR, marks one ready, or touches that label (`docs/ai/AGENT_WORKFLOW.md`
-    → "Auto-merge after green").
+19. **Completion is human-driven.** A human marks the PR ready and merges it — no agent merges
+    its own or anyone else's PR, or marks one ready (`docs/ai/AGENT_WORKFLOW.md` → "Merging and
+    Actions posture").
 20. **On merge, clean up after yourself.**
     ```bash
     scripts/project/cleanup_merged_branches.sh --branch <branch>
@@ -175,7 +174,6 @@ scripts/project/check_resume_safety.sh --issue <issue-number> --agent "<name>"
   workflow, not expected behavior.
 - Never leave the relationships question unaddressed — declare a real one or write
   `Relationships: none declared`.
-- Never merge a PR, never mark one ready for review, never add or remove the `no-automerge`
-  label.
+- Never merge a PR, never mark one ready for review — both are the human's acts.
 - Never push directly to the production branch.
 - Never commit `docs/ai/PROJECT_CONFIG.env` or any secret.

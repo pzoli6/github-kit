@@ -40,15 +40,21 @@ etc.) lives in the target repo's `docs/ai/PROJECT_CONFIG.md`, not here.
   service, GitHub Advanced Security/CodeQL, or a paid Marketplace app; PR review is human review,
   optionally helped by AI reviewers you run outside CI (see "PR review" below). The kit no longer
   ships a GitHub Copilot adapter (see `AGENTS.md` → Migration notes).
-- **The kit's CI shares one Actions budget with every other repo on the account.** So the kit is
-  budget-aware: the template CI/verify workflows trigger only for production-bound changes (PR
-  targeting the production branch, or a push to it) or an explicit `workflow_dispatch` — never
-  automatically on preview-bound PRs, where agents validate locally instead; every reusable
-  workflow job additionally skips — consuming no minutes — while the caller repo's Actions
-  variable `KIT_ACTIONS_PAUSED` is `true`; and CI runs superseded by a newer push to the same PR
-  are auto-cancelled. The pause switch and auto-cancel live in the reusable workflows, so repos on
-  the `@main` channel get those without refreshing local files (the triggers live in each repo's
-  caller files, refreshed via `/github_kit_update`). The kit also tells agents to **stop chasing
+- **The kit's CI shares one Actions budget with every other repo on the account**, and on a
+  private repo every run that starts bills at least one minute. So the kit's default posture is
+  **on demand — it spends no Actions minutes unless a human asks**: the template CI/verify callers
+  are installed at tier 2 and run only on an explicit `workflow_dispatch` (tier 1 — automatic runs
+  on production-bound PRs and pushes — is a per-repo opt-in, see "Repository tiers"); agents
+  validate locally instead. The only automatic kit runs left are a PR into the production branch
+  (`pr-policy.yml`, the `approve main` gate), an actual spec approval
+  (`design-handoff-approval.yml`), the one-time `project-setup.yml`, and `project-sync.yml` where a
+  human opted in; no auto-merge workflow is installed (see "Optional: auto-merge after green").
+  Every reusable workflow job additionally skips — consuming no minutes — while the caller repo's
+  Actions variable `KIT_ACTIONS_PAUSED` is `true`, and CI runs superseded by a newer push to the
+  same PR are auto-cancelled. The pause switch and auto-cancel live in the reusable workflows, so
+  repos on the `@main` channel get those without refreshing local files (the triggers live in
+  each repo's caller files, refreshed via `/github_kit_update` or the fan-out). The kit also tells
+  agents to **stop chasing
   checks**: a preview PR with no checks is the designed outcome, so agents must not fetch check
   runs, poll, subscribe to PR activity, self-dispatch a workflow, or report "CI didn't run / is
   red" — which keeps their tokens and your attention on the work instead of a non-problem. CI is
@@ -61,165 +67,66 @@ etc.) lives in the target repo's `docs/ai/PROJECT_CONFIG.md`, not here.
   reviews, no required status checks blocking a merge, at the platform level. This is a GitHub
   plan limitation, not a `github-kit` configuration gap.
 - The kit compensates with **process discipline instead of platform enforcement**: every PR opens
-  as a draft, CI workflows still run and report pass/fail (they just can't be marked "required"),
-  and the agent rules in `AGENTS.md` forbid self-merging regardless of what GitHub will technically
-  allow.
+  as a draft, a human merges it, CI reports pass/fail where a human dispatched it (it can't be
+  marked "required" anyway), and the agent rules in `AGENTS.md` forbid self-merging regardless of
+  what GitHub will technically allow.
 - If a repo is later upgraded to a plan that supports branch protection (or made public), a human
   can enable required reviews/status checks at that point — nothing here needs to change first.
 - `docs/ai/PROJECT_CONFIG.md` records this per repo as `Branch protection enforced: false` so
   agents don't assume enforcement that isn't actually happening.
 
-## Auto-merge after green
+## Optional: auto-merge after green (not installed)
 
-Because a private Free-plan repo cannot have required status checks, GitHub's **native
-auto-merge is unusable there** — it refuses to enable itself without a branch-protection rule
-to wait on. `github-kit` ships the substitute:
-[`.github/workflows/reusable-auto-merge.yml`](.github/workflows/reusable-auto-merge.yml), called
-from every installed repo's `.github/workflows/auto-merge.yml` (a thin caller that the installer
-**and** the updater refresh, like `ci-node.yml` — it carries no repo-specific values).
+The kit no longer installs an auto-merge workflow: merging is a human act, and on a private repo
+every auto-merge run that starts bills at least one minute — several per PR, because every
+successful workflow run, third-party check suite and `success` status re-evaluates the PR. The
+reusable workflow still exists for a repo that wants it and accepts the minutes:
+[`.github/workflows/reusable-auto-merge.yml`](.github/workflows/reusable-auto-merge.yml) merges a
+PR that **a person marked ready for review** once every check on its head commit is green, fails
+closed on every API read, holds a PR back with the `no-automerge` label, never merges a PR opened
+non-draft or from a long-lived branch, and explains every hold in one comment kept current. Its
+inputs, rules and token caveats are documented in the file's header; `scripts/test-auto-merge.sh`
+runs its decision script against a fake `gh`.
 
-**What it does.** A PR that **a person marked ready for review** merges automatically — with a
-**merge commit** — as soon as every check on its head commit has succeeded. The human still
-decides, and the workflow verifies it: the kit's PRs always open as drafts, and only a
-`ready_for_review` event by a User account (read from the PR timeline) hands a PR to
-auto-merge. A PR that was **opened non-draft** — Dependabot/Renovate, an agent that skipped
-`--draft`, a release PR opened for review — has no such event and is **never** merged
-automatically (convert it to draft and mark it ready to hand it over). Nothing merges while the
-caller repo's `KIT_ACTIONS_PAUSED` variable is `true`, and nothing merges while the account's
-Actions budget is exhausted, because no run starts at all.
-
-**The decision**, re-evaluated on every event that can change it — PR marked ready / reopened /
-`no-automerge` removed, one of the repo's Actions workflows completing successfully
-(`workflow_run`), a third-party check suite completing successfully (`check_suite`), a `success`
-commit status arriving (`status`):
-
-| Rule | Outcome when not met |
-|---|---|
-| PR is open and not a draft | nothing to do |
-| a person (not a bot) marked it ready for review (`require_human_ready: true`) | never merged automatically |
-| PR does not carry the **`no-automerge`** label (case-insensitive; re-checked right before the merge) | held back while the label is present |
-| head branch lives in the same repository (`allow_forks: false`) | never merged |
-| head branch is not a long-lived branch — the default branch or `main`/`master`/`develop`/`staging`/`production` (`skip_head_branches`) | never merged automatically: release/promotion PRs are a human merge |
-| no reviewer's latest review is `CHANGES_REQUESTED` (`require_no_changes_requested: true`) | waits for the review to change |
-| GitHub reports the PR mergeable, not `dirty` (conflicts) | not merged |
-| every check run on the head commit is `completed` with `success` / `neutral` / `skipped` | queued/in-progress → wait for the next event; `failure` / `cancelled` / `timed_out` / `action_required` / `stale` → not merged, failing names logged |
-| the latest run of every other workflow on the head commit is completed `success` / `neutral` / `skipped` | a queued run (even before its jobs exist) → wait; otherwise not merged |
-| no check run of `CI (Node)` / `CI (Python)` / `Agent Workflow Verify` / PR Policy's `policy` job was **skipped** — those skip only when `KIT_ACTIONS_PAUSED` was set, and paused is *no signal*, never green | not merged until those workflows are re-run (or a commit is pushed) after unpausing |
-| combined commit status is `success`, or there are no statuses | `pending` → wait; `failure` / `error` → not merged |
-| at least one check run, commit status or workflow run exists on the head commit | **not merged** unless the repo opted in (below) |
-
-**Fail closed.** Every gate reads the GitHub API explicitly; a read that fails (rate limit,
-missing token permission, 5xx) is logged as an error and the PR is **not** merged — it never
-reads as "no checks" or "no blockers".
-
-**No checks is not green.** A head commit with no check runs, no statuses and no workflow runs
-is not merged, because that is indistinguishable from CI that has not registered yet or did not
-run (a commit pushed with `GITHUB_TOKEN` starts no workflows, a `paths` filter can skip one).
-Mind what that means with the kit's **budget-first CI triggers**: a PR into the *base* branch
-starts no kit workflow at all (CI and PR Policy run for production-bound PRs), so unless a
-third-party check such as a Vercel preview reports on it, such a PR is **not** merged
-automatically — a human merges it. A repo that wants "merge when marked ready" without checks
-sets the repository Actions variable **`KIT_AUTOMERGE_ALLOW_NO_CHECKS=true`**; the
-`no-automerge` label is then its only brake. The fan-out registry declares it per repo
-(`"variables"` on the repo's entry — see "Fan-out propagation of bootstrap files"), and you apply
-it with `scripts/apply-repo-variables.sh` (run it with `--dry-run` first; it needs `gh` logged in
-as the repos' admin, and `jq`: on Windows `winget install jqlang.jq`, then run it from Git Bash; the
-CRLF a native `jq.exe` writes is stripped). Nothing in CI changes repository settings.
-
-**Why hasn't my PR merged?** A ready PR that auto-merge holds back gets **one comment, kept
-current**, that names the reason and the next step, so a held PR is never silent. Merging by
-hand always works: private Free-plan repos have no branch protection that could block it.
-
-| The comment says | Why | What to do |
-|---|---|---|
-| no check ran on this commit | A PR into the working branch starts no kit CI (budget-first) | Merge by hand, or set `KIT_AUTOMERGE_ALLOW_NO_CHECKS=true` for the repo |
-| GitHub refuses to merge changes to `.github/workflows/*` | Every kit update PR changes workflow files; `GITHUB_TOKEN` can't merge those | Merge by hand, or add an `AUTOMERGE_TOKEN` secret |
-| failing check run(s) / workflow run(s) did not succeed | A check failed | Fix and push, or re-run a one-off failure |
-| skipped while `KIT_ACTIONS_PAUSED` was set | Pause leaves no signal, never green | Unpause, then re-run those workflows or push |
-| waiting for check run(s) / workflow run(s) | Checks still running | Nothing; if they never start, the Actions budget is probably used up |
-| changes requested by … | A reviewer asked for changes | Address them; reviewer approves or dismisses |
-| merge conflicts / mergeable … | The branch conflicts with its base | Resolve locally (no Actions minutes) and push |
-| *(no comment at all)* | Still a draft, opened non-draft, a long-lived head branch (release PR), `no-automerge`, `KIT_AUTOMERGE_DISABLED`, or **no run could start** (Actions budget exhausted, `KIT_ACTIONS_PAUSED`) | Mark it ready / merge by hand; check Billing → Budgets |
-
-When the PR merges, that comment becomes the merge summary, so there is still one comment.
-
-The workflow's own check run is excluded from that evaluation (by run id, by the caller
-workflow's runs on the same commit, and by its job name), so it can never wait on itself. After
-a PR is marked ready or reopened it first sleeps `grace_seconds` (default 30) so checks about
-to be queued for that commit exist before they are counted; other events skip the sleep. It
-never approves reviews, never bypasses anything, and never touches branch protection or
-repository settings. On merge it deletes the head branch only if it is a same-repo branch
-starting with one of the kit's agent prefixes (`agent/`, `claude/`, `codex/`, `cursor/`,
-`gemini/` — `delete_branch_prefixes`) and no other open PR uses it as base or head,
-and posts one short comment naming the checks that were green.
-
-**Per-repo settings are repository Actions variables**, because the caller file is refreshed by
-every kit update (edits to it are overwritten, and a deleted caller is recreated — the one
-exception is the repo-workflows list below):
-
-| Variable | Effect |
-|---|---|
-| `KIT_AUTOMERGE_DISABLED=true` | auto-merge is off in this repo (the durable opt-out; deleting `auto-merge.yml` lasts only until the next update or fan-out) |
-| `KIT_AUTOMERGE_ALLOW_NO_CHECKS=true` | a ready PR with no checks at all merges |
-| `KIT_ACTIONS_PAUSED=true` | every github-kit job pauses, auto-merge included |
-
-**The repo's own PR workflows.** GitHub fires no `check_suite` event for suites that Actions
-created, so a workflow's completion re-evaluates a PR only if its `name:` is listed under the
-caller's `workflow_run` trigger. The template lists the kit's workflows plus `CI`. A workflow
-that is not listed still blocks the merge while it runs or if it fails; its success alone just
-does not wake auto-merge, so if it is the last check to finish, the PR waits for the next event.
-List such workflows between the marker lines in the repo's `.github/workflows/auto-merge.yml`:
+To opt a repo in, add a caller **by hand** — the kit neither refreshes nor removes a hand-written
+one (it removes only the unmodified copy it used to ship):
 
 ```yaml
-      # >>> github-kit: repo workflows >>>
-      - "Application quality"
-      # <<< github-kit: repo workflows <<<
+# .github/workflows/auto-merge.yml — opt-in; rules live in pzoli6/github-kit reusable-auto-merge.yml
+name: Auto-merge after green
+on:
+  pull_request:
+    types: [ready_for_review, unlabeled, reopened]
+  workflow_run:
+    workflows: ["CI (Node)", "CI (Python)", "PR Policy", "Agent Workflow Verify"]
+    types: [completed]
+  check_suite:
+    types: [completed]
+  status:
+permissions:
+  contents: write
+  pull-requests: write
+  issues: read
+  checks: read
+  statuses: read
+  actions: read
+jobs:
+  auto-merge:
+    uses: pzoli6/github-kit/.github/workflows/reusable-auto-merge.yml@main
+    with:
+      allow_no_checks: ${{ vars.KIT_AUTOMERGE_ALLOW_NO_CHECKS == 'true' }}
+    secrets:
+      automerge_token: ${{ secrets.AUTOMERGE_TOKEN }}
 ```
 
-The updaters (`update-github-kit.sh` / `.ps1`), the fan-out and `install --mode force` carry
-those lines over and refresh the rest of the file. A name that matches no workflow is harmless.
-
-**Token caveats.** Merges made with the default `GITHUB_TOKEN` **do not trigger other Actions
-workflows** on the base branch — GitHub suppresses workflow runs for events caused by
-`GITHUB_TOKEN`. Vercel and other GitHub-app/webhook integrations are unaffected. GitHub also
-refuses changes to `.github/workflows/*` from a token without the workflow permission, which
-`GITHUB_TOKEN` can never have — so a PR that touches workflow files (every github-kit fan-out /
-update PR does) is expected to be refused; the run then logs a warning saying a human merges it,
-rather than failing red. (Expected from GitHub's documented rules; not yet observed live.) If
-either matters, store a PAT in that repo as the `AUTOMERGE_TOKEN` secret; the caller passes it
-through and the merge is made with it instead. Scopes and steps:
-[docs/OWNER_SETUP.md](docs/OWNER_SETUP.md) → "Step 4".
-
-**Budget.** On a private repo every run that starts is billed at least one full minute. The
-reusable job drops events that cannot make a PR mergeable before a runner starts (drafts, label
-edits other than removing `no-automerge`, failed workflow runs and suites, non-`success`
-statuses, runs/suites with no associated PR). What remains is roughly one run per successful
-workflow run, third-party check suite and `success` status on a PR head, plus about one
-minute when a PR is marked ready (the 30-second grace sleep) — as an estimate, 3–5 billed
-minutes for a typical PR with a Vercel preview and one CI workflow. The status comment costs no
-extra runs: it is written by the same evaluation.
-
-**For agents** this changes the wording of the old *human-merges-only* rule to
-*human-approves-only, merge is automated after green* — and adds three hard rules: never mark a
-PR ready for review, never add or remove `no-automerge`, never merge or enable GitHub's native
-auto-merge. The rule lives in the managed block of `AGENTS.md`/`CLAUDE.md`/`GEMINI.md`, so the
-updater and fan-out deliver it to existing repos (`templates/AGENTS.md` → "Auto-merge after
-green" has the full text). The checked-in `.claude/settings.json` denies the two MCP merge tools
-and `gh pr merge` / `gh pr ready` for new installs only (the file is create-only); nothing denies
-`mcp__github__update_pull_request` with `draft: false` or a GraphQL `markPullRequestReadyForReview`,
-so for those the instruction is the only guard.
-
-Inputs (all optional, set in the caller): `merge_method` (`merge`), `opt_out_label`
-(`no-automerge`), `delete_branch` (`true`), `delete_branch_prefixes`, `skip_head_branches`,
-`allow_forks` (`false`), `allow_no_checks` (`false`; the caller passes
-`vars.KIT_AUTOMERGE_ALLOW_NO_CHECKS`), `require_human_ready` (`true`), `grace_seconds` (`30`),
-`require_no_changes_requested` (`true`), `comment` (`true`), `status_comment` (`true`); secret
-`automerge_token`.
-The caller needs `contents: write`, `pull-requests: write`, `issues: read`, `checks: read`,
-`statuses: read`, `actions: read`. Because `workflow_run`, `check_suite` and `status` only fire
-for a workflow file on the **default branch**, auto-merge starts working in a repo once its
-fan-out/update PR has merged there. Runs started by those three events execute on the default
-branch, so their own check run shows on the default branch's head commit rather than on the PR.
+Per-repo switches stay repository Actions variables: `KIT_AUTOMERGE_DISABLED=true` turns it off,
+`KIT_AUTOMERGE_ALLOW_NO_CHECKS=true` lets a ready PR with no checks merge, and
+`KIT_ACTIONS_PAUSED=true` pauses it with everything else. Merges made with `GITHUB_TOKEN` do not
+trigger other workflows and cannot merge a PR that changes `.github/workflows/*`; an
+`AUTOMERGE_TOKEN` PAT secret lifts both ([docs/OWNER_SETUP.md](docs/OWNER_SETUP.md) → "Step 4").
+Repos installed before the kit went on demand still carry the old caller: the next kit update or
+fan-out PR removes an unmodified copy, and `KIT_AUTOMERGE_DISABLED=true` switches a lingering one
+off at zero cost meanwhile.
 
 ## The universal workflow
 
@@ -239,8 +146,7 @@ User task
 → draft PR
 → handoff file
 → human review
-→ human marks the PR ready
-→ auto-merge after green
+→ human merges
 ```
 
 See [`templates/docs/ai/AGENT_WORKFLOW.md`](templates/docs/ai/AGENT_WORKFLOW.md) for the full
@@ -354,9 +260,8 @@ that gap so you never have to run `/github_kit_update` in each repo by hand.
   it never merges, never force-pushes, and never touches repo-specific files:
   `docs/ai/PROJECT_CONFIG.md` or `.github/workflows/pr-policy.yml` (which holds each repo's
   `required_base_branch` gate). The reusable policy *logic* still auto-tracks `@main`; only that
-  repo's base-branch wiring is left alone. These PRs change `.github/workflows/*`, so
-  `auto-merge.yml` can merge one only when the target has an `AUTOMERGE_TOKEN` with the workflow
-  permission; otherwise a human merges it (see "Auto-merge after green" → token caveats).
+  repo's base-branch wiring is left alone. These PRs change `.github/workflows/*`, which GitHub
+  refuses to merge with `GITHUB_TOKEN`; a human merges them, like every PR in a kit repo.
 
 **Required secret (one, in github-kit only):** `FANOUT_TOKEN`. The default
 `GITHUB_TOKEN` can't reach other repos, which is why a PAT is needed. Until the secret exists, the
@@ -396,25 +301,26 @@ own `<!-- BEGIN GITHUB-KIT ... -->` block; the scripts no longer carry a copy.
 ## Repository tiers
 
 Every entry in the fan-out registry (`FANOUT_TARGETS`, see "Fan-out propagation of bootstrap
-files") has a `tier` that decides how much of the shared Actions budget it may spend automatically:
+files") has a `tier` that decides whether the shared Actions budget may be spent automatically.
+**The default is tier 2: nothing runs unless a human dispatches it.**
 
 | Tier | CI and Agent Workflow Verify | Codex automatic review |
 |---|---|---|
-| **1** | run automatically on production-bound PRs and pushes | on |
-| **2** | run only when dispatched by hand | off (`@codex review` on demand) |
+| **2** (default) | run only when dispatched by hand (`gh workflow run "<name>" --ref <branch>` or the Actions tab) | off (`@codex review` on demand) |
+| **1** (opt-in) | also run automatically on production-bound PRs and pushes | on |
 
 The fan-out passes the tier to `update-github-kit.sh --tier`, which writes it into the refreshed CI
 callers as a `# github-kit tier: N` line and keeps or drops the triggers between the
 `# >>> github-kit tier-1 triggers` markers. A later update without `--tier` (for example
-`/github_kit_update`) keeps the tier the file already has. `KIT_ACTIONS_PAUSED=true` still pauses a
-repo completely, whatever its tier.
+`/github_kit_update`) keeps the tier the file already has; a brand-new caller is tier 2.
+`KIT_ACTIONS_PAUSED=true` still pauses a repo completely, whatever its tier. Whatever the tier,
+`pr-policy.yml` runs on a PR into the production branch (it is repo-owned: delete it if even that
+is unwanted), `design-handoff-approval.yml` on an actual spec approval, `project-setup.yml` once,
+and `project-sync.yml` only where a human opted in; no auto-merge workflow is installed.
 
 A repo without the kit gets it from the fan-out's first run when its entry says
-`"install": true`; the tier applies from that install on. Tier 2 and auto-merge interact:
-`auto-merge.yml` needs at least one check, so a ready PR in a tier 2 repo merges only after someone
-dispatches its CI (or the repo sets `KIT_AUTOMERGE_ALLOW_NO_CHECKS=true`). The
-Codex column is a setting in Codex, not something the kit can write; see
-[docs/PR_REVIEW_SETUP.md](docs/PR_REVIEW_SETUP.md).
+`"install": true`; the tier applies from that install on. The Codex column is a setting in Codex,
+not something the kit can write; see [docs/PR_REVIEW_SETUP.md](docs/PR_REVIEW_SETUP.md).
 
 ## PR review
 
@@ -703,7 +609,9 @@ newer ref later, re-run the same command with a different `--ref`/`-Ref` value.
 
 For a brand-new repo, in order:
 
-1. Install with the default flags (`--mode merge`, no `--include-project-sync`).
+1. Install with the default flags (`--mode merge`, no `--include-project-sync`). Every CI/verify
+   caller lands at tier 2 (on demand); opt a repo into automatic production-bound CI by giving its
+   fan-out registry entry `"tier": 1`.
 2. Fill in `docs/ai/PROJECT_CONFIG.md` (Project name/number, base branch, validation commands,
    forbidden files).
 3. Optional: run `create_standard_labels.sh` once `gh auth login` has repo scope.

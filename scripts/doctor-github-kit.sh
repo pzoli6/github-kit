@@ -363,43 +363,56 @@ fi
 
 echo
 
-# --- auto-merge after green: the Free-plan substitute for required checks + native auto-merge -----
-# (reusable rules + a refresh-on-update caller; see README.md → "Auto-merge after green") ---------
+# --- Actions on demand by default; auto-merge is an opt-in building block, not an installed caller --
+# (see README.md → "Repository tiers" and "Optional: auto-merge after green") -----------------------
 
 if grep -q 'opt_out_label' .github/workflows/reusable-auto-merge.yml 2>/dev/null \
     && grep -q 'automerge_token' .github/workflows/reusable-auto-merge.yml 2>/dev/null \
     && grep -q "vars.KIT_ACTIONS_PAUSED != 'true'" .github/workflows/reusable-auto-merge.yml 2>/dev/null \
     && grep -q "vars.KIT_AUTOMERGE_DISABLED != 'true'" .github/workflows/reusable-auto-merge.yml 2>/dev/null \
     && grep -q 'allow_no_checks:' .github/workflows/reusable-auto-merge.yml 2>/dev/null \
-    && grep -q 'require_human_ready:' .github/workflows/reusable-auto-merge.yml 2>/dev/null; then
-  echo "OK      reusable-auto-merge.yml has opt_out_label, automerge_token, allow_no_checks, require_human_ready and the pause/disable switches"
-else
-  echo "MISSING opt_out_label / automerge_token / allow_no_checks / require_human_ready / KIT_ACTIONS_PAUSED / KIT_AUTOMERGE_DISABLED in .github/workflows/reusable-auto-merge.yml"
-  missing=1
-fi
-
-if grep -q 'reusable-auto-merge.yml@main' templates/.github/workflows/auto-merge.yml 2>/dev/null \
-    && grep -q 'ready_for_review' templates/.github/workflows/auto-merge.yml 2>/dev/null \
-    && grep -q 'workflow_run' templates/.github/workflows/auto-merge.yml 2>/dev/null \
-    && grep -q 'check_suite' templates/.github/workflows/auto-merge.yml 2>/dev/null \
-    && grep -q 'issues: read' templates/.github/workflows/auto-merge.yml 2>/dev/null \
-    && grep -q 'vars.KIT_AUTOMERGE_ALLOW_NO_CHECKS' templates/.github/workflows/auto-merge.yml 2>/dev/null; then
-  echo "OK      templates/.github/workflows/auto-merge.yml calls reusable-auto-merge.yml@main with the PR/workflow_run/check_suite triggers, issues: read and the allow-no-checks variable"
-else
-  echo "MISSING reusable-auto-merge.yml@main call, ready_for_review/workflow_run/check_suite triggers, issues: read or KIT_AUTOMERGE_ALLOW_NO_CHECKS in templates/.github/workflows/auto-merge.yml"
-  missing=1
-fi
-
-# A ready PR that auto-merge holds back must say why on the PR (sticky status comment), and the
-# per-repo variables it depends on must be applicable from the registry (schema: the example file).
-if grep -q 'status_comment:' .github/workflows/reusable-auto-merge.yml 2>/dev/null \
+    && grep -q 'require_human_ready:' .github/workflows/reusable-auto-merge.yml 2>/dev/null \
+    && grep -q 'status_comment:' .github/workflows/reusable-auto-merge.yml 2>/dev/null \
     && grep -Fq '<!-- github-kit:auto-merge-status -->' .github/workflows/reusable-auto-merge.yml 2>/dev/null \
-    && grep -q 'status_comment: true' templates/.github/workflows/auto-merge.yml 2>/dev/null \
-    && [ -f scripts/apply-repo-variables.sh ] && [ -f scripts/test-auto-merge.sh ] \
-    && jq -e '[.targets[] | (.variables // {}) | to_entries[] | .value | type == "string"] | all' .github/fanout-targets.example.json >/dev/null 2>&1; then
-  echo "OK      auto-merge explains every hold (status comment); registry variables are strings and applicable"
+    && [ -f scripts/test-auto-merge.sh ]; then
+  echo "OK      reusable-auto-merge.yml (opt-in) keeps its switches, fail-closed inputs, status comment and test"
 else
-  echo "MISSING auto-merge status_comment / marker, the caller's status_comment: true, scripts/apply-repo-variables.sh, scripts/test-auto-merge.sh, or non-string values under \"variables\" in .github/fanout-targets.example.json"
+  echo "MISSING opt_out_label / automerge_token / allow_no_checks / require_human_ready / status_comment / KIT_ACTIONS_PAUSED / KIT_AUTOMERGE_DISABLED in .github/workflows/reusable-auto-merge.yml, or scripts/test-auto-merge.sh"
+  missing=1
+fi
+
+# The auto-merge caller is retired: no template, and a manifest row that lists every blob the kit
+# ever shipped, so update and fan-out delete an unmodified copy and keep an edited one.
+if [ ! -e templates/.github/workflows/auto-merge.yml ] \
+    && awk -F'\t' '{ sub(/\r$/, "") } $1 == "file" && $2 == ".github/workflows/auto-merge.yml" && $3 == "retired" && $5 ~ /^[0-9a-f,]+$/ && length($5) >= 40 { f = 1 } END { exit !f }' \
+         templates/docs/ai/KIT_MANIFEST.tsv 2>/dev/null; then
+  echo "OK      auto-merge.yml is retired: no template, manifest row with the shipped blob SHAs"
+else
+  echo "MISSING auto-merge.yml retirement: templates/.github/workflows/auto-merge.yml must not exist and templates/docs/ai/KIT_MANIFEST.tsv needs a retired row for it with blob SHAs"
+  missing=1
+fi
+
+# Nothing runs unless a human asks: a brand-new caller is tier 2 in both updater libraries, the
+# fan-out defaults a registry entry to tier 2, and the registry example says so.
+if grep -q '|| tier=2' scripts/lib/kit.sh 2>/dev/null \
+    && grep -q '\$tier = "2"' scripts/lib/Kit.ps1 2>/dev/null \
+    && grep -q '\.tier // 2' .github/workflows/github-kit-fanout.yml 2>/dev/null \
+    && ! grep -q '\.tier // 1' .github/workflows/github-kit-fanout.yml 2>/dev/null \
+    && grep -q "default 2" .github/fanout-targets.example.json 2>/dev/null \
+    && jq -e '[.targets[] | (.variables // {}) | to_entries[] | .value | type == "string"] | all' .github/fanout-targets.example.json >/dev/null 2>&1 \
+    && [ -f scripts/apply-repo-variables.sh ]; then
+  echo "OK      Actions on demand by default: new callers and registry entries are tier 2 (kit.sh, Kit.ps1, fan-out, example); registry variables are strings"
+else
+  echo "MISSING tier-2 default in scripts/lib/kit.sh (|| tier=2), scripts/lib/Kit.ps1, .github/workflows/github-kit-fanout.yml (.tier // 2), or .github/fanout-targets.example.json; or non-string values under \"variables\" in the example; or scripts/apply-repo-variables.sh"
+  missing=1
+fi
+
+# An ordinary PR comment must never start a runner: the design-handoff job filters on the marker
+# at job level, before a runner is allocated.
+if grep -q 'startsWith(github.event.comment.body, inputs.comment_marker)' .github/workflows/reusable-design-handoff-approval.yml 2>/dev/null; then
+  echo "OK      reusable-design-handoff-approval.yml starts a runner only for an approving review or a marker comment"
+else
+  echo "MISSING startsWith(github.event.comment.body, inputs.comment_marker) in the job-level if of .github/workflows/reusable-design-handoff-approval.yml"
   missing=1
 fi
 
@@ -424,54 +437,30 @@ else
   missing=1
 fi
 
-# The caller carries no repo-specific values, so it is a refreshed `workflow` row in the manifest
-# (the same mode as ci-node.yml), which install, update and the fan-out all read.
-if awk -F'\t' '$1 == "file" && $2 == ".github/workflows/auto-merge.yml" && $3 == "workflow" { f = 1 } END { exit !f }' \
-    templates/docs/ai/KIT_MANIFEST.tsv 2>/dev/null; then
-  echo "OK      manifest refreshes auto-merge.yml as a caller workflow alongside ci-node.yml"
+if grep -Fq 'Merging and Actions posture' templates/AGENTS.md 2>/dev/null \
+    && grep -Fq '| Merge |' templates/docs/ai/PROJECT_CONFIG.md 2>/dev/null \
+    && grep -Fq 'Merging and Actions posture' templates/docs/ai/AGENT_WORKFLOW.md 2>/dev/null \
+    && ! grep -rFq 'no-automerge' templates/AGENTS.md templates/CLAUDE.md templates/GEMINI.md templates/docs/ai templates/.claude templates/.agents templates/.cursor 2>/dev/null; then
+  echo "OK      templates/AGENTS.md, PROJECT_CONFIG.md and AGENT_WORKFLOW.md document human merges and the on-demand Actions posture; no template still promises auto-merge"
 else
-  echo "MISSING .github/workflows/auto-merge.yml row with mode workflow in templates/docs/ai/KIT_MANIFEST.tsv"
+  echo "MISSING \"Merging and Actions posture\" section in templates/AGENTS.md or templates/docs/ai/AGENT_WORKFLOW.md, \"| Merge |\" row in templates/docs/ai/PROJECT_CONFIG.md, or a leftover no-automerge mention in the templates"
   missing=1
 fi
 
-# A repo's own PR workflows are listed in the caller between two marker lines, which every
-# refresh (update, fan-out, install --mode force) carries over instead of resetting.
-if grep -Fq '# >>> github-kit: repo workflows >>>' templates/.github/workflows/auto-merge.yml 2>/dev/null \
-    && grep -Fq '# <<< github-kit: repo workflows <<<' templates/.github/workflows/auto-merge.yml 2>/dev/null \
-    && grep -Fq -- '- "CI"' templates/.github/workflows/auto-merge.yml 2>/dev/null \
-    && grep -Fq 'kit_carry_repo_block "' scripts/lib/kit.sh 2>/dev/null \
-    && grep -Fq 'Merge-KitRepoBlock -OldPath' scripts/lib/Kit.ps1 2>/dev/null \
-    && grep -Fq "'# >>> github-kit: repo workflows >>>'" scripts/lib/kit.sh 2>/dev/null \
-    && grep -Fq "'# >>> github-kit: repo workflows >>>'" scripts/lib/Kit.ps1 2>/dev/null; then
-  echo "OK      auto-merge.yml carries the repo-workflows block and both install/update libraries keep it on refresh"
-else
-  echo "MISSING repo-workflows markers in templates/.github/workflows/auto-merge.yml, or kit_carry_repo_block / Merge-KitRepoBlock in scripts/lib/{kit.sh,Kit.ps1}"
-  missing=1
-fi
-
-if grep -Fq 'Auto-merge after green' templates/AGENTS.md 2>/dev/null \
-    && grep -Fq 'Auto-merge |' templates/docs/ai/PROJECT_CONFIG.md 2>/dev/null \
-    && grep -Fq 'no-automerge' templates/docs/ai/AGENT_WORKFLOW.md 2>/dev/null; then
-  echo "OK      templates/AGENTS.md, PROJECT_CONFIG.md and AGENT_WORKFLOW.md document auto-merge and the no-automerge label"
-else
-  echo "MISSING \"Auto-merge after green\" section in templates/AGENTS.md, \"Auto-merge |\" row in templates/docs/ai/PROJECT_CONFIG.md, or no-automerge in templates/docs/ai/AGENT_WORKFLOW.md"
-  missing=1
-fi
-
-# The no-mark-ready rule must live inside the managed block: it is the only part of AGENTS.md /
-# CLAUDE.md / GEMINI.md that the updater (and so the fan-out) refreshes in existing repos.
+# The never-mark-ready / never-merge rule must live inside the managed block: it is the only part
+# of AGENTS.md / CLAUDE.md / GEMINI.md that the updater (and so the fan-out) refreshes in existing repos.
 am_block_ok=1
 # The install/update scripts take the block from these templates, so the templates are the copies.
 for f in templates/AGENTS.md templates/CLAUDE.md templates/GEMINI.md; do
   if ! awk '/<!-- BEGIN GITHUB-KIT UNIVERSAL WORKFLOW -->/{p=1} p{print} /<!-- END GITHUB-KIT UNIVERSAL WORKFLOW -->/{p=0}' "$f" 2>/dev/null \
-      | grep -q 'never mark a PR ready for review.*no-automerge'; then
-    echo "MISSING managed-block auto-merge rule (never mark ready / no-automerge) in $f"
+      | grep -q 'never mark a PR ready for review and never merge'; then
+    echo "MISSING managed-block merge rule (never mark ready / never merge) in $f"
     am_block_ok=0
     missing=1
   fi
 done
 if [ "$am_block_ok" = 1 ]; then
-  echo "OK      managed block (3 template copies) carries the never-mark-ready / no-automerge rule"
+  echo "OK      managed block (3 template copies) carries the never-mark-ready / never-merge rule"
 fi
 
 echo

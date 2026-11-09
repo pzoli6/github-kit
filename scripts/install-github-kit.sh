@@ -46,7 +46,7 @@ Usage: install-github-kit.sh [--target <path>] [--mode merge|force] [--allow-dir
   --tier 1|2                Actions-budget tier for the refreshed caller workflows (CI, verify).
                              1 = run automatically on production-bound changes (the default);
                              2 = run only when dispatched by hand. Omitted = keep each caller's
-                             current tier ("# github-kit tier: N" line), or 1 for a new file.
+                             current tier ("# github-kit tier: N" line), or 2 for a new file (on demand only).
                              The fan-out passes the tier from its registry entry.
 
   Regardless of mode, this script NEVER overwrites:

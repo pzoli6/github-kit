@@ -29,9 +29,9 @@ mkdir -p "$WORK/kit/scripts" "$WORK/bin" "$WORK/crlf-bin"
 cp "$KIT_ROOT/scripts/apply-repo-variables.sh" "$WORK/kit/scripts/"
 cat > "$WORK/registry.json" <<'JSON'
 { "targets": [
-  { "repo": "o/unset",  "variables": { "KIT_AUTOMERGE_ALLOW_NO_CHECKS": "true" } },
-  { "repo": "o/same",   "variables": { "KIT_AUTOMERGE_ALLOW_NO_CHECKS": "true" } },
-  { "repo": "o/differ", "variables": { "KIT_AUTOMERGE_ALLOW_NO_CHECKS": "true" } },
+  { "repo": "o/unset",  "variables": { "KIT_ACTIONS_PAUSED": "true" } },
+  { "repo": "o/same",   "variables": { "KIT_ACTIONS_PAUSED": "true" } },
+  { "repo": "o/differ", "variables": { "KIT_ACTIONS_PAUSED": "true" } },
   { "repo": "o/none" }
 ] }
 JSON
@@ -86,11 +86,11 @@ chmod +x "$WORK/crlf-bin/jq"
 # reset: o/same already holds "true", o/differ holds "false", o/unset has nothing.
 reset() {
   rm -rf "$GH_STATE"; mkdir -p "$GH_STATE/o_same" "$GH_STATE/o_differ"
-  printf 'true' > "$GH_STATE/o_same/KIT_AUTOMERGE_ALLOW_NO_CHECKS"
-  printf 'false' > "$GH_STATE/o_differ/KIT_AUTOMERGE_ALLOW_NO_CHECKS"
+  printf 'true' > "$GH_STATE/o_same/KIT_ACTIONS_PAUSED"
+  printf 'false' > "$GH_STATE/o_differ/KIT_ACTIONS_PAUSED"
   : > "$GH_STATE/writes.log"
 }
-value_of() { cat "$GH_STATE/${1//\//_}/KIT_AUTOMERGE_ALLOW_NO_CHECKS" 2>/dev/null || echo "<unset>"; }
+value_of() { cat "$GH_STATE/${1//\//_}/KIT_ACTIONS_PAUSED" 2>/dev/null || echo "<unset>"; }
 writes() { wc -l < "$GH_STATE/writes.log" | tr -d ' '; }
 run() { PATH="$WORK/bin:$PATH" bash "$WORK/kit/scripts/apply-repo-variables.sh" "$@" > "$WORK/out" 2>&1; }
 export GH_STATE="$WORK/state" FAKE_GH_REGISTRY="$WORK/registry.json"
@@ -133,7 +133,7 @@ PATH="$WORK/crlf-bin:$WORK/bin:$PATH" FAKE_GH_CRLF=1 \
   bash "$WORK/kit/scripts/apply-repo-variables.sh" > "$WORK/out" 2>&1; rc=$?
 if [ "$rc" -eq 0 ] && [ "$(writes)" = 2 ] && [ "$(value_of o/unset)" = true ] \
    && [ "$(value_of o/differ)" = true ] && grep -q '^OK      o/same' "$WORK/out" \
-   && ! grep -q $'\r' "$GH_STATE/o_unset/KIT_AUTOMERGE_ALLOW_NO_CHECKS" "$GH_STATE/writes.log"; then
+   && ! grep -q $'\r' "$GH_STATE/o_unset/KIT_ACTIONS_PAUSED" "$GH_STATE/writes.log"; then
   pass "CRLF output from jq/gh never reaches the value that is set"
 else fail "CRLF (rc=$rc, writes=$(writes)): $(cat -A "$WORK/out")"; fi
 

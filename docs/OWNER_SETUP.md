@@ -214,81 +214,51 @@ gh secret set AGENT_PROJECT_TOKEN --repo <owner>/<repo>
 
 ---
 
-## Step 4 — Auto-merge after green: the Actions budget, and an optional token
+## Step 4 — Actions posture: nothing runs unless you ask
 
-Every installed repo gets `.github/workflows/auto-merge.yml` (see `README.md` → "Auto-merge
-after green"): a PR that a person marked ready for review merges by itself once every check on
-it is green, and the `no-automerge` label holds one back. A PR with no checks at all, a PR opened
-non-draft, and a PR from a long-lived branch (`develop` → `main`) are never merged
-automatically. Three things only you can do:
+The kit's default is **on demand**: every CI/verify caller is installed at tier 2 (dispatch
+only), no auto-merge workflow is installed, and the automatic runs that remain are rare and
+deliberate (`pr-policy.yml` on a PR into the production branch, `design-handoff-approval.yml` on
+an actual spec approval, `project-setup.yml` once, `project-sync.yml` where you opted in). See
+`README.md` → "Repository tiers" and "Free-tier usage and branch protection".
 
-### 4a. Restore / confirm the Actions spending limit *(required — nothing merges without it)*
+### 4a. The Actions budget
 
-Auto-merge is a GitHub Actions run like any other. While the account's Actions budget is
-exhausted, **no run starts, so no PR merges** — a green PR simply sits there. Check the budget
-for whichever account pays for the repo (your personal account, and every organisation that owns
-a target): **Settings → Billing and licensing → Budgets and alerts**. GitHub's default
-budget for metered products is $0, which hard-stops all Actions once the plan's included minutes
-are used. Set a budget you are comfortable with (public repos consume no paid minutes), or raise
-it when the kit's `KIT_ACTIONS_PAUSED` pause is lifted. Agents never change billing settings.
+On private repos every run that starts bills at least one full minute from one pool shared by
+every repo on the account; GitHub's default budget for metered products is $0, which hard-stops
+all Actions once the plan's included minutes are used. Leave it at $0 if you never want to pay:
+with the on-demand posture the included minutes cover a dispatched CI run now and then. Raise it
+only if you opt repos into tier 1. **Settings → Billing and licensing → Budgets and alerts**, for
+whichever account pays for the repo. Agents never change billing settings.
 
-Check whether auto-merge runs are starting at all:
+### 4b. Per-repo switches *(repository Actions variables)*
 
-```bash
-gh run list --repo <owner>/<repo> --workflow auto-merge.yml --limit 5 \
-  --json createdAt,conclusion,event --jq '.[] | "\(.createdAt[0:16])  \(.event)  \(.conclusion)"'
-```
-
-No rows after a PR was marked ready means either the budget stopped it or the caller file is
-not on the repo's default branch yet (its `workflow_run` / `check_suite` / `status` triggers only
-fire from the default branch — merge the fan-out PR first). Rows with conclusion `skipped` cost
-nothing: they are events filtered out before a runner started (a pending status, a failed run, a
-draft PR, an unrelated label), or `KIT_ACTIONS_PAUSED` / `KIT_AUTOMERGE_DISABLED` is `true`.
-
-### 4b. Optional: `AUTOMERGE_TOKEN` per repo *(base-branch workflows after a merge, or merging workflow-file PRs)*
-
-Merges made with the default `GITHUB_TOKEN` do **not** trigger other Actions workflows on the
-base branch (a `CI (Node)` push run on `main`, for example). Vercel and other webhook/GitHub-app
-integrations are unaffected. GitHub also refuses changes to `.github/workflows/*` from a token
-without the workflow permission, which `GITHUB_TOKEN` can never have, so a PR that touches
-workflow files — **every github-kit fan-out/update PR does** — is expected to be refused and
-left for you to merge by hand (the auto-merge run logs a warning saying so; this follows from
-GitHub's documented rules and has not been observed live yet). If a repo needs either, store a
-PAT in **that target repo** (not in github-kit) as the secret **`AUTOMERGE_TOKEN`**:
-
-- **Fine-grained PAT (recommended), this one repository only:** *Contents: Read and write*,
-  *Pull requests: Read and write*, *Issues: Read*, *Checks: Read*, *Commit statuses: Read*,
-  *Actions: Read*, and — only if it should merge PRs that change workflow files — *Workflows:
-  Read and write*. Every read permission is required: the workflow fails closed, so a token
-  that cannot read checks, statuses, workflow runs or the PR timeline merges **nothing** (each
-  run logs which read failed).
-- **Classic PAT (fallback):** scopes `repo` (+ `workflow` for workflow-file PRs). Note that a
-  classic token reaches **every** repository its account can push to, while being stored in
-  just this one — prefer the fine-grained token.
-- The account creating it must have push access to the repo; the merge commits and the summary
-  comment will be attributed to that account.
-
-```bash
-gh secret set AUTOMERGE_TOKEN --repo <owner>/<repo>
-```
-
-The caller already passes the secret through (`secrets.AUTOMERGE_TOKEN`); an absent secret means
-"use `GITHUB_TOKEN`". Nothing to edit in the repo, which matters because `auto-merge.yml` is
-refreshed by every kit update.
-
-### 4c. Per-repo switches *(repository Actions variables)*
-
-Settings → Secrets and variables → Actions → **Variables**, per target repo:
+Settings → Secrets and variables → Actions → **Variables**, per target repo — or declare them on
+the repo's fan-out registry entry (`"variables"`, Step 1b) and apply them with
+`scripts/apply-repo-variables.sh` (`--dry-run` first):
 
 | Variable | Effect |
 | --- | --- |
-| `KIT_AUTOMERGE_DISABLED` = `true` | Auto-merge off in this repo. This is the durable opt-out — deleting `auto-merge.yml` lasts only until the next kit update or fan-out recreates it. |
-| `KIT_AUTOMERGE_ALLOW_NO_CHECKS` = `true` | Declared per repo in github-kit's fan-out registry (`"variables"` on the entry, Step 1b) and applied with `scripts/apply-repo-variables.sh` (`--dry-run` first). A ready PR whose head commit has no check runs, statuses or workflow runs merges anyway. Off by default because "no checks" cannot be told apart from "CI did not run". With the kit's budget-first triggers a PR into the base branch has no kit checks, so without this (or a third-party check such as Vercel) such PRs are merged by hand. |
-| `KIT_ACTIONS_PAUSED` = `true` | Pauses every github-kit job, auto-merge included. Checks the pause left `skipped` are never counted as green: after unpausing, re-run those workflows (or push) and their completion re-evaluates the PR. |
+| `KIT_ACTIONS_PAUSED` = `true` | Pauses every github-kit job, dispatched runs included. Checks the pause left `skipped` are never a green signal: unpause, then re-run or push. |
+| `KIT_AUTOMERGE_DISABLED` = `true` | For a repo installed before the kit went on demand and still carrying `.github/workflows/auto-merge.yml`: switches it off at zero cost until its next kit update removes the file. |
 
 ```bash
 gh variable set KIT_AUTOMERGE_DISABLED --body true --repo <owner>/<repo>
 ```
+
+### 4c. Optional: auto-merge after green, per repo
+
+A repo that wants `reusable-auto-merge.yml` and accepts its minutes adds the caller by hand
+(`README.md` → "Optional: auto-merge after green"). Two things only you can do for it:
+
+- **A budget above $0** — nothing merges while the budget is exhausted, because no run starts.
+- **Optional `AUTOMERGE_TOKEN`** in that repo: merges made with the default `GITHUB_TOKEN` do not
+  trigger other Actions workflows on the base branch, and GitHub refuses a `GITHUB_TOKEN` merge of
+  a PR that changes `.github/workflows/*` (every kit update PR does). A fine-grained PAT for that
+  one repository with *Contents: Read and write*, *Pull requests: Read and write*, *Issues: Read*,
+  *Checks: Read*, *Commit statuses: Read*, *Actions: Read*, plus *Workflows: Read and write* for
+  workflow-file PRs, lifts both: `gh secret set AUTOMERGE_TOKEN --repo <owner>/<repo>`.
+  `KIT_AUTOMERGE_ALLOW_NO_CHECKS=true` lets a ready PR with no checks merge.
 
 ---
 
@@ -354,10 +324,8 @@ Neither file hints at the other. Check both.
 | A new `templates/` file never appears in target repos | One of the two registration points above | See "Adding a new file to `templates/`" |
 | Fan-out PR is missing a script the workflow calls | Fan-out staging allowlist | Same |
 | Fan-out logs `Skipped target N: github-kit is not installed there` and opens no PR | The target has no `docs/ai/PROJECT_CONFIG.md` and its registry entry lacks `"install": true` | Add `"install": true` to that entry (see "Adding a new target repo"), or leave it skipped on purpose |
-| A green, ready PR never merges | Read the auto-merge comment on the PR: it names the reason and the next step. No comment means the PR was never handed over (draft; opened non-draft; `no-automerge`; a long-lived head branch; a fork) or no run could start (`KIT_AUTOMERGE_DISABLED`, `KIT_ACTIONS_PAUSED`, Actions budget exhausted, caller not on the default branch yet) | README → "Why hasn't my PR merged?"; Steps 4a and 4c; apply `KIT_AUTOMERGE_ALLOW_NO_CHECKS` with `scripts/apply-repo-variables.sh` |
-| Auto-merge logs "GitHub refused the merge because the PR changes .github/workflows/*" | The merge token lacks the workflow permission (always true of `GITHUB_TOKEN`) | Merge that PR by hand, or Step 4b with *Workflows: Read and write* |
-| Auto-merge run fails with "could not read ... - not merged" | The token cannot read checks / statuses / workflow runs / the PR timeline, or the API was down | Step 4b permissions; re-trigger by adding and removing `no-automerge` |
-| Base-branch workflows don't run after an automatic merge | Merge made with `GITHUB_TOKEN`, which never triggers other workflows | Step 4b (`AUTOMERGE_TOKEN`) |
+| A kit workflow ran and billed minutes you did not ask for | The repo is tier 1 (automatic production-bound CI), still carries an `auto-merge.yml` from before the kit went on demand, or Project Sync is enabled | Give its registry entry `"tier": 2` and run the fan-out; set `KIT_AUTOMERGE_DISABLED=true` until the next kit update removes the caller; or `KIT_ACTIONS_PAUSED=true` to stop everything (Step 4b) |
+| A green, ready PR never merges | Nothing merges automatically: merging is your act | Merge it — or opt the repo into auto-merge (Step 4c) |
 | `scripts/project/*.sh` fail on Windows with `jq: command not found` | `jq` isn't bundled with Git Bash | `winget install jqlang.jq`, or use `gh api --jq` which uses gh's built-in jq and needs no install |
 
 ---
