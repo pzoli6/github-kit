@@ -126,9 +126,19 @@ jobs:
           # The label of registry entry $1 for this run. Must stay identical to label_for() in
           # scripts/fanout-registry.sh (the doctor checks the recipe).
           label_for() { printf '%s:%s' "$GITHUB_RUN_ID" "$1" | openssl dgst -sha256 -hmac "$KEY" | awk '{print $NF}' | cut -c1-12; }
-          # The registry is read here, inside the step, so that no step header prints it.
-          if ! registry="$(gh variable get FANOUT_TARGETS --repo "$GITHUB_REPOSITORY" 2> /dev/null)" || [ -z "$registry" ]; then
-            echo "::error::The FANOUT_TARGETS repository variable is not set in ${GITHUB_REPOSITORY} (or FANOUT_TOKEN cannot read its variables). It holds the fan-out registry: the JSON described in .github/fanout-targets.example.json. Store it with scripts/fanout-registry.sh set <file>; see docs/OWNER_SETUP.md -> Step 1b."
+          # A token GitHub rejects (expired or revoked PAT) would otherwise surface as "variable not
+          # readable"; say so by name. The login is not printed.
+          if ! gh api user --jq .login > /dev/null 2> "$RUNNER_TEMP/gh-auth.err"; then
+            auth_err="$(tr -d '\r' < "$RUNNER_TEMP/gh-auth.err" | tr '\n' ' ' | head -c 300)"
+            echo "::error::GitHub rejects FANOUT_TOKEN (gh: ${auth_err:-no details}). A classic PAT expires on the date set at creation -- check https://github.com/settings/tokens, regenerate it with the repo and workflow scopes, and store it again: gh secret set FANOUT_TOKEN --repo ${GITHUB_REPOSITORY} (docs/OWNER_SETUP.md -> Step 1)."
+            exit 1
+          fi
+          # The registry is read here, inside the step, so that no step header prints it. gh's own
+          # error is kept and shown: "not found" means Step 1b, "403" means the token cannot read
+          # repository variables (classic PAT: repo scope; fine-grained: Variables: Read on this repo).
+          if ! registry="$(gh variable get FANOUT_TARGETS --repo "$GITHUB_REPOSITORY" 2> "$RUNNER_TEMP/gh-variable.err")" || [ -z "$registry" ]; then
+            gh_err="$(tr -d '\r' < "$RUNNER_TEMP/gh-variable.err" | tr '\n' ' ' | head -c 400)"
+            echo "::error::Could not read the FANOUT_TARGETS repository variable of ${GITHUB_REPOSITORY} with FANOUT_TOKEN (gh: ${gh_err:-empty value}). It holds the fan-out registry, the JSON described in .github/fanout-targets.example.json. If it is not stored yet: docs/OWNER_SETUP.md -> Step 1b. If gh reports 403/404 although it exists: FANOUT_TOKEN cannot read repository variables -- a classic PAT needs the repo scope, a fine-grained PAT needs Variables: Read on ${GITHUB_REPOSITORY}; see docs/OWNER_SETUP.md -> Step 1."
             exit 1
           fi
           if ! jq -e '(.targets | type) == "array" and (.targets | length) > 0
@@ -201,7 +211,10 @@ jobs:
           fi
           KEY="${LABEL_KEY:-$GH_TOKEN}"
           label_for() { printf '%s:%s' "$GITHUB_RUN_ID" "$1" | openssl dgst -sha256 -hmac "$KEY" | awk '{print $NF}' | cut -c1-12; }
-          registry="$(gh variable get FANOUT_TARGETS --repo "$GITHUB_REPOSITORY")"
+          if ! registry="$(gh variable get FANOUT_TARGETS --repo "$GITHUB_REPOSITORY")" || [ -z "$registry" ]; then
+            echo "::error::Could not read the FANOUT_TARGETS repository variable of ${GITHUB_REPOSITORY} with FANOUT_TOKEN (gh's message is above). See docs/OWNER_SETUP.md -> Step 1b."
+            exit 1
+          fi
           while IFS= read -r r; do echo "::add-mask::$r"; done < <(jq -r '.targets[].repo' <<< "$registry")
           # The label is meaningful only for the registry `discover` planned from. A registry
           # stored while this run was queued or running could shift the entries, so a fresh read
