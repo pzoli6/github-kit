@@ -437,6 +437,16 @@ else
   missing=1
 fi
 
+# Every fan-out PR must carry the production-branch authorization line for its base branch, or
+# the kit's own PR Policy check is red on every fan-out PR into a production branch.
+if grep -Fq 'Production-branch authorization: approve ${TARGET_BASE}' .github/workflows/github-kit-fanout.yml 2>/dev/null \
+    && grep -Fq 'production_branch_marker' .github/workflows/github-kit-fanout.yml 2>/dev/null; then
+  echo "OK      fan-out PRs carry the production-branch authorization line for their base branch (pr-policy passes on them)"
+else
+  echo "MISSING production-branch authorization line in the fan-out PR body (.github/workflows/github-kit-fanout.yml must write 'Production-branch authorization: approve \${TARGET_BASE}' and honour a custom production_branch_marker)"
+  missing=1
+fi
+
 if grep -Fq 'Merging and Actions posture' templates/AGENTS.md 2>/dev/null \
     && grep -Fq '| Merge |' templates/docs/ai/PROJECT_CONFIG.md 2>/dev/null \
     && grep -Fq 'Merging and Actions posture' templates/docs/ai/AGENT_WORKFLOW.md 2>/dev/null \
@@ -452,15 +462,23 @@ fi
 am_block_ok=1
 # The install/update scripts take the block from these templates, so the templates are the copies.
 for f in templates/AGENTS.md templates/CLAUDE.md templates/GEMINI.md; do
-  if ! awk '/<!-- BEGIN GITHUB-KIT UNIVERSAL WORKFLOW -->/{p=1} p{print} /<!-- END GITHUB-KIT UNIVERSAL WORKFLOW -->/{p=0}' "$f" 2>/dev/null \
-      | grep -q 'never mark a PR ready for review and never merge'; then
+  block="$(awk '/<!-- BEGIN GITHUB-KIT UNIVERSAL WORKFLOW -->/{p=1} p{print} /<!-- END GITHUB-KIT UNIVERSAL WORKFLOW -->/{p=0}' "$f" 2>/dev/null)"
+  if ! printf '%s\n' "$block" | grep -q 'never mark a PR ready for review and never merge'; then
     echo "MISSING managed-block merge rule (never mark ready / never merge) in $f"
+    am_block_ok=0
+    missing=1
+  fi
+  # Literal URLs in shell fetches: a URL built from a variable or a loop cannot be checked before
+  # the command runs, so the local permission checker prompts for it every time and never offers
+  # "don't ask again"; the rule keeps unattended sessions from stalling on that prompt.
+  if ! printf '%s\n' "$block" | grep -q 'never build URLs from shell variables or loops'; then
+    echo "MISSING managed-block literal-URL rule (never build URLs from shell variables or loops) in $f"
     am_block_ok=0
     missing=1
   fi
 done
 if [ "$am_block_ok" = 1 ]; then
-  echo "OK      managed block (3 template copies) carries the never-mark-ready / never-merge rule"
+  echo "OK      managed block (3 template copies) carries the never-mark-ready / never-merge rule and the literal-URL rule"
 fi
 
 echo

@@ -94,6 +94,23 @@ so working here dogfoods it.
 
 ## Migration notes
 
+### Fan-out PRs pass the production-branch gate; literal-URL rule in the managed block
+
+Every fan-out PR was red on the kit's own `PR Policy` check in any repo whose required base is
+also its production branch (the usual single-`main` setup): the gate asks for a human-authorization
+line in the PR body, and the fan-out never wrote one. It now does: `Production-branch
+authorization: approve <base>` (or the custom `production_branch_marker` the target's
+`pr-policy.yml` declares uncommented), with a sentence saying why. The base branch comes from the
+owner's registry entry and the run starts from the owner's push, schedule or dispatch, so that
+entry is the authorization and the owner's automation writes the line; the doctor checks it is
+written. Separately, the **managed block** (all three template copies) gained one rule: when
+fetching URLs from the shell, write each URL literally, never from shell variables or loops. A
+URL the local permission checker cannot read before the command runs is prompted for every time
+and cannot be saved as a rule, which stalls unattended sessions. The doctor checks that rule too.
+
+**What a target repo must do:** merge its next fan-out/update PR; the managed-block rule arrives
+with it. Nothing else changes on the target side.
+
 ### Actions on demand by default; auto-merge retired
 
 The owner does not want to pay for Actions minutes, so the kit now spends none unless a human

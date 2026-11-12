@@ -484,6 +484,15 @@ if ((Test-Path -LiteralPath ".github/fanout-targets.example.json") -and (Test-Pa
     $script:Missing = 1
 }
 
+# Every fan-out PR must carry the production-branch authorization line for its base branch, or
+# the kit's own PR Policy check is red on every fan-out PR into a production branch.
+if ($fanoutWf -and $fanoutWf.Contains('Production-branch authorization: approve ${TARGET_BASE}') -and $fanoutWf.Contains('production_branch_marker')) {
+    Write-Host "OK      fan-out PRs carry the production-branch authorization line for their base branch (pr-policy passes on them)"
+} else {
+    Write-Host "MISSING production-branch authorization line in the fan-out PR body (.github/workflows/github-kit-fanout.yml must write 'Production-branch authorization: approve `${TARGET_BASE}' and honour a custom production_branch_marker)"
+    $script:Missing = 1
+}
+
 $agentsTemplate = Get-Content -LiteralPath "templates/AGENTS.md" -Raw -ErrorAction SilentlyContinue
 $projectConfigAm = Get-Content -LiteralPath "templates/docs/ai/PROJECT_CONFIG.md" -Raw -ErrorAction SilentlyContinue
 $agentWorkflowAm = Get-Content -LiteralPath "templates/docs/ai/AGENT_WORKFLOW.md" -Raw -ErrorAction SilentlyContinue
@@ -510,9 +519,16 @@ foreach ($f in @("templates/AGENTS.md", "templates/CLAUDE.md", "templates/GEMINI
         $amBlockOk = $false
         $script:Missing = 1
     }
+    # Literal URLs in shell fetches: a URL built from a variable or a loop cannot be checked before
+    # the command runs, so the local permission checker prompts for it every time.
+    if (-not ($blockMatches | Where-Object { $_.Value -match 'never build URLs from shell variables or loops' })) {
+        Write-Host "MISSING managed-block literal-URL rule (never build URLs from shell variables or loops) in $f"
+        $amBlockOk = $false
+        $script:Missing = 1
+    }
 }
 if ($amBlockOk) {
-    Write-Host "OK      managed block (3 template copies) carries the never-mark-ready / never-merge rule"
+    Write-Host "OK      managed block (3 template copies) carries the never-mark-ready / never-merge rule and the literal-URL rule"
 }
 
 Write-Host ""

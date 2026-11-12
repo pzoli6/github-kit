@@ -15,6 +15,10 @@ name: github-kit fan-out (propagate bootstrap updates)
 # "install": true creates the template one), and never force-pushes. Its PRs change
 # .github/workflows/*, which GitHub refuses to merge with GITHUB_TOKEN, so the owner merges them by
 # hand -- as every PR in a kit repo: the kit installs no auto-merge. The fan-out only opens drafts.
+# Each PR body carries the kit's production-branch authorization line for its base branch: the base
+# comes from the owner's registry entry (or the repository default) and the run starts from the
+# owner's push, schedule or dispatch, so that entry is the human authorization pr-policy checks
+# for. Without the line the kit's own "PR Policy" check is red on every fan-out PR into main.
 #
 # THE REGISTRY IS NOT IN THIS REPOSITORY. github-kit is public; the list of repositories it
 # maintains is not. The registry is the repository Actions VARIABLE `FANOUT_TARGETS` of github-kit
@@ -403,6 +407,26 @@ jobs:
               echo "from its entry in github-kit's fan-out registry (\`# github-kit tier: N\`)."
             } >> "$body_file"
           fi
+
+          # The kit's PR Policy (pr-policy.yml -> reusable-pr-policy.yml) requires a human-authorization
+          # line in the body of any PR that targets the production branch directly. This PR targets the
+          # base the owner wrote into the registry entry for this repo (or the repository default), and
+          # the run started from the owner's push, schedule or dispatch: that entry is the authorization,
+          # so the line is written here -- by the owner's automation, not by an agent on its own
+          # initiative. The default marker names the base branch; a custom marker the caller declares
+          # (an uncommented production_branch_marker: "..." line in pr-policy.yml) is copied instead.
+          prod_marker="Production-branch authorization: approve ${TARGET_BASE}"
+          if [ -f .github/workflows/pr-policy.yml ]; then
+            custom_marker="$(sed -n -E 's/^[[:space:]]*production_branch_marker:[[:space:]]*"([^"]+)".*$/\1/p' .github/workflows/pr-policy.yml | head -n 1)"
+            if [ -n "$custom_marker" ]; then prod_marker="$custom_marker"; fi
+          fi
+          {
+            echo
+            echo "Base branch \`${TARGET_BASE}\` comes from this repo's entry in github-kit's fan-out registry, which is"
+            echo "the owner's authorization for a PR that targets it; the line below is what \`pr-policy.yml\` checks."
+            echo
+            echo "$prod_marker"
+          } >> "$body_file"
 
           gh pr create \
             --repo "${TARGET_REPO}" \

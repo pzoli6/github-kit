@@ -326,6 +326,7 @@ Neither file hints at the other. Check both.
 | Fan-out logs `Skipped target N: github-kit is not installed there` and opens no PR | The target has no `docs/ai/PROJECT_CONFIG.md` and its registry entry lacks `"install": true` | Add `"install": true` to that entry (see "Adding a new target repo"), or leave it skipped on purpose |
 | A kit workflow ran and billed minutes you did not ask for | The repo is tier 1 (automatic production-bound CI), still carries an `auto-merge.yml` from before the kit went on demand, or Project Sync is enabled | Give its registry entry `"tier": 2` and run the fan-out; set `KIT_AUTOMERGE_DISABLED=true` until the next kit update removes the caller; or `KIT_ACTIONS_PAUSED=true` to stop everything (Step 4b) |
 | A green, ready PR never merges | Nothing merges automatically: merging is your act | Merge it — or opt the repo into auto-merge (Step 4c) |
+| A fan-out PR's `policy / policy` check is red: "missing the required human-authorization marker" | The target's `pr-policy.yml` declares a custom `production_branch_marker` the fan-out could not read (it copies only an uncommented `production_branch_marker: "..."` line), or the PR predates the fan-out writing the line | Re-run the fan-out for that target, or add the repo's marker line to the PR body by hand |
 | `scripts/project/*.sh` fail on Windows with `jq: command not found` | `jq` isn't bundled with Git Bash | `winget install jqlang.jq`, or use `gh api --jq` which uses gh's built-in jq and needs no install |
 
 ---

@@ -261,7 +261,10 @@ that gap so you never have to run `/github_kit_update` in each repo by hand.
   `docs/ai/PROJECT_CONFIG.md` or `.github/workflows/pr-policy.yml` (which holds each repo's
   `required_base_branch` gate). The reusable policy *logic* still auto-tracks `@main`; only that
   repo's base-branch wiring is left alone. These PRs change `.github/workflows/*`, which GitHub
-  refuses to merge with `GITHUB_TOKEN`; a human merges them, like every PR in a kit repo.
+  refuses to merge with `GITHUB_TOKEN`; a human merges them, like every PR in a kit repo. Each PR
+  body also carries the production-branch authorization line for its base branch, so the repo's
+  own `pr-policy` check passes on it: the base comes from the owner's registry entry, which is the
+  authorization.
 
 **Required secret (one, in github-kit only):** `FANOUT_TOKEN`. The default
 `GITHUB_TOKEN` can't reach other repos, which is why a PAT is needed. Until the secret exists, the
