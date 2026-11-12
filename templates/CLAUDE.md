@@ -90,6 +90,8 @@ Agents must not push to protected branches, merge PRs, modify secrets, use `git 
 
 Agents must never mark a PR ready for review and never merge: a person marks a draft ready when they want to and merges it themselves — nothing merges automatically, and GitHub's native auto-merge must not be enabled. PRs stay drafts. See `docs/ai/AGENT_WORKFLOW.md` → "Merging and Actions posture".
 
+When fetching URLs from the shell, write each URL literally; never build URLs from shell variables or loops. A command whose destination the permission checker can read before it runs is approved once and remembered; one assembled from `$var` inside a `for` loop is prompted for every time, cannot be saved as a rule, and stalls an unattended session. Prefer the agent's own web-fetch tool to `curl` for reading pages.
+
 Solo mode: `docs/ai/PROJECT_CONFIG.md` → "Solo mode" (default `auto` — active until a real GitHub Project is configured) collapses the lifecycle to plan → approval → branch/worktree → implementation → validation → draft PR: no issue for pre-approved iterations, no Project-field updates, handoff files only when actually stopping mid-task. Approval gates and git/PR safety rules apply unchanged.
 
 Before stopping mid-task, losing context, or handing off to another agent, agents must update:

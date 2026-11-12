@@ -165,6 +165,12 @@ since it cannot see the conversation:
 Production-branch authorization: approve main
 ```
 
+The kit's own fan-out PRs (`agent/github-kit-selfupdate-*`, opened by `github-kit-fanout.yml` in
+`pzoli6/github-kit`) carry this line too. Their base branch is the one the owner wrote into the
+repo's fan-out registry entry (or the repository default), and the run starts from the owner's
+push, schedule or dispatch, so the registry entry is the authorization and the owner's automation
+writes the line. That is not an agent writing it on its own initiative.
+
 See `AGENTS.md` → "Production-branch gate (`approve main`)" and `PROJECT_CONFIG.md` →
 "Production-branch approval gate (CI)".
 
